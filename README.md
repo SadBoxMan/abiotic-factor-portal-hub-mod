@@ -1,5 +1,22 @@
 # abiotic-factor-portal-hub-mod
 
+Foreword from the Human:
+
+Sup! Lucidin here to let y'all know that this mod would not have been possible without the aid of Claude Code. 
+Everything in this mod is open source and free for anyone to take apart, put together, alter, whatever-the-hell you want to do with it!
+If you'd like to use any part of this mod or its contents for your own modding journey, go right ahead! Hell, you don't even need to
+credit me! 
+
+I get it, AI be quite a smelly beast, and no part of this utilizes generative content. All code, data, the entire journey of this mod was all
+done with publicly available knowledge and documentation (and some of my own manual game data exports).
+
+If you aren't too put off by this having the stench of AI Assistance, enjoy!
+Otherwise, apologies for getting your hopes up!
+
+Back to the AI's walkthrough. If any part of the process is poorly explained, let me know via the Nexus Mod Page and I'll update accordingly!
+
+---------------------------------------------------
+
 A [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) Lua mod for **Abiotic Factor** that turns the Homeworld "portal room" (Office Sector) into a
 real hub. Extra portals are added to its empty slots and linked to any world that has an arrival pad. For worlds already in the game no
 custom game assets are needed. Includes a dark-mode editor so players never have to touch a config file.
