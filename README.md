@@ -1,4 +1,4 @@
-# abiotic-factor-portal-mod
+# abiotic-factor-portal-hub-mod
 
 A modding tool for editing/adding new Home Portals to the Portal Hub Room in the Office Sector of Abiotic Factor.
 
@@ -34,3 +34,4 @@ is not affiliated with the game's developers.
 
 ## License
 [MIT](LICENSE). Fork it, learn from it, change it, and build your own portals or worlds on top of it. Please keep the copyright notice.
+
