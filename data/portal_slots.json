@@ -1,0 +1,30 @@
+{
+  "_notes": [
+    "Portal Room slot registry. Slot anchor = SM_CraftedTeleporter_Lodestone static mesh actor.",
+    "Tiers by Z of the Lodestone: A = 255.4 (top), B = -394.6, C = -1044.6. Tier spacing = 650.",
+    "Slot number = rank by angle around room centre (-12950, 8380), counter-clockwise from +X (ascending degrees).",
+    "Rule checked against user-confirmed labels: A-1 Stone Garden, A-2 Torii (Japan), A-3 open, B-3 Cabin. User confirmed slot 1 is always Stone Garden and destinations never change.",
+    "Level C has no active portals in the current game version.",
+    "Pad positions are hand-placed and differ slightly from the mesh anchor. Existing pads: tier A pad Z = anchor +4.4. Pad yaw ~ container yaw + 91 (Cabin 32.7 on a -59 container).",
+    "Every teleporter ExitPoint is fixed at +215.1 forward, +127.5 up from the pad, so pad yaw alone decides where players exit. A spawned pad at the container yaw puts the exit inside a wall.",
+    "Proven placement for the 3rd slot of any tier (same XY on all tiers): pad XY (-13024.8, 7990.4), yaw 32.7; Z = 259.8 on tier A (Cabin on B-3 uses -416.8)."
+  ],
+  "roomCentre": { "X": -12950.0, "Y": 8380.0 },
+  "slots": [
+    { "slot": "A-1", "status": "occupied", "world": "Stone Garden", "entrance": "H_Garden_Entrance", "start": "H_Garden_Start", "anchorMesh": "StaticMeshActor_1059", "anchor": [-12719.0, 8788.2, 255.4], "padActor": "BP_Teleporter_HomeWorld_C_1", "pad": [-12711.6, 8761.7, 259.8], "padYaw": -79.0, "angle": 60.5 },
+    { "slot": "A-2", "status": "occupied", "world": "Torii (Japan)", "entrance": "H_Japan_Entrance", "start": "H_Japan_Start", "anchorMesh": "StaticMeshActor_2155", "anchor": [-13119.0, 8384.1, 255.4], "padActor": "BP_Teleporter_HomeWorld_C_2", "pad": [-13115.2, 8391.4, 259.8], "padYaw": -5.0, "angle": 178.6 },
+    { "slot": "A-3", "status": "open", "anchorMesh": "StaticMeshActor_3138", "anchor": [-13038.7, 7981.7, 255.4], "angle": 257.4 },
+    { "slot": "A-4", "status": "open", "anchorMesh": "StaticMeshActor_3149", "anchor": [-12610.1, 7745.9, 255.4], "angle": 298.2 },
+
+    { "slot": "B-1", "status": "open", "anchorMesh": "StaticMeshActor_3611", "anchor": [-12719.0, 8788.2, -394.6], "angle": 60.5 },
+    { "slot": "B-2", "status": "open", "anchorMesh": "StaticMeshActor_3670", "anchor": [-13091.7, 8467.8, -394.6], "angle": 148.2 },
+    { "slot": "B-3", "status": "occupied", "world": "Cabin", "entrance": "H_Cabin_Entrance", "start": "H_Cabin_Start", "anchorMesh": "StaticMeshActor_3681", "anchor": [-13038.7, 7981.7, -394.6], "padActor": "BP_Teleporter_HomeWorld_C_6", "pad": [-13024.8, 7990.4, -416.8], "padYaw": 32.7, "angle": 257.4 },
+    { "slot": "B-4", "status": "open", "anchorMesh": "StaticMeshActor_3754", "anchor": [-12610.1, 7745.9, -394.6], "angle": 298.2 },
+
+    { "slot": "C-1", "status": "open", "anchorMesh": "StaticMeshActor_3776", "anchor": [-12719.0, 8788.2, -1044.6], "angle": 60.5 },
+    { "slot": "C-2", "status": "open", "anchorMesh": "StaticMeshActor_3790", "anchor": [-13091.7, 8467.8, -1044.6], "angle": 148.2 },
+    { "slot": "C-3", "status": "open", "anchorMesh": "StaticMeshActor_3810", "anchor": [-13038.7, 7981.7, -1044.6], "angle": 257.4 },
+    { "slot": "C-4", "status": "open", "anchorMesh": "StaticMeshActor_3820", "anchor": [-12610.1, 7745.9, -1044.6], "angle": 298.2 }
+  ]
+}
+

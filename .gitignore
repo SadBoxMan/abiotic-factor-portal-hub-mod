@@ -1,0 +1,9 @@
+# Everything is ignored by default; only our own work is listed below.
+# Game data, extracted assets, mappings, other people's mods and projects must never be committed.
+/*
+!/.gitignore
+!/README.md
+!/LICENSE
+!/mod/
+!/findings/
+!/data/
