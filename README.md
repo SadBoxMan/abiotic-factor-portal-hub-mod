@@ -3,7 +3,7 @@
 Foreword from the Human:
 
 Sup! SadBoxMan (aka LuciDin) here to let y'all know that this mod would not have been possible without the aid of Claude Code. 
-Everything in this mod is open source and free for anyone to take apart, put together, alter, whatever-the-hell you want to do with it!
+Everything in this mod is open source and free for anyone to take apart, put together, alter, whatever-the-fuck you want to do with it!
 If you'd like to use any part of this mod or its contents for your own modding journey, go right ahead! Hell, you don't even need to
 credit me! 
 
