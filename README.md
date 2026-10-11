@@ -104,14 +104,15 @@ Loading a world is heavy, so the hub loads it at world start. How each piece of 
 ## Credits and notes
 - **World icons:** the small portal-world icons in `tools/PortalHubConfig/icons/` were pulled from the Portal Worlds section of the
   [Abiotic Factor wiki's Locations page](https://abioticfactor.wiki.gg/wiki/Locations#Portal_Worlds). The artwork belongs to the game's
-  developers and is used here only to label the editor; it is not covered by this project's MIT license. The editor works without it:
+  developers and is used here only to label the editor; it is not covered by this project's CC0 dedication. The editor works without it:
   delete the `icons` folder or set `$ShowWorldIcons = $false` in `PortalHubConfig.ps1`.
 - World names and the story/optional grouping in the destination list follow the same wiki.
 - No game files, extracted game data or mapping files are in this repository. This is an unofficial fan project and is not
   affiliated with the game's developers.
 
 ## License
-[MIT](LICENSE). Fork it, learn from it, change it, and build your own portals or worlds on top of it. Please keep the copyright notice.
+[CC0 1.0 Universal](LICENSE): public domain. Use, change, fork and build on any of this for any purpose, with no credit required. This covers the code, notes and tools written for this project; it does not cover the game, UE4SS, or the wiki icons described above.
+
 
 
 
