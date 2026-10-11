@@ -105,52 +105,118 @@ $DesignNames = @(
     'Niagara_Portal_Friendly_Lime', 'Niagara_Portal_Friendly_Orange', 'Niagara_Portal_Friendly_Pink',
     'Niagara_Portal_Friendly_Purple', 'Niagara_Portal_Friendly_Red', 'Niagara_Portal_Friendly_White',
     'Niagara_Portal_Friendly_Yellow', 'Niagara_Portal_Garden', 'Niagara_Portal_Greenverse',
-    'Niagara_Portal_NightRDoor_2', 'Niagara_Portal_Redverse', 'Niagara_Portal_Rift', 'Niagara_Portal_Rift_BlueFade',
+    'Niagara_Portal_NightRDoor_2', 'Niagara_Portal_Redverse', 'Niagara_Portal_Rift',
     'Niagara_Portal_Salem', 'Niagara_Portal_Shadowgate2', 'Niagara_Portal_SnowFlurry', 'Niagara_Portal_SunDisk',
     'Niagara_Portal_Tiny', 'Niagara_Portal_Torii'
 )
 $TestedDesigns = @('Niagara_Portal_Torii')   # looks confirmed working in game so far
+# Looks that come out too big and are listed in a new config's designScales so they are easy to tune.
+$ScaleTestDesigns = @('Niagara_Portal_Door', 'Niagara_Portal_NightRDoor_2', 'Niagara_Portal_Salem', 'Niagara_Portal_Shadowgate2', 'Niagara_Portal_SnowFlurry')
 
 function New-DesignItem([string]$name) {
-    if ($name -eq 'Niagara_Portal') { $label = 'Default (game portal)' }
+    if ($name -eq 'Niagara_Portal') { $label = 'Portal' }       # the plain look is simply called Niagara_Portal in the game
     else { $label = ($name -replace '^Niagara_Portal_', '') -replace '_', ' ' }
     if ($TestedDesigns -contains $name) { $label += '  (tested)' }
     [pscustomobject]@{ Label = $label; Path = "/Game/Particles/$name.$name" }
 }
-# Known arrival pads you can pick in the Destination drop-down (currently the three Anteverse worlds).
-# You can also type any other pad ID by hand, e.g. one from your own world.
+# Known arrival pads you can pick in the Destination drop-down: one entrance per portal world (the pad that puts you
+# INSIDE the world), taken from the wiki's list of portal worlds and matched to the game's data (DT_Levels + teleporter dump).
+# Left out on purpose: Temple of Stone, Torii and Winter Cabin (the hub's own portals; Garden and Torii are DLC-gated),
+# and exit / return / Facility-side pads. You can still type any other pad ID by hand, e.g. one from your own world.
+# Note: only Dunkeltaler Forest has been confirmed to work from a hub portal; the rest are untested. Many of these arrival
+# pads are marked inactive until the world has been visited, and may need testing.
+# Look = the portal look the game uses for that world's entrance in the Facility (picked automatically when you choose the world).
+#   From the game's data for Far Garden, Flathill, The Train, Furniture Store, The Mycofields, Voussoir, Village Den da'ko Yeer,
+#   Shadowgate, Praetorium, GATE Arch, Rise and Dunkeltaler Forest. Canaan (Salem) and The Night Realm (NightRDoor_2) are
+#   inferred from names. The rest have no particle-style entrance pad in the data, so they use the plain game portal.
+# Listed in the wiki's progression order. Group = the heading shown in the drop-down; Icon = file name (without .png) in .\icons.
 $KnownDestinations = @(
-    # The three arrival pads: these drop you inside each Anteverse world.
-    @{ Id = 'anteverse_a_start';    World = 'Far Garden';             Note = 'Anteverse A, arrival pad' },
-    @{ Id = 'anteverse_b_start';    World = 'The Mycofields';         Note = 'Anteverse B, arrival pad' },
-    @{ Id = 'anteverse_c_start';    World = "Village Den da'ko Yeer"; Note = 'Anteverse C, arrival pad' },
-    # Other Anteverse pads found in the game. These are exit or entrance pads, so they send you to a different spot
-    # (the Facility side, or a special exit inside the world). Handy for special cases; most mods want the arrival pads above.
-    @{ Id = 'anteverse_a_entrance'; World = 'Far Garden';             Note = 'Anteverse A, entrance pad in the Facility' },
-    @{ Id = 'anteverse_a_return';   World = 'Far Garden';             Note = 'Anteverse A, return pad (inactive by default)' },
-    @{ Id = 'anteverse_early_exit'; World = 'Far Garden';             Note = 'Anteverse A, early exit (inactive by default)' },
-    @{ Id = 'anteverse_b_entrance'; World = 'The Mycofields';         Note = 'Anteverse B, entrance pad in the Facility' },
-    @{ Id = 'anteverse_c_entrance'; World = "Village Den da'ko Yeer"; Note = 'Anteverse C, entrance pad in the Facility' },
-    @{ Id = 'anteverse_c_earlyexit'; World = "Village Den da'ko Yeer"; Note = 'Anteverse C, early exit' },
-    @{ Id = 'AnteC_Shadow_ExitA';   World = "Village Den da'ko Yeer"; Note = 'Anteverse C, shadow exit A' },
-    @{ Id = 'AnteC_Shadow_ExitB';   World = "Village Den da'ko Yeer"; Note = 'Anteverse C, shadow exit B' },
-    @{ Id = 'AnteC_Shadow_ExitC';   World = "Village Den da'ko Yeer"; Note = 'Anteverse C, shadow exit C' },
-    @{ Id = 'AnteC_Shadow_ExitD';   World = "Village Den da'ko Yeer"; Note = 'Anteverse C, shadow exit D' }
+    @{ Group = 'Story';             Id = 'anteverse_a_start';  World = 'Far Garden';                 Icon = 'far-garden'; Look = 'Niagara_Portal';                  Note = 'untested' },
+    @{ Group = 'Story';             Id = 'fog_start';          World = 'Flathill';                   Icon = 'flathill'; Look = 'Niagara_Portal_Fog';                    Note = 'untested' },
+    @{ Group = 'Story';             Id = 'train_start';        World = 'The Train';                  Icon = 'the-train'; Look = 'Niagara_Portal';                   Note = 'untested' },
+    @{ Group = 'Story';             Id = 'warehouse_start';    World = 'Furniture Store';            Icon = 'furniture-store'; Look = 'Niagara_Portal_Door';             Note = 'untested' },
+    @{ Group = 'Story';             Id = 'anteverse_b_start';  World = 'The Mycofields';             Icon = 'the-mycofields'; Look = 'Niagara_Portal';              Note = 'untested' },
+    @{ Group = 'Story';             Id = 'nightrealm_start_A'; World = 'The Night Realm';            Icon = 'the-night-realm'; Look = 'Niagara_Portal_NightRDoor_2';             Note = 'untested' },
+    @{ Group = 'Story';             Id = 'salem_begin';        World = 'Canaan';                     Icon = 'canaan'; Look = 'Niagara_Portal_Salem';                      Note = 'untested' },
+    @{ Group = 'Story';             Id = 'alps_start';         World = 'Voussoir';                   Icon = 'voussoir'; Look = 'Niagara_Portal_SnowFlurry';                    Note = 'untested' },
+    @{ Group = 'Story';             Id = 'anteverse_c_start';  World = "Village Den da'ko Yeer";     Icon = 'village-den-da-ko-yeer'; Look = 'Niagara_Portal_Blueverse';      Note = 'untested' },
+    @{ Group = 'Story';             Id = 'shadowgate_start';   World = 'Shadowgate';                 Icon = 'shadowgate'; Look = 'Niagara_Portal_Shadowgate2';                  Note = 'untested' },
+    @{ Group = 'Story';             Id = 'INQ_Entrance';       World = 'Praetorium';                 Icon = 'praetorium'; Look = 'Niagara_Portal_Friendly';                  Note = 'untested' },
+    @{ Group = 'Story';             Id = 'wall_start';         World = 'GATE Arch Defense Facility'; Icon = 'gate-arch-defense-facility'; Look = 'Niagara_Portal';  Note = 'untested' },
+    @{ Group = 'Story';             Id = 'island_start';       World = 'Albatross';                  Icon = 'albatross'; Look = 'Niagara_Portal';                   Note = 'untested' },
+    @{ Group = 'Optional (Major)';  Id = 'rise_start';         World = 'Rise';                       Icon = 'rise'; Look = 'Niagara_Portal';                        Note = 'untested' },
+    @{ Group = 'Optional (Major)';  Id = 'V_Snowglobe_Start';  World = 'North Pole';                 Icon = 'north-pole'; Look = 'Niagara_Portal';                  Note = 'untested' },
+    @{ Group = 'Optional (Major)';  Id = 'signal_start';       World = 'Dunkeltaler Forest';         Icon = 'dunkeltaler-forest'; Look = 'Niagara_Portal_Friendly_Red';          Note = 'tested, works' },
+    @{ Group = 'Optional (Major)';  Id = 'VWinter_Start';      World = 'Royal Range (IS-0083)';      Icon = 'royal-range'; Look = 'Niagara_Portal';                 Note = 'untested' },
+    @{ Group = 'Optional (Minor)';  Id = 'mirrorworld_start';  World = 'The World in the Mirror';    Icon = 'the-world-in-the-mirror'; Look = 'Niagara_Portal';     Note = 'untested' },
+    @{ Group = 'Optional (Minor)';  Id = 'tile_entrance';      World = 'The Pool Room';              Icon = 'the-pool-room'; Look = 'Niagara_Portal';               Note = 'untested' },
+    @{ Group = 'Optional (Minor)';  Id = 'DistantShore';       World = 'Some Distant Shore';         Icon = 'some-distant-shore'; Look = 'Niagara_Portal';          Note = 'untested' }
 )
+$KnownById = @{}
 $DestWorldNames = @{}
-foreach ($kd in $KnownDestinations) { $DestWorldNames[$kd.Id] = $kd.World }
+foreach ($kd in $KnownDestinations) { $KnownById[$kd.Id] = $kd; $DestWorldNames[$kd.Id] = $kd.World }
+
+# ---------------------------------------------------------------- world icons (optional)
+# Small world icons shown to the left of the "Enabled" column, following the destination you pick. They are the wiki's
+# portal-world icons (https://abioticfactor.wiki.gg/wiki/Locations#Portal_Worlds), kept in .\icons; Get-WorldIcons.ps1 re-downloads them.
+# To turn the icons OFF: set $ShowWorldIcons = $false below, or just delete the icons folder (the column then disappears).
+$ShowWorldIcons = $true
+$IconSize = 28
+$IconDir = Join-Path $PSScriptRoot 'icons'
+$UseIcons = $ShowWorldIcons -and (Test-Path $IconDir) -and [bool](Get-ChildItem $IconDir -Filter '*.png' -ErrorAction SilentlyContinue)
+$script:iconCache = @{}
+function Get-WorldIcon([string]$slug) {
+    if (-not $UseIcons -or -not $slug) { return $null }
+    if ($script:iconCache.ContainsKey($slug)) { return $script:iconCache[$slug] }
+    $bmp = $null
+    $path = Join-Path $IconDir ($slug + '.png')
+    if (Test-Path $path) {
+        $src = [Drawing.Image]::FromFile($path)
+        try {
+            $bmp = New-Object Drawing.Bitmap($IconSize, $IconSize)
+            $g = [Drawing.Graphics]::FromImage($bmp)
+            $g.InterpolationMode = 'HighQualityBicubic'; $g.SmoothingMode = 'HighQuality'; $g.PixelOffsetMode = 'HighQuality'
+            $g.DrawImage($src, 0, 0, $IconSize, $IconSize); $g.Dispose()
+        } finally { $src.Dispose() }       # the cached copy is in memory, so the file is not left locked
+    }
+    $script:iconCache[$slug] = $bmp
+    return $bmp
+}
+function Get-IconForDestination([string]$id) {
+    $kd = $KnownById[$id.Trim()]
+    if ($kd) { return (Get-WorldIcon $kd.Icon) }
+    return $null
+}
 
 $DesignItems = @($DesignNames | ForEach-Object { New-DesignItem $_ })
 $DefaultPath = $DesignItems[0].Path
 
 # ---------------------------------------------------------------- config.lua read / write
+# Returns the text between the braces of  `key = { ... }`  (comments inside included), or $null if the key is absent.
+function Get-LuaBlockInner([string]$text, [string]$key) {
+    $m = [regex]::Match($text, '(?m)^\s*' + [regex]::Escape($key) + '\s*=\s*\{')
+    if (-not $m.Success) { return $null }
+    $start = $m.Index + $m.Length
+    $depth = 1
+    for ($i = $start; $i -lt $text.Length; $i++) {
+        if ($text[$i] -eq '{') { $depth++ }
+        elseif ($text[$i] -eq '}') { $depth--; if ($depth -eq 0) { return $text.Substring($start, $i - $start) } }
+    }
+    return $null
+}
+
 function Read-HubConfig([string]$path) {
-    $result = @{ Header = $null; HumMode = 'dynamic'; HumFloor = 15; HumManual = 50; Portals = @{} }
+    # Blocks = the size and emitter tables, kept verbatim so saving from the editor never wipes hand-tuned values.
+    $result = @{ Header = $null; HumMode = 'dynamic'; HumFloor = 15; HumManual = 50; Portals = @{}; Blocks = @{} }
     if (-not (Test-Path $path)) { return $result }
     $text = [IO.File]::ReadAllText($path)
     $idx = $text.IndexOf('return {')
     if ($idx -gt 0) { $result.Header = $text.Substring(0, $idx).TrimEnd() }
     $body = if ($idx -ge 0) { $text.Substring($idx) } else { $text }
+    foreach ($bk in 'designScales', 'hideEmitters') {
+        $inner = Get-LuaBlockInner $body $bk
+        if ($null -ne $inner) { $result.Blocks[$bk] = $inner }
+    }
     $body = [regex]::Replace($body, '(?m)^\s*--.*$', '')        # drop commented-out lines
     $m = [regex]::Match($body, 'humFloor\s*=\s*([0-9.]+)')
     if ($m.Success) { $result.HumFloor = [math]::Round([double]::Parse($m.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture) * 100) }
@@ -163,6 +229,8 @@ function Read-HubConfig([string]$path) {
         foreach ($f in [regex]::Matches($entry.Value, '(\w+)\s*=\s*"((?:[^"\\]|\\.)*)"')) {
             $fields[$f.Groups[1].Value] = ($f.Groups[2].Value -replace '\\(["\\])', '$1')
         }
+        $sm = [regex]::Match($entry.Value, '\bscale\s*=\s*([0-9.]+)')        # optional per-portal size, kept as typed
+        if ($sm.Success) { $fields['scale'] = $sm.Groups[1].Value }
         if ($fields.slot) { $result.Portals[$fields.slot] = $fields }
     }
     return $result
@@ -172,7 +240,7 @@ function ConvertTo-LuaString([string]$s) { '"' + ($s -replace '\\', '\\' -replac
 
 function ConvertTo-Fraction([int]$percent) { ([double]$percent / 100).ToString('0.##', [Globalization.CultureInfo]::InvariantCulture) }
 
-function Write-HubConfig([string]$path, $header, [string]$humMode, [int]$humFloorPct, [int]$humManualPct, $portalList) {
+function Write-HubConfig([string]$path, $header, [string]$humMode, [int]$humFloorPct, [int]$humManualPct, $portalList, $blocks) {
     if (-not $header) { $header = '-- Portal Hub configuration. Edit this file, or use PortalHubConfig.bat. Restart mods to apply.' }
     $sb = New-Object Text.StringBuilder
     [void]$sb.AppendLine($header)
@@ -187,10 +255,23 @@ function Write-HubConfig([string]$path, $header, [string]$humMode, [int]$humFloo
     [void]$sb.AppendLine('    humFloor = ' + (ConvertTo-Fraction $humFloorPct) + ',    -- dynamic: lowest volume, 0 to 1')
     [void]$sb.AppendLine('    humManual = ' + (ConvertTo-Fraction $humManualPct) + ',    -- manual: volume, 0 to 1')
     [void]$sb.AppendLine('')
+    [void]$sb.AppendLine('    -- Portal size for testing (1.0 = normal). Only the portal effect is resized; the walk-through trigger and exit point stay put.')
+    [void]$sb.AppendLine('    -- designScales gives every portal that uses a look the same size; a portal''s own  scale = 0.8  (in portals below) overrides it.')
+    $scalesInner = if ($blocks -and $null -ne $blocks['designScales']) { $blocks['designScales'] } else {
+        "`r`n" + (($ScaleTestDesigns | ForEach-Object { '        ["/Game/Particles/' + $_ + '.' + $_ + '"] = 1.0,' }) -join "`r`n") + "`r`n    " }
+    [void]$sb.AppendLine('    designScales = {' + $scalesInner + '},')
+    [void]$sb.AppendLine('')
+    [void]$sb.AppendLine('    -- Parts of a portal effect to switch off, by look. Example: hide the "Blackhole" part of the SnowFlurry look:')
+    [void]$sb.AppendLine('    --   ["/Game/Particles/Niagara_Portal_SnowFlurry.Niagara_Portal_SnowFlurry"] = { "Blackhole" },')
+    [void]$sb.AppendLine('    -- SnowFlurry parts: Blackhole, smoke, snowflakes, SnowParticle01, SnowParticle02, Swirl.')
+    $hideInner = if ($blocks -and $null -ne $blocks['hideEmitters']) { $blocks['hideEmitters'] } else { "`r`n    " }
+    [void]$sb.AppendLine('    hideEmitters = {' + $hideInner + '},')
+    [void]$sb.AppendLine('')
     [void]$sb.AppendLine('    portals = {')
     foreach ($p in $portalList) {
         $line = '        { slot = ' + (ConvertTo-LuaString $p.slot) + ', name = ' + (ConvertTo-LuaString $p.name) + ', destination = ' + (ConvertTo-LuaString $p.destination)
         if ($p.design -and $p.design -ne $DefaultPath) { $line += ', design = ' + (ConvertTo-LuaString $p.design) }
+        if ($p.scale) { $line += ', scale = ' + $p.scale }
         [void]$sb.AppendLine($line + ' },')
     }
     [void]$sb.AppendLine('    },')
@@ -202,15 +283,15 @@ function Write-HubConfig([string]$path, $header, [string]$humMode, [int]$humFloo
 $cfg = Read-HubConfig $ConfigPath
 
 if ($RoundTrip) {
-    $list = @($cfg.Portals.Keys | Sort-Object | ForEach-Object { $p = $cfg.Portals[$_]; @{ slot = $p.slot; name = $p.name; destination = $p.destination; design = $p.design } })
-    Write-HubConfig $RoundTrip $cfg.Header $cfg.HumMode $cfg.HumFloor $cfg.HumManual $list
+    $list = @($cfg.Portals.Keys | Sort-Object | ForEach-Object { $p = $cfg.Portals[$_]; @{ slot = $p.slot; name = $p.name; destination = $p.destination; design = $p.design; scale = $p.scale } })
+    Write-HubConfig $RoundTrip $cfg.Header $cfg.HumMode $cfg.HumFloor $cfg.HumManual $list $cfg.Blocks
     return
 }
 
 # ---------------------------------------------------------------- theme
 function C([string]$hex) { [Drawing.ColorTranslator]::FromHtml($hex) }
 $colBg = C '#17171c'; $colPanel = C '#202027'; $colInput = C '#2b2b34'; $colBorder = C '#3a3a46'
-$colFg = C '#e8e8ee'; $colMuted = C '#8d8d9b'; $colAccent = C '#5b7cfa'; $colLocked = C '#7a7a88'
+$colFg = C '#e8e8ee'; $colMuted = C '#8d8d9b'; $colAccent = C '#5b7cfa'; $colLocked = C '#7a7a88'; $colBad = C '#5a2a30'
 
 $fontBase = New-Object Drawing.Font('Segoe UI', 9.5)
 $fontBold = New-Object Drawing.Font('Segoe UI Semibold', 9.5)
@@ -243,25 +324,37 @@ function New-DestControl([string]$text) {
     $panel.Controls.Add($tb)      # added first so the button docks to the right edge and the text box fills the rest
     $panel.Controls.Add($btn)
     # The pop-up is a scrolling dark list (about 8 rows visible), so it keeps working when many worlds are listed.
-    $rowH = 26; $visibleRows = 8
+    $rowH = 26; $visibleRows = 10
     $list = New-Object Windows.Forms.ListBox
     $list.DrawMode = 'OwnerDrawFixed'; $list.ItemHeight = $rowH; $list.BorderStyle = 'None'; $list.IntegralHeight = $false
     $list.BackColor = $colInput; $list.ForeColor = $colFg; $list.Font = $fontBase
-    foreach ($kd in $KnownDestinations) { [void]$list.Items.Add($kd.Id) }
+    # group headings (Story / Optional ...) are inserted as non-selectable rows
+    $lastGroup = $null
+    foreach ($kd in $KnownDestinations) {
+        if ($kd.Group -ne $lastGroup) { [void]$list.Items.Add([pscustomobject]@{ Header = $kd.Group; Id = $null }); $lastGroup = $kd.Group }
+        [void]$list.Items.Add([pscustomobject]@{ Header = $null; Id = $kd.Id })
+    }
     $list.Size = New-Object Drawing.Size(640, ([math]::Min([math]::Max($list.Items.Count, 1), $visibleRows) * $rowH + 2))
     $list.Add_HandleCreated({ [void][DwmDark]::SetWindowTheme($list.Handle, 'DarkMode_Explorer', $null) }.GetNewClosure())
     $list.Add_DrawItem({
         param($s, $e)
         if ($e.Index -lt 0) { return }
-        $id = [string]$s.Items[$e.Index]
+        $item = $s.Items[$e.Index]
+        if ($item.Header) {
+            $bh = New-Object Drawing.SolidBrush($colPanel); $bt = New-Object Drawing.SolidBrush($colAccent)
+            $e.Graphics.FillRectangle($bh, $e.Bounds)
+            $e.Graphics.DrawString($item.Header.ToUpper(), $fontBold, $bt, ($e.Bounds.X + 6), ($e.Bounds.Y + 4))
+            $bh.Dispose(); $bt.Dispose(); return
+        }
+        $id = [string]$item.Id
         $hot = (($e.State -band [Windows.Forms.DrawItemState]::Selected) -ne 0)
         $b1 = New-Object Drawing.SolidBrush($(if ($hot) { $colAccent } else { $colInput }))
         $b2 = New-Object Drawing.SolidBrush($colFg)
         $b3 = New-Object Drawing.SolidBrush($(if ($hot) { $colFg } else { $colMuted }))
         $e.Graphics.FillRectangle($b1, $e.Bounds)
-        $e.Graphics.DrawString($id, $e.Font, $b2, ($e.Bounds.X + 6), ($e.Bounds.Y + 4))
-        $info = $KnownDestinations | Where-Object { $_.Id -eq $id } | Select-Object -First 1
-        if ($info) { $e.Graphics.DrawString(($info.World + '  (' + $info.Note + ')'), $e.Font, $b3, ($e.Bounds.X + 200), ($e.Bounds.Y + 4)) }
+        $info = $KnownById[$id]
+        if ($info) { $e.Graphics.DrawString($info.World, $e.Font, $b2, ($e.Bounds.X + 14), ($e.Bounds.Y + 4)) }
+        $e.Graphics.DrawString(($id + $(if ($info) { '   (' + $info.Note + ')' } else { '' })), $e.Font, $b3, ($e.Bounds.X + 270), ($e.Bounds.Y + 4))
         $b1.Dispose(); $b2.Dispose(); $b3.Dispose()
     })
     $listHost = New-Object Windows.Forms.ToolStripControlHost($list)
@@ -273,18 +366,23 @@ function New-DestControl([string]$text) {
     [void]$drop.Items.Add($listHost)
     $choose = {
         $i = $list.SelectedIndex
-        if ($i -lt 0) { return }
-        $id = [string]$list.Items[$i]
+        if ($i -lt 0 -or $list.Items[$i].Header) { return }
+        $id = [string]$list.Items[$i].Id
         $tb.Text = $id
-        $nb = $panel.Tag      # picking a known world fills the Name box if it is still empty
-        if ($nb -and -not $nb.Text.Trim() -and $DestWorldNames.ContainsKey($id)) { $nb.Text = $DestWorldNames[$id] }
+        $tgt = $panel.Tag     # picking a world from the list sets the Name box and the portal look to that world's defaults
+        if ($tgt -and $KnownById.ContainsKey($id)) {
+            $tgt.Name.Text = $KnownById[$id].World
+            $want = "/Game/Particles/$($KnownById[$id].Look).$($KnownById[$id].Look)"
+            foreach ($it in $tgt.Combo.Items) { if ($it.Path -eq $want) { $tgt.Combo.SelectedItem = $it; break } }
+        }
         $drop.Close()
     }.GetNewClosure()
-    $list.Add_MouseMove({ param($s, $e) $i = $s.IndexFromPoint($e.Location); if ($i -ge 0 -and $s.SelectedIndex -ne $i) { $s.SelectedIndex = $i } })
+    $list.Add_MouseMove({ param($s, $e) $i = $s.IndexFromPoint($e.Location); if ($i -ge 0 -and -not $s.Items[$i].Header -and $s.SelectedIndex -ne $i) { $s.SelectedIndex = $i } })
     $list.Add_MouseUp($choose)
     $list.Add_KeyDown({ param($s, $e) if ($e.KeyCode -eq 'Return') { & $choose } }.GetNewClosure())
     $btn.Add_Click({
-        $cur = $list.Items.IndexOf($tb.Text.Trim())
+        $cur = -1
+        for ($k = 0; $k -lt $list.Items.Count; $k++) { if ($list.Items[$k].Id -eq $tb.Text.Trim()) { $cur = $k; break } }
         $list.SelectedIndex = $cur
         $drop.Show($btn, (New-Object Drawing.Point(0, $btn.Height)))
         $list.Focus() | Out-Null
@@ -348,8 +446,9 @@ $footer.Dock = 'Bottom'; $footer.Height = 96; $footer.BackColor = $colPanel
 $grid = New-Object Windows.Forms.TableLayoutPanel
 $grid.Dock = 'Fill'; $grid.AutoScroll = $true; $grid.BackColor = $colBg
 $grid.Padding = New-Object Windows.Forms.Padding(16, 0, 16, 8)
-$grid.ColumnCount = 5
+$grid.ColumnCount = 6
 [void]$grid.ColumnStyles.Add((New-Object Windows.Forms.ColumnStyle('Absolute', 64)))
+[void]$grid.ColumnStyles.Add((New-Object Windows.Forms.ColumnStyle('Absolute', $(if ($UseIcons) { 44 } else { 0 }))))   # world icon column (0 wide when icons are off)
 [void]$grid.ColumnStyles.Add((New-Object Windows.Forms.ColumnStyle('Absolute', 84)))
 [void]$grid.ColumnStyles.Add((New-Object Windows.Forms.ColumnStyle('Percent', 32)))
 [void]$grid.ColumnStyles.Add((New-Object Windows.Forms.ColumnStyle('Percent', 28)))
@@ -363,7 +462,7 @@ function Add-GridRow($controls, [int]$height) {
 }
 $grid.RowCount = 0
 $grid.Add_HandleCreated({ [void][DwmDark]::SetWindowTheme($grid.Handle, 'DarkMode_Explorer', $null) })    # dark scrollbar
-Add-GridRow @((New-Label 'Slot' $fontBold $colMuted), (New-Label 'Enabled' $fontBold $colMuted), (New-Label 'Name' $fontBold $colMuted), (New-Label 'Destination pad ID' $fontBold $colMuted), (New-Label 'Portal look' $fontBold $colMuted)) 30
+Add-GridRow @((New-Label 'Slot' $fontBold $colMuted), $null, (New-Label 'Enabled' $fontBold $colMuted), (New-Label 'Name' $fontBold $colMuted), (New-Label 'Destination pad ID' $fontBold $colMuted), (New-Label 'Portal look' $fontBold $colMuted)) 30
 
 $script:rows = @()
 foreach ($s in $Slots) {
@@ -373,7 +472,7 @@ foreach ($s in $Slots) {
         $name = New-Label ('Game portal: ' + $s.Locked) $fontBase $colLocked
         $dest = New-Label $s.Dest $fontBase $colLocked
         $look = New-Label 'Fixed by the game' $fontBase $colLocked
-        Add-GridRow @($slotLabel, $enabled, $name, $dest, $look) 38
+        Add-GridRow @($slotLabel, $null, $enabled, $name, $dest, $look) 38
         continue
     }
     $existing = $cfg.Portals[$s.Id]
@@ -382,19 +481,30 @@ foreach ($s in $Slots) {
     $chk.Checked = [bool]$existing
     $nameBox = New-TextBox ($(if ($existing) { $existing.name } else { '' }))
     $destBox = New-DestControl ($(if ($existing) { $existing.destination } else { '' }))
-    $destBox.Tag = $nameBox
     $combo = New-DesignCombo ($(if ($existing -and $existing.design) { $existing.design } else { $DefaultPath }))
-    $row = [pscustomobject]@{ Slot = $s.Id; Check = $chk; Name = $nameBox; Dest = $destBox; Combo = $combo }
+    # world icon: follows whatever destination ID is in the box; hidden while the row is unticked
+    $pic = $null
+    if ($UseIcons) {
+        $pic = New-Object Windows.Forms.PictureBox
+        $pic.Dock = 'Fill'; $pic.SizeMode = 'CenterImage'; $pic.BackColor = [Drawing.Color]::Transparent
+        $pic.Image = Get-IconForDestination ($(if ($existing) { $existing.destination } else { '' }))
+        $destBox.Input.Add_TextChanged({ param($s2, $e2) $pic.Image = Get-IconForDestination $s2.Text }.GetNewClosure())
+    }
+    $destBox.Tag = @{ Name = $nameBox; Combo = $combo }
+    $row = [pscustomobject]@{ Slot = $s.Id; Check = $chk; Name = $nameBox; Dest = $destBox; Combo = $combo; Pic = $pic; Scale = $(if ($existing) { $existing.scale } else { $null }) }
     $apply = {
         param($r)
         $on = $r.Check.Checked
         $r.Name.Enabled = $on; $r.Dest.Enabled = $on; $r.Combo.Enabled = $on
+        if ($r.Pic) { $r.Pic.Visible = $on }
     }
     $chk.Tag = $row
-    $chk.Add_CheckedChanged({ param($s2, $e2) $r = $s2.Tag; $on = $r.Check.Checked; $r.Name.Enabled = $on; $r.Dest.Enabled = $on; $r.Combo.Enabled = $on })
+    $chk.Add_CheckedChanged({ param($s2, $e2) $r = $s2.Tag; $on = $r.Check.Checked; $r.Name.Enabled = $on; $r.Dest.Enabled = $on; $r.Combo.Enabled = $on; if ($r.Pic) { $r.Pic.Visible = $on } })
     & $apply $row
     $script:rows += $row
-    Add-GridRow @($slotLabel, $chk, $nameBox, $destBox, $combo) 42
+    $destBox.Input.Add_TextChanged({ Update-SaveState })
+    $chk.Add_CheckedChanged({ Update-SaveState })
+    Add-GridRow @($slotLabel, $pic, $chk, $nameBox, $destBox, $combo) 42
 }
 
 # Filler row: when the window is taller than the rows, the spare height goes here instead of stretching the last slot row.
@@ -492,6 +602,30 @@ $status.TextAlign = 'MiddleLeft'; $status.ForeColor = $colMuted
 $status.Text = 'Config: ' + $ConfigPath
 $footer.Controls.AddRange(@($humTitle, $modeCombo, $humLabel, $hum, $humHint, $btnSave, $btnReload, $btnFolder, $status))
 $footer.Add_Resize({ $status.Width = [math]::Max(200, $footer.ClientSize.Width - 530) })
+# Saving is blocked while any ticked portal has no valid destination pad ID: the Save button greys out, the empty field turns
+# red and the status line names the slot(s). Unticking the portal (or entering an ID) clears it.
+$script:statusWarn = $false
+function Update-SaveState {
+    if (-not $btnSave -or -not $script:rows) { return }
+    $bad = @()
+    foreach ($r in $script:rows) {
+        $needs = $r.Check.Checked -and ($r.Dest.Input.Text.Trim() -notmatch '^[A-Za-z0-9_\-]+$')
+        $shade = if ($needs) { $colBad } else { $colInput }
+        $r.Dest.BackColor = $shade; $r.Dest.Input.BackColor = $shade
+        if ($needs) { $bad += $r.Slot }
+    }
+    $btnSave.Enabled = ($bad.Count -eq 0)
+    if ($bad.Count -gt 0) {
+        $btnSave.BackColor = $colInput; $btnSave.ForeColor = $colMuted
+        $script:statusWarn = $true
+        $status.ForeColor = C '#ff9b9b'
+        $status.Text = "Can't save yet: " + ($bad -join ', ') + $(if ($bad.Count -eq 1) { ' is' } else { ' are' }) + " enabled but has no valid destination pad ID (letters, numbers, _ and - only). Enter one, or untick the portal."
+    } else {
+        $btnSave.BackColor = $colAccent; $btnSave.ForeColor = $colFg
+        if ($script:statusWarn) { $script:statusWarn = $false; $status.ForeColor = $colMuted; $status.Text = 'Config: ' + $ConfigPath }
+    }
+}
+Update-SaveState
 
 $btnSave.Add_Click({
     $list = @()
@@ -504,12 +638,12 @@ $btnSave.Add_Click({
             return
         }
         $nm = $r.Name.Text.Trim(); if (-not $nm) { $nm = $(if ($DestWorldNames.ContainsKey($dest)) { $DestWorldNames[$dest] } else { $dest }) }
-        $list += @{ slot = $r.Slot; name = $nm; destination = $dest; design = $r.Combo.SelectedItem.Path }
+        $list += @{ slot = $r.Slot; name = $nm; destination = $dest; design = $r.Combo.SelectedItem.Path; scale = $r.Scale }
     }
     try {
         $mode = $modeCombo.SelectedItem.Value
         if ($script:humVals.ContainsKey($mode)) { $script:humVals[$mode] = [int]$hum.Value }
-        Write-HubConfig $ConfigPath $cfg.Header $mode $script:humVals.dynamic $script:humVals.manual $list
+        Write-HubConfig $ConfigPath $cfg.Header $mode $script:humVals.dynamic $script:humVals.manual $list $cfg.Blocks
         $status.ForeColor = C '#7be09a'
         $status.Text = "Saved $($list.Count) portal(s). In game press Ctrl+O, then click Restart All Mods."
     } catch {
@@ -543,6 +677,14 @@ if ($Screenshot) {
     $form.Close(); return
 }
 [void]$form.ShowDialog()
+
+
+
+
+
+
+
+
 
 
 

@@ -29,7 +29,6 @@ design = "/Game/Particles/Niagara_Portal_Greenverse.Niagara_Portal_Greenverse"
 design = "/Game/Particles/Niagara_Portal_NightRDoor_2.Niagara_Portal_NightRDoor_2"
 design = "/Game/Particles/Niagara_Portal_Redverse.Niagara_Portal_Redverse"
 design = "/Game/Particles/Niagara_Portal_Rift.Niagara_Portal_Rift"
-design = "/Game/Particles/Niagara_Portal_Rift_BlueFade.Niagara_Portal_Rift_BlueFade"
 design = "/Game/Particles/Niagara_Portal_Salem.Niagara_Portal_Salem"
 design = "/Game/Particles/Niagara_Portal_Shadowgate2.Niagara_Portal_Shadowgate2"
 design = "/Game/Particles/Niagara_Portal_SnowFlurry.Niagara_Portal_SnowFlurry"
@@ -38,3 +37,10 @@ design = "/Game/Particles/Niagara_Portal_Tiny.Niagara_Portal_Tiny"
 design = "/Game/Particles/Niagara_Portal_Torii.Niagara_Portal_Torii"
 ```
 
+
+
+## Tuning notes (from in-game testing)
+- `Niagara_Portal_Rift_BlueFade` fades away after a moment, so it is left out of the editor's list.
+- Too big (resize via `designScales` in config.lua): `Door`, `NightRDoor_2` (oversized); `Salem`, `Shadowgate2`, `SnowFlurry` (slightly oversized).
+- `SnowFlurry` also has an accretion-disk part. Its named parts are Blackhole, smoke, snowflakes, SnowParticle01, SnowParticle02 and Swirl;
+  switch one off with `hideEmitters` in config.lua.

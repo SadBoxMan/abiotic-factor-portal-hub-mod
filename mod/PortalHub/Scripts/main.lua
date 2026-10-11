@@ -67,6 +67,7 @@ local function resolve_config()
                 name = p.name or p.destination,
                 dest = p.destination,
                 design = p.design or DEFAULT_DESIGN,
+                scale = tonumber(p.scale),
                 id = ID_PREFIX .. (p.slot:gsub("-", "")),
             }
         end
@@ -111,7 +112,9 @@ local function apply_hum(added)
     end
     log(string.format("hum volume (%s) x%.3f on %d hub pad(s) (%d added)", HUM_MODE, mult, touched, added))
 end
-local function apply_design(actor, design)
+-- Look, size and hidden parts of a portal's particle effect. Size (scale / designScales) and hidden parts (hideEmitters)
+-- come from config.lua. Only the effect is resized: the walk-through trigger and the exit point do not move.
+local function apply_design(actor, design, scale)
     local sys = StaticFindObject(design)
     if not (sys and sys:IsValid()) then
         local ok, loaded = pcall(LoadAsset, design)
@@ -123,9 +126,21 @@ local function apply_design(actor, design)
         pl:SetAsset(sys, true)
         pl:Activate(true)
     end)
-    if not ok then log("could not apply design " .. design .. ": " .. tostring(err)) end
-end
+    if not ok then log("could not apply design " .. design .. ": " .. tostring(err)) return end
 
+    local s = scale or (Config.designScales and Config.designScales[design]) or 1.0
+    if s ~= 1.0 then
+        local ok2, err2 = pcall(function() actor.ParticleLoop:SetRelativeScale3D({ X = s, Y = s, Z = s }) end)
+        log(ok2 and string.format("  effect size x%.2f", s) or ("  could not resize effect: " .. tostring(err2)))
+    end
+    local hide = Config.hideEmitters and Config.hideEmitters[design]
+    if hide then
+        for _, name in ipairs(hide) do
+            local ok3, err3 = pcall(function() actor.ParticleLoop:SetEmitterEnable(FName(name), false) end)
+            log(ok3 and ("  effect part off: " .. name) or ("  could not switch off '" .. name .. "': " .. tostring(err3)))
+        end
+    end
+end
 local function spawn_entry(world, class, e)
     local loc, yaw = Slots.pose(e.slot)
     local actor = world:SpawnActor(class, loc, { Pitch = 0.0, Yaw = yaw, Roll = 0.0 })
@@ -134,7 +149,7 @@ local function spawn_entry(world, class, e)
     actor.DestinationTeleporterID = FName(e.dest)
     actor.IsTeleporterActive = true
     pcall(function() actor:OnRep_IsTeleporterActive() end)
-    apply_design(actor, e.design)
+    apply_design(actor, e.design, e.scale)
     log(string.format("%s: '%s' -> %s (pad %s)", e.slot.id, e.name, e.dest, e.id))
     return true
 end
@@ -202,6 +217,7 @@ RegisterKeyBind(Key.NUM_TWO, function()
     end)
 end)
 log("loaded - NUMPAD 1 respawn portals, NUMPAD 2 remove them")
+
 
 
 

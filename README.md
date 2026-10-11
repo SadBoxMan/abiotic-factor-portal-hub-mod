@@ -11,7 +11,7 @@ with exits placed correctly and the hub's portal hum scaled down as portals are 
 
 ## Layout
 - `mod/PortalHub/` - the hub mod itself. `Scripts/config.lua` connects worlds to slots; `Scripts/slots.lua` holds the slot geometry.
-- `PortalHubConfig.bat` + `tools/PortalHubConfig/` - a dark-mode editor for `config.lua` (pick a world, a portal look and the hub volume from drop-downs). It finds the installed mod on its own, or asks you to locate `config.lua`.
+- `PortalHubConfig.bat` + `tools/PortalHubConfig/` - a dark-mode editor (with the wiki's portal-world icons in `tools/PortalHubConfig/icons/`) for `config.lua` (pick a world, a portal look and the hub volume from drop-downs). It finds the installed mod on its own, or asks you to locate `config.lua`.
 - `mod/PortalPoC/` - the original proof-of-concept mod (kept for reference; superseded by PortalHub).
 - `mod/PortalLogger/` - debugging helpers that dump teleporter, streaming-level and room data to text files.
 - `data/portal_slots.json` - the 12 portal-room slots (tiers A/B/C, slots 1-4), their positions and the placement rules.
@@ -32,12 +32,19 @@ places you at that pad's fixed exit point, so a pad's facing decides where you c
 Because an arrival pad has only one destination, the mod rewrites it just before use so the return trip goes back through the portal
 you entered. See `findings/` for details.
 
-## Not included
-No game files, extracted assets, mapping files or other authors' work are in this repository. This is an unofficial fan project and
-is not affiliated with the game's developers.
+## Credits and notes
+- **World icons:** the small portal-world icons in `tools/PortalHubConfig/icons/` were pulled from the Portal Worlds section of the
+  [Abiotic Factor wiki's Locations page](https://abioticfactor.wiki.gg/wiki/Locations#Portal_Worlds). The artwork belongs to the game's
+  developers and is used here only to label the editor; it is not covered by this project's MIT license. The editor works without it:
+  delete the `icons` folder or set `$ShowWorldIcons = $false` in `PortalHubConfig.ps1`.
+- World names and the story/optional grouping in the destination list follow the same wiki.
+- No game files, extracted game data or mapping files are in this repository. This is an unofficial fan project and is not
+  affiliated with the game's developers.
 
 ## License
 [MIT](LICENSE). Fork it, learn from it, change it, and build your own portals or worlds on top of it. Please keep the copyright notice.
+
+
 
 
 

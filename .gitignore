@@ -13,3 +13,10 @@
 # editor backups
 *.bak
 
+
+
+
+# third-party mods (other authors' work): never committed, even if copied under mod/
+mod/CheatConsoleCommands/
+mod/CheatManagerEnablerMod/
+mod/ConsoleEnablerMod/
