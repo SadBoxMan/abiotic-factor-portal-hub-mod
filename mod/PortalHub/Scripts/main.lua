@@ -18,6 +18,10 @@ local HUM_FLOOR = Config.humFloor or 0.15
 local HUM_MANUAL = Config.humManual or 0.5
 local SPAWN_DELAY_MS = 4000
 
+-- The two DLC areas (Temple of Stone / Garden, Torii / Japan) are DLC-gated by the game's own entrance pads; a hub portal would
+-- bypass that, so these pad IDs are refused as destinations (the config editor refuses them too). Compared in lower case.
+local BLOCKED_DESTINATIONS = { h_garden_start = true, h_garden_entrance = true, h_japan_start = true, h_japan_entrance = true }
+
 local state = { entries = {}, dests = {}, hooked = false, pending = false }
 
 local function log(msg) print("[PortalHub] " .. msg .. "\n") end
@@ -57,9 +61,20 @@ local function resolve_config()
             log("config entry " .. i .. ": slot " .. p.slot .. " holds a game portal, skipped")
         elseif used[p.slot] then
             log("config entry " .. i .. ": slot " .. p.slot .. " is already used, skipped")
+        elseif type(p.destination) == "string" and BLOCKED_DESTINATIONS[p.destination:lower()] then
+            log("config entry " .. i .. ": " .. p.destination .. " is a DLC area and cannot be a destination, skipped")
         elseif type(p.destination) ~= "string" or p.destination == "" then
             log("config entry " .. i .. ": missing destination, skipped")
         else
+            local lc, lb = nil, nil
+            if type(p.lightColor) == "table" and #p.lightColor >= 3 then
+                lc = {}
+                for k = 1, 3 do lc[k] = math.min(1.0, math.max(0.0, tonumber(p.lightColor[k]) or 0.0)) end
+            end
+            if p.lightBrightness ~= nil then
+                lb = tonumber(p.lightBrightness)
+                if lb and lb <= 0 then lb = nil end
+            end
             used[p.slot] = true
             dests[p.destination] = true
             entries[#entries + 1] = {
@@ -67,7 +82,8 @@ local function resolve_config()
                 name = p.name or p.destination,
                 dest = p.destination,
                 design = p.design or DEFAULT_DESIGN,
-                scale = tonumber(p.scale),
+                lightColor = lc,
+                lightBrightness = lb,
                 id = ID_PREFIX .. (p.slot:gsub("-", "")),
             }
         end
@@ -112,9 +128,9 @@ local function apply_hum(added)
     end
     log(string.format("hum volume (%s) x%.3f on %d hub pad(s) (%d added)", HUM_MODE, mult, touched, added))
 end
--- Look, size and hidden parts of a portal's particle effect. Size (scale / designScales) and hidden parts (hideEmitters)
--- come from config.lua. Only the effect is resized: the walk-through trigger and the exit point do not move.
-local function apply_design(actor, design, scale)
+-- Look and hidden parts of a portal's particle effect. Hidden parts (hideEmitters)
+-- come from config.lua.
+local function apply_design(actor, design)
     local sys = StaticFindObject(design)
     if not (sys and sys:IsValid()) then
         local ok, loaded = pcall(LoadAsset, design)
@@ -128,18 +144,39 @@ local function apply_design(actor, design, scale)
     end)
     if not ok then log("could not apply design " .. design .. ": " .. tostring(err)) return end
 
-    local s = scale or (Config.designScales and Config.designScales[design]) or 1.0
-    if s ~= 1.0 then
-        local ok2, err2 = pcall(function() actor.ParticleLoop:SetRelativeScale3D({ X = s, Y = s, Z = s }) end)
-        log(ok2 and string.format("  effect size x%.2f", s) or ("  could not resize effect: " .. tostring(err2)))
-    end
     local hide = Config.hideEmitters and Config.hideEmitters[design]
     if hide then
         for _, name in ipairs(hide) do
-            local ok3, err3 = pcall(function() actor.ParticleLoop:SetEmitterEnable(FName(name), false) end)
+            local lname = tostring(name):lower()
+            local ok3, err3
+            if lname == "portal" or lname == "portalmap" then
+                ok3, err3 = false, "the portal part of a look cannot be switched off"
+            else
+                ok3, err3 = pcall(function() actor.ParticleLoop:SetEmitterEnable(FName(name), false) end)
+            end
             log(ok3 and ("  effect part off: " .. name) or ("  could not switch off '" .. name .. "': " .. tostring(err3)))
         end
     end
+end
+-- Pad light: each portal pad has a light that tints its surroundings. lightColor = { r, g, b } (0 to 1) sets its colour and
+-- lightBrightness = 1.5 multiplies its intensity (both optional). Works with every portal look.
+local function apply_light(actor, e)
+    if not (e.lightColor or e.lightBrightness) then return end
+    local ok, err = pcall(function()
+        local light = actor.PointLight
+        if not (light and light:IsValid()) then error("the pad has no light component") end
+        if e.lightColor then
+            light:SetLightColor({ R = e.lightColor[1], G = e.lightColor[2], B = e.lightColor[3], A = 1.0 }, true)
+        end
+        if e.lightBrightness then
+            local base = light.Intensity
+            light:SetIntensity(base * e.lightBrightness)
+        end
+    end)
+    local what = {}
+    if e.lightColor then what[#what + 1] = string.format("colour %.2f, %.2f, %.2f", e.lightColor[1], e.lightColor[2], e.lightColor[3]) end
+    if e.lightBrightness then what[#what + 1] = string.format("brightness x%.2f", e.lightBrightness) end
+    log(ok and ("  pad light: " .. table.concat(what, ", ")) or ("  could not set the pad light: " .. tostring(err)))
 end
 local function spawn_entry(world, class, e)
     local loc, yaw = Slots.pose(e.slot)
@@ -149,7 +186,8 @@ local function spawn_entry(world, class, e)
     actor.DestinationTeleporterID = FName(e.dest)
     actor.IsTeleporterActive = true
     pcall(function() actor:OnRep_IsTeleporterActive() end)
-    apply_design(actor, e.design, e.scale)
+    apply_design(actor, e.design)
+    apply_light(actor, e)
     log(string.format("%s: '%s' -> %s (pad %s)", e.slot.id, e.name, e.dest, e.id))
     return true
 end
@@ -217,6 +255,12 @@ RegisterKeyBind(Key.NUM_TWO, function()
     end)
 end)
 log("loaded - NUMPAD 1 respawn portals, NUMPAD 2 remove them")
+
+
+
+
+
+
 
 
 

@@ -13,6 +13,7 @@ with exits placed correctly and the hub's portal hum scaled down as portals are 
 - `mod/PortalHub/` - the hub mod itself. `Scripts/config.lua` connects worlds to slots; `Scripts/slots.lua` holds the slot geometry.
 - `PortalHubConfig.bat` + `tools/PortalHubConfig/` - a dark-mode editor (with the wiki's portal-world icons in `tools/PortalHubConfig/icons/`) for `config.lua` (pick a world, a portal look and the hub volume from drop-downs). It finds the installed mod on its own, or asks you to locate `config.lua`.
 - `mod/PortalPoC/` - the original proof-of-concept mod (kept for reference; superseded by PortalHub).
+- `mod/PortalMaterialLab/` - experiment: tries swapping the material/texture of a hub portal from Lua (Numpad 7 report, 8 next material, 9 next texture, 0 reset).
 - `mod/PortalLogger/` - debugging helpers that dump teleporter, streaming-level and room data to text files.
 - `data/portal_slots.json` - the 12 portal-room slots (tiers A/B/C, slots 1-4), their positions and the placement rules.
 - `findings/` - notes on how the game's portals, levels and teleporter pairing work, gathered by inspecting the running game.
@@ -43,6 +44,7 @@ you entered. See `findings/` for details.
 
 ## License
 [MIT](LICENSE). Fork it, learn from it, change it, and build your own portals or worlds on top of it. Please keep the copyright notice.
+
 
 
 

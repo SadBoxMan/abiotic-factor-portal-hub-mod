@@ -8,7 +8,12 @@
 --   name         Optional label, used in log messages.
 --   design       Optional Niagara particle system for the portal's look, e.g.
 --                "/Game/Particles/Niagara_Portal_Torii.Niagara_Portal_Torii". Default is the plain game portal.
---   scale        Optional size of the portal effect (1.0 = normal, 0.8 = smaller). See designScales below to size every portal that uses a look.
+--   lightColor   Optional colour of the pad's own light, { r, g, b } with each value 0 to 1, e.g. { 0.2, 0.9, 0.4 } for green.
+--                It tints the surroundings and works with every look. (The editor offers rainbow presets and a colour picker.)
+--   lightBrightness  Optional multiplier for that light's brightness (1 = the game's normal brightness, 2 = twice as bright).
+--
+-- The two DLC areas (Temple of Stone and Torii: H_Garden_Start, H_Garden_Entrance, H_Japan_Start, H_Japan_Entrance) cannot be used
+-- as destinations; entries that name them are skipped.
 --
 -- The way back is handled for you: when someone uses a hub portal, the arrival pad is pointed back at that portal, so
 -- players always return to the portal they came through (even if the world also has a different original entrance).
@@ -23,19 +28,9 @@ return {
     humFloor = 0.15,    -- dynamic: lowest volume, 0 to 1
     humManual = 0.5,    -- manual: volume, 0 to 1
 
-    -- Portal size for testing (1.0 = normal). Only the portal effect is resized; the walk-through trigger and exit point stay put.
-    -- designScales gives every portal that uses a look the same size; a portal's own  scale = 0.8  (in portals below) overrides it.
-    designScales = {
-        ["/Game/Particles/Niagara_Portal_Door.Niagara_Portal_Door"] = 1.0,
-        ["/Game/Particles/Niagara_Portal_NightRDoor_2.Niagara_Portal_NightRDoor_2"] = 1.0,
-        ["/Game/Particles/Niagara_Portal_Salem.Niagara_Portal_Salem"] = 1.0,
-        ["/Game/Particles/Niagara_Portal_Shadowgate2.Niagara_Portal_Shadowgate2"] = 1.0,
-        ["/Game/Particles/Niagara_Portal_SnowFlurry.Niagara_Portal_SnowFlurry"] = 1.0,
-    },
-
-    -- Parts of a portal effect to switch off, by look. Example: hide the "Blackhole" part of the SnowFlurry look:
-    --   ["/Game/Particles/Niagara_Portal_SnowFlurry.Niagara_Portal_SnowFlurry"] = { "Blackhole" },
-    -- SnowFlurry parts: Blackhole, smoke, snowflakes, SnowParticle01, SnowParticle02, Swirl.
+    -- Parts of a portal effect to switch off, by look. Example: hide the "Swirl" part (the accretion disk) of the SnowFlurry look:
+    --   ["/Game/Particles/Niagara_Portal_SnowFlurry.Niagara_Portal_SnowFlurry"] = { "Swirl" },
+    -- SnowFlurry parts: Blackhole, smoke, snowflakes, SnowParticle01, SnowParticle02, Swirl.  The portal part of a look can never be switched off.
     hideEmitters = {
     },
 
@@ -43,3 +38,4 @@ return {
         { slot = "A-3", name = "Dunkeltaler Forest", destination = "signal_start" },
     },
 }
+
