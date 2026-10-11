@@ -5,7 +5,7 @@ Foreword from the Human:
 Sup! SadBoxMan (aka LuciDin) here to let y'all know that this mod would not have been possible without the aid of Claude Code. 
 Everything in this mod is open source and free for anyone to take apart, put together, alter, whatever-the-fuck you want to do with it!
 If you'd like to use any part of this mod or its contents for your own modding journey, go right ahead! Hell, you don't even need to
-credit me! 
+credit me (although it'd be greatly appreciated)! 
 
 I get it, AI be quite a smelly beast, and no part of this utilizes generative content. All code, data, the entire journey of this mod was all
 done with publicly available knowledge and documentation (and some of my own manual game data exports).
