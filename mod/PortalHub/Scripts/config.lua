@@ -34,8 +34,17 @@ return {
     hideEmitters = {
     },
 
+    -- Custom worlds: worlds that ship their own pak. A world is loaded by spawning its "loader" actor Blueprint, and a
+    -- teleporter pad with the world's id is spawned at origin + arrive, so a hub portal can use that id as its destination.
+    -- Example (remove the leading -- to use):
+    --   mymod_start = { loaderAsset = "/Game/Mods/MyWorld/BP_MyWorldLoader", loaderClass = "BP_MyWorldLoader_C",
+    --     level = "/Game/Mods/MyWorld/Maps/MyWorld_L0", origin = { 1000000, 1200000, 0 }, arrive = { 700, -350, 30, -27 } },
+    -- loaderAsset / loaderClass: the loader actor in the pak.  level: the map it streams (used to see when it is ready).
+    -- origin: where the loader is spawned (far from the Facility).  arrive: the arrival pad, relative to origin: x, y, z (floor) and yaw.
+    worlds = {
+    },
+
     portals = {
         { slot = "A-3", name = "Dunkeltaler Forest", destination = "signal_start" },
     },
 }
-

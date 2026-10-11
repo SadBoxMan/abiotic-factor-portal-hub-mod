@@ -6,7 +6,7 @@ custom game assets are needed. Includes a dark-mode editor so players never have
 
 **Status:** working for every existing portal world. A portal in each of the nine open slots takes you to a world and back, with exits
 placed correctly, a per-portal look, pad light colour, switchable effect parts, and the hub's portal hum scaled as portals are added.
-Connecting a *brand-new* custom world is the open piece; see [Connecting your own world](#connecting-your-own-world).
+Worlds that ship their own pak can be hooked in too; see [Connecting your own world](#connecting-your-own-world).
 
 ## Layout
 - `mod/PortalHub/` - the hub mod itself. `Scripts/config.lua` connects worlds to slots; `Scripts/slots.lua` holds the slot geometry.
@@ -57,16 +57,33 @@ Everything else (the portal in the hub, its look, the return trip) is handled by
 - In `PortalHubConfig.bat`, pick a slot, choose **Custom Destination**, and type `mymod_start` (or add `{ slot = "A-4", name = "My World", destination = "mymod_start" }`
   to `config.lua`). Pick a look and a light colour if you like.
 
-**Getting your level into the game: current status**
-- New content has to be shipped as a pak (a patch chunk): create a blank UE 5.4 Blueprint project named `AbioticFactor`, mirror the game's
-  content folders, assign your assets to a chunk with a Primary Asset Label, package, and rename the output `pakchunk<N>-Windows_P.*`
-  into `AbioticFactor/Content/Paks`. See the community guide: <https://hackmd.io/f3Bl-APIQrOlKmAuBxbI_A>.
-- **Not yet solved:** making the game load your level when a player enters your portal. The game streams each world in by name from its
-  own level table, and calling the engine's level-streaming functions from Lua currently fails in UE4SS 3.0.1 (text arguments cannot be
-  passed; details in `findings/portal-designs.md`). Until that is solved, your level has to be loaded by the game's own mechanism
-  (for example by placing the arrival pad in a level the game already streams), so treat custom worlds as experimental.
-- The pak route above is not yet tested with this mod. A test world is planned to prove it end to end.
+**Getting your level into the game**
+1. **Ship it as a pak.** Create a blank UE 5.4 Blueprint project named `AbioticFactor`, mirror the game's content folders, assign your assets to a
+   chunk with a Primary Asset Label, package, and rename the output `pakchunk<N>-Windows_P.*`. Copy the three files (`.pak`, `.ucas`, `.utoc`)
+   **directly into** `AbioticFactor/Content/Paks` (not a subfolder: a `~mods` subfolder is not mounted on the Steam install).
+   See the community guide: <https://hackmd.io/f3Bl-APIQrOlKmAuBxbI_A>.
+2. **Include a loader actor.** A small actor Blueprint in your pak whose BeginPlay calls Epic's
+   [Load Level Instance (by Name)](https://dev.epicgames.com/documentation/unreal-engine/BlueprintAPI/LevelStreaming/LoadLevelInstance_byName) node, with the level's full package path and the actor's own location. That node streams a level in at a world
+   location without it being listed in any persistent map. List your map under Project Settings > Packaging > "List of Maps to Include in a Packaged Build" so it is packaged.
+   Baking the level path into the Blueprint means Lua never has to pass a text argument (calling the streaming functions with text from Lua fails in UE4SS 3.0.1).
+3. **Add a `worlds` entry to the hub's `config.lua`:**
+   ```lua
+   worlds = {
+       mymod_start = {
+           loaderAsset = "/Game/Mods/MyWorld/BP_MyWorldLoader",   -- package path of the loader Blueprint
+           loaderClass = "BP_MyWorldLoader_C",                    -- its generated class
+           level       = "/Game/Mods/MyWorld/Maps/MyWorld_L0",    -- the map it streams (used to see when it is ready)
+           origin      = { 1000000, 1200000, 0 },                 -- where the loader is spawned: far from the Facility
+           arrive      = { 700, -350, 30, -27 },                  -- arrival pad relative to origin: x, y, floor z, yaw
+       },
+   },
+   ```
+   Then give a hub portal that world's id as its destination (in the editor: **Custom Destination**, type `mymod_start`).
+4. **What the hub does:** it spawns your loader, waits for the level to become visible, spawns a teleporter pad with your id at `origin + arrive`
+   (players appear 215 units in front of it, so face it into open space), and only then switches the hub portal on. The return trip works unchanged.
+   If your pak is missing or the level never loads, the log says so and the portal stays off.
 
+Loading a world is heavy, so the hub loads it at world start. How each piece of this works, with public sources, is in `findings/custom-world-loading.md`.
 ## Credits and notes
 - **World icons:** the small portal-world icons in `tools/PortalHubConfig/icons/` were pulled from the Portal Worlds section of the
   [Abiotic Factor wiki's Locations page](https://abioticfactor.wiki.gg/wiki/Locations#Portal_Worlds). The artwork belongs to the game's
@@ -78,3 +95,7 @@ Everything else (the portal in the hub, its look, the return trip) is handled by
 
 ## License
 [MIT](LICENSE). Fork it, learn from it, change it, and build your own portals or worlds on top of it. Please keep the copyright notice.
+
+
+
+

@@ -23,6 +23,8 @@ local SPAWN_DELAY_MS = 4000
 local BLOCKED_DESTINATIONS = { h_garden_start = true, h_garden_entrance = true, h_japan_start = true, h_japan_entrance = true }
 
 local state = { entries = {}, dests = {}, hooked = false, pending = false }
+local worldDefs = {}     -- custom worlds from config.worlds, checked (see resolve_worlds)
+local worldState = {}    -- id -> { status = "loading" | "ready" | "failed", tries = n }
 
 local function log(msg) print("[PortalHub] " .. msg .. "\n") end
 
@@ -82,6 +84,7 @@ local function resolve_config()
                 name = p.name or p.destination,
                 dest = p.destination,
                 design = p.design or DEFAULT_DESIGN,
+                world = worldDefs[p.destination],
                 lightColor = lc,
                 lightBrightness = lb,
                 id = ID_PREFIX .. (p.slot:gsub("-", "")),
@@ -178,14 +181,165 @@ local function apply_light(actor, e)
     if e.lightBrightness then what[#what + 1] = string.format("brightness x%.2f", e.lightBrightness) end
     log(ok and ("  pad light: " .. table.concat(what, ", ")) or ("  could not set the pad light: " .. tostring(err)))
 end
+-- Custom worlds ---------------------------------------------------------------------------------------------------------
+-- config.worlds[<arrival pad id>] = { loaderAsset, loaderClass, level, origin = { x, y, z }, arrive = { x, y, z, yaw } }
+-- A custom world is loaded by spawning a "loader" actor Blueprint that ships in the world's own pak; the actor streams the level in
+-- itself, so no text argument ever has to be passed from Lua. Once the level is visible the hub spawns the arrival pad at
+-- origin + arrive and switches on the hub portals that lead to it. Until then those portals stay off.
+local WORLD_POLL_MS = 250
+local WORLD_MAX_TRIES = 720      -- about 3 minutes
+
+local function resolve_worlds()
+    worldDefs = {}
+    for id, w in pairs(Config.worlds or {}) do
+        local ok = type(id) == "string" and id ~= "" and type(w) == "table"
+        ok = ok and type(w.loaderAsset) == "string" and type(w.loaderClass) == "string" and type(w.level) == "string"
+        ok = ok and type(w.origin) == "table" and #w.origin >= 3 and type(w.arrive) == "table" and #w.arrive >= 3
+        if ok then
+            worldDefs[id] = {
+                id = id, loaderAsset = w.loaderAsset, loaderClass = w.loaderClass, level = w.level,
+                origin = { tonumber(w.origin[1]) or 0, tonumber(w.origin[2]) or 0, tonumber(w.origin[3]) or 0 },
+                arrive = { tonumber(w.arrive[1]) or 0, tonumber(w.arrive[2]) or 0, tonumber(w.arrive[3]) or 0, tonumber(w.arrive[4]) or 0 },
+            }
+            if is_hub_id(id) then log("worlds: '" .. id .. "' starts with a reserved prefix and may be removed with the hub portals; rename it") end
+        else
+            log("worlds: entry '" .. tostring(id) .. "' is incomplete (needs loaderAsset, loaderClass, level, origin = {x,y,z}, arrive = {x,y,z,yaw}), ignored")
+        end
+    end
+end
+
+local function loader_class(def)
+    -- 1) UE4SS's documented LoadAsset (loads the Blueprint package), then find its generated class (<asset>.<ClassName>_C).
+    pcall(LoadAsset, def.loaderAsset)
+    local cls = StaticFindObject(def.loaderAsset .. "." .. def.loaderClass)
+    if cls and cls:IsValid() then return cls end
+    -- 2) Fallback: Unreal's AssetRegistryHelpers:GetAsset, which takes names (FName) only.
+    local helpers = StaticFindObject("/Script/AssetRegistry.Default__AssetRegistryHelpers")
+    if helpers and helpers:IsValid() then
+        pcall(function()
+            cls = helpers:GetAsset({
+                PackageName = UEHelpers.FindOrAddFName(def.loaderAsset),
+                AssetName = UEHelpers.FindOrAddFName(def.loaderClass),
+            })
+        end)
+        if cls and cls:IsValid() then return cls end
+    end
+    return nil, "the world's pak is not installed (no " .. def.loaderClass .. " in " .. def.loaderAsset .. ")"
+end
+local function loader_present(def)
+    for _, a in ipairs(FindAllOf(def.loaderClass) or {}) do
+        if a:IsValid() then return true end
+    end
+    return false
+end
+
+local function find_streaming(world, level)
+    local found
+    pcall(function()
+        world.StreamingLevels:ForEach(function(_, elem)
+            local ls = elem:get()
+            if ls and ls:IsValid() then
+                local ok, name = pcall(function() return ls.PackageNameToLoad:ToString() end)
+                if ok and name == level then found = ls end
+            end
+        end)
+    end)
+    return found
+end
+
+local function spawn_arrival_pad(world, def)
+    for _, t in ipairs(all_pads()) do
+        if pad_id(t) == def.id then return t end        -- already there
+    end
+    local class = StaticFindObject(TELEPORTER_CLASS)
+    if not (class and class:IsValid()) then log("worlds: teleporter class not found") return nil end
+    local loc = { X = def.origin[1] + def.arrive[1], Y = def.origin[2] + def.arrive[2], Z = def.origin[3] + def.arrive[3] }
+    local pad = world:SpawnActor(class, loc, { Pitch = 0.0, Yaw = def.arrive[4], Roll = 0.0 })
+    if not (pad and pad:IsValid()) then log("worlds: could not spawn the arrival pad for " .. def.id) return nil end
+    pad.MyTeleporterID = FName(def.id)
+    pad.DestinationTeleporterID = FName("None")
+    pad.IsTeleporterActive = true
+    pcall(function() pad:OnRep_IsTeleporterActive() end)
+    apply_design(pad, DEFAULT_DESIGN)
+    log(string.format("worlds: arrival pad %s at %.0f, %.0f, %.0f facing %.0f", def.id, loc.X, loc.Y, loc.Z, def.arrive[4]))
+    return pad
+end
+
+local function set_portals_active(id, on)
+    for _, e in ipairs(state.entries) do
+        if e.world and e.world.id == id and e.actor and e.actor:IsValid() then
+            pcall(function() e.actor.IsTeleporterActive = on; e.actor:OnRep_IsTeleporterActive() end)
+        end
+    end
+end
+
+local function start_world(world, def)
+    local st = { status = "loading", tries = 0 }
+    worldState[def.id] = st
+    if not loader_present(def) then
+        local cls, err = loader_class(def)
+        if not cls then st.status = "failed"; log("worlds: " .. def.id .. " cannot load: " .. tostring(err)) return end
+        local ok, e = pcall(function()
+            world:SpawnActor(cls, { X = def.origin[1], Y = def.origin[2], Z = def.origin[3] }, { Pitch = 0.0, Yaw = 0.0, Roll = 0.0 })
+        end)
+        if not ok then st.status = "failed"; log("worlds: " .. def.id .. " loader spawn failed: " .. tostring(e)) return end
+        log("worlds: loader spawned for " .. def.id .. ", waiting for the level to stream in")
+    end
+    local function poll()
+        if st.status ~= "loading" then return end
+        st.tries = st.tries + 1
+        if not world:IsValid() then st.status = "failed"; log("worlds: " .. def.id .. ": the game world changed while loading") return end
+        local ls = find_streaming(world, def.level)
+        if ls then
+            if st.tries % 5 == 0 then pcall(function() UEHelpers.GetGameplayStatics():FlushLevelStreaming(world) end) end
+            local visible = false
+            pcall(function() visible = ls:IsLevelVisible() end)
+            if visible then
+                st.status = "ready"
+                spawn_arrival_pad(world, def)
+                set_portals_active(def.id, true)
+                log(string.format("worlds: %s is ready after %.1f s, hub portals to it are on", def.id, st.tries * WORLD_POLL_MS / 1000))
+                return
+            end
+        end
+        if st.tries >= WORLD_MAX_TRIES then
+            st.status = "failed"
+            log("worlds: " .. def.id .. " did not finish loading in time")
+            return
+        end
+        ExecuteWithDelay(WORLD_POLL_MS, function() ExecuteInGameThread(poll) end)
+    end
+    ExecuteWithDelay(WORLD_POLL_MS, function() ExecuteInGameThread(poll) end)
+end
+
+-- Called whenever the hub portals are (re)spawned: load every custom world a hub portal leads to, once.
+local function ensure_worlds(world)
+    local seen = {}
+    for _, e in ipairs(state.entries) do
+        local def = e.world
+        if def and not seen[def.id] then
+            seen[def.id] = true
+            local st = worldState[def.id]
+            if st and st.status ~= "failed" and not loader_present(def) then st = nil end    -- a new game world: start over
+            if not st or st.status == "failed" then
+                start_world(world, def)
+            elseif st.status == "ready" then
+                spawn_arrival_pad(world, def)
+                set_portals_active(def.id, true)
+            end
+        end
+    end
+end
 local function spawn_entry(world, class, e)
     local loc, yaw = Slots.pose(e.slot)
     local actor = world:SpawnActor(class, loc, { Pitch = 0.0, Yaw = yaw, Roll = 0.0 })
     if not actor or not actor:IsValid() then log(e.slot.id .. ": SpawnActor failed") return false end
     actor.MyTeleporterID = FName(e.id)
     actor.DestinationTeleporterID = FName(e.dest)
-    actor.IsTeleporterActive = true
+    local waiting = e.world and not (worldState[e.world.id] and worldState[e.world.id].status == "ready")
+    actor.IsTeleporterActive = not waiting          -- a portal to a custom world stays off until that world has loaded
     pcall(function() actor:OnRep_IsTeleporterActive() end)
+    e.actor = actor
     apply_design(actor, e.design)
     apply_light(actor, e)
     log(string.format("%s: '%s' -> %s (pad %s)", e.slot.id, e.name, e.dest, e.id))
@@ -227,6 +381,7 @@ local function spawn_all()
         if spawn_entry(world, class, e) then added = added + 1 end
     end
     apply_hum(added)
+    ensure_worlds(world)
     log(added .. " of " .. #state.entries .. " configured portal(s) spawned")
 end
 
@@ -239,6 +394,7 @@ local function schedule_spawn(delay_ms)
     end)
 end
 
+resolve_worlds()
 resolve_config()
 log(#state.entries .. " portal(s) configured")
 
@@ -255,6 +411,9 @@ RegisterKeyBind(Key.NUM_TWO, function()
     end)
 end)
 log("loaded - NUMPAD 1 respawn portals, NUMPAD 2 remove them")
+
+
+
 
 
 

@@ -8,6 +8,7 @@
 !/tools/
 !/PortalHubConfig.bat
 !/findings/
+!/docs/
 !/data/
 
 # editor backups
@@ -20,3 +21,4 @@
 mod/CheatConsoleCommands/
 mod/CheatManagerEnablerMod/
 mod/ConsoleEnablerMod/
+

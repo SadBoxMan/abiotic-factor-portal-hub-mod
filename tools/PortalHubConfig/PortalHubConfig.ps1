@@ -285,7 +285,7 @@ function Read-HubConfig([string]$path) {
     $idx = $text.IndexOf('return {')
     if ($idx -gt 0) { $result.Header = $text.Substring(0, $idx).TrimEnd() }
     $body = if ($idx -ge 0) { $text.Substring($idx) } else { $text }
-    foreach ($bk in 'hideEmitters') {
+    foreach ($bk in 'hideEmitters', 'worlds') {
         $inner = Get-LuaBlockInner $body $bk
         if ($null -ne $inner) { $result.Blocks[$bk] = $inner }
     }
@@ -342,6 +342,16 @@ function Write-HubConfig([string]$path, $header, [string]$humMode, [int]$humFloo
     [void]$sb.AppendLine('    -- SnowFlurry parts: Blackhole, smoke, snowflakes, SnowParticle01, SnowParticle02, Swirl.  The portal part of a look can never be switched off.')
     $hideInner = if ($blocks -and $null -ne $blocks['hideEmitters']) { $blocks['hideEmitters'] } else { "`r`n    " }
     [void]$sb.AppendLine('    hideEmitters = {' + $hideInner + '},')
+    [void]$sb.AppendLine('')
+    [void]$sb.AppendLine('    -- Custom worlds: worlds that ship their own pak. A world is loaded by spawning its "loader" actor Blueprint, and a')
+    [void]$sb.AppendLine('    -- teleporter pad with the world''s id is spawned at origin + arrive, so a hub portal can use that id as its destination.')
+    [void]$sb.AppendLine('    -- Example (remove the leading -- to use):')
+    [void]$sb.AppendLine('    --   mymod_start = { loaderAsset = "/Game/Mods/MyWorld/BP_MyWorldLoader", loaderClass = "BP_MyWorldLoader_C",')
+    [void]$sb.AppendLine('    --     level = "/Game/Mods/MyWorld/Maps/MyWorld_L0", origin = { 1000000, 1200000, 0 }, arrive = { 700, -350, 30, -27 } },')
+    [void]$sb.AppendLine('    -- loaderAsset / loaderClass: the loader actor in the pak.  level: the map it streams (used to see when it is ready).')
+    [void]$sb.AppendLine('    -- origin: where the loader is spawned (far from the Facility).  arrive: the arrival pad, relative to origin: x, y, z (floor) and yaw.')
+    $worldsInner = if ($blocks -and $null -ne $blocks['worlds']) { $blocks['worlds'] } else { "`r`n    " }
+    [void]$sb.AppendLine('    worlds = {' + $worldsInner + '},')
     [void]$sb.AppendLine('')
     [void]$sb.AppendLine('    portals = {')
     foreach ($p in $portalList) {
@@ -964,6 +974,7 @@ if ($Screenshot) {
     $form.Close(); return
 }
 [void]$form.ShowDialog()
+
 
 
 
