@@ -10,17 +10,21 @@ for existing worlds.
 with exits placed correctly and the hub's portal hum scaled down as portals are added.
 
 ## Layout
-- `mod/PortalPoC/` - the proof-of-concept mod (spawns test portals into the open slots).
+- `mod/PortalHub/` - the hub mod itself. `Scripts/config.lua` connects worlds to slots; `Scripts/slots.lua` holds the slot geometry.
+- `PortalHubConfig.bat` + `tools/PortalHubConfig/` - a dark-mode editor for `config.lua` (pick a world, a portal look and the hub volume from drop-downs). It finds the installed mod on its own, or asks you to locate `config.lua`.
+- `mod/PortalPoC/` - the original proof-of-concept mod (kept for reference; superseded by PortalHub).
 - `mod/PortalLogger/` - debugging helpers that dump teleporter, streaming-level and room data to text files.
 - `data/portal_slots.json` - the 12 portal-room slots (tiers A/B/C, slots 1-4), their positions and the placement rules.
 - `findings/` - notes on how the game's portals, levels and teleporter pairing work, gathered by inspecting the running game.
 
 ## Install (tested with UE4SS 3.0.1 Beta)
 1. Install UE4SS for Abiotic Factor.
-2. Copy `mod/PortalPoC` (and optionally `mod/PortalLogger`) into `AbioticFactor/Binaries/Win64/ue4ss/Mods/`.
-3. Add `PortalPoC : 1` to `Mods/mods.txt` above the `Keybinds` line.
-4. In game: **Numpad 1** spawn the test portals, **2** remove them, **3** dump exit points, **4** dump pad designs,
-   **5** re-apply hub hum volume, **6** reset every pad's hum volume.
+2. Copy `mod/PortalHub` into `AbioticFactor/Binaries/Win64/ue4ss/Mods/`.
+3. Add `PortalHub : 1` to `Mods/mods.txt` above the `Keybinds` line.
+4. Run `PortalHubConfig.bat` from this repo (dark-mode editor), or edit `Mods/PortalHub/Scripts/config.lua` by hand, to choose which worlds appear in which slots. Then restart mods.
+   Portals spawn automatically when the world loads. In game: **Numpad 1** respawns them, **2** removes them.
+
+`mod/PortalLogger` is optional debugging help (dumps teleporter, streaming and room data).
 
 ## How it works (short version)
 Each teleporter pad has a `MyTeleporterID` and a `DestinationTeleporterID`; a pad sends you to the pad named by its destination and
@@ -34,4 +38,7 @@ is not affiliated with the game's developers.
 
 ## License
 [MIT](LICENSE). Fork it, learn from it, change it, and build your own portals or worlds on top of it. Please keep the copyright notice.
+
+
+
 

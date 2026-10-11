@@ -1,0 +1,40 @@
+# Portal designs
+
+Values for the design field in config.lua (Niagara particle systems found in the game's files; not all verified).
+
+```lua
+design = "/Game/Particles/Niagara_Portal.Niagara_Portal"
+design = "/Game/Particles/Niagara_Portal_Blueverse.Niagara_Portal_Blueverse"
+design = "/Game/Particles/Niagara_Portal_Botanical_Green.Niagara_Portal_Botanical_Green"
+design = "/Game/Particles/Niagara_Portal_Botanical_Red.Niagara_Portal_Botanical_Red"
+design = "/Game/Particles/Niagara_Portal_Dark.Niagara_Portal_Dark"
+design = "/Game/Particles/Niagara_Portal_Door.Niagara_Portal_Door"
+design = "/Game/Particles/Niagara_Portal_Fog.Niagara_Portal_Fog"
+design = "/Game/Particles/Niagara_Portal_Friendly.Niagara_Portal_Friendly"
+design = "/Game/Particles/Niagara_Portal_Friendly_Black.Niagara_Portal_Friendly_Black"
+design = "/Game/Particles/Niagara_Portal_Friendly_Blue.Niagara_Portal_Friendly_Blue"
+design = "/Game/Particles/Niagara_Portal_Friendly_Brown.Niagara_Portal_Friendly_Brown"
+design = "/Game/Particles/Niagara_Portal_Friendly_Cyan.Niagara_Portal_Friendly_Cyan"
+design = "/Game/Particles/Niagara_Portal_Friendly_Glitched.Niagara_Portal_Friendly_Glitched"
+design = "/Game/Particles/Niagara_Portal_Friendly_Green.Niagara_Portal_Friendly_Green"
+design = "/Game/Particles/Niagara_Portal_Friendly_Lime.Niagara_Portal_Friendly_Lime"
+design = "/Game/Particles/Niagara_Portal_Friendly_Orange.Niagara_Portal_Friendly_Orange"
+design = "/Game/Particles/Niagara_Portal_Friendly_Pink.Niagara_Portal_Friendly_Pink"
+design = "/Game/Particles/Niagara_Portal_Friendly_Purple.Niagara_Portal_Friendly_Purple"
+design = "/Game/Particles/Niagara_Portal_Friendly_Red.Niagara_Portal_Friendly_Red"
+design = "/Game/Particles/Niagara_Portal_Friendly_White.Niagara_Portal_Friendly_White"
+design = "/Game/Particles/Niagara_Portal_Friendly_Yellow.Niagara_Portal_Friendly_Yellow"
+design = "/Game/Particles/Niagara_Portal_Garden.Niagara_Portal_Garden"
+design = "/Game/Particles/Niagara_Portal_Greenverse.Niagara_Portal_Greenverse"
+design = "/Game/Particles/Niagara_Portal_NightRDoor_2.Niagara_Portal_NightRDoor_2"
+design = "/Game/Particles/Niagara_Portal_Redverse.Niagara_Portal_Redverse"
+design = "/Game/Particles/Niagara_Portal_Rift.Niagara_Portal_Rift"
+design = "/Game/Particles/Niagara_Portal_Rift_BlueFade.Niagara_Portal_Rift_BlueFade"
+design = "/Game/Particles/Niagara_Portal_Salem.Niagara_Portal_Salem"
+design = "/Game/Particles/Niagara_Portal_Shadowgate2.Niagara_Portal_Shadowgate2"
+design = "/Game/Particles/Niagara_Portal_SnowFlurry.Niagara_Portal_SnowFlurry"
+design = "/Game/Particles/Niagara_Portal_SunDisk.Niagara_Portal_SunDisk"
+design = "/Game/Particles/Niagara_Portal_Tiny.Niagara_Portal_Tiny"
+design = "/Game/Particles/Niagara_Portal_Torii.Niagara_Portal_Torii"
+```
+

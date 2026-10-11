@@ -5,5 +5,11 @@
 !/README.md
 !/LICENSE
 !/mod/
+!/tools/
+!/PortalHubConfig.bat
 !/findings/
 !/data/
+
+# editor backups
+*.bak
+
