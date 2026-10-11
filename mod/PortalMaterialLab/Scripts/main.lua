@@ -433,3 +433,44 @@ log("prototype keys: NUMPAD 4 overlay, 5 pad-light colour, 6 rift colour, 3 leve
 
 
 
+
+------------------------------------------------------------------------------------------------------------------------
+-- Prototype 3: can an existing, unused LevelStreamingDynamic slot be pointed at a different map WITHOUT passing text?
+-- The game keeps 59 LevelStreamingDynamic objects, one per world. If one of them can be re-pointed at another package name (an FName,
+-- which Lua can pass), a custom map could be streamed in without LoadLevelInstance. This step is READ-ONLY: it lists the objects,
+-- what each is pointed at, and which relevant functions/properties exist. Nothing is changed.
+--   NUMPAD * (multiply) = report
+------------------------------------------------------------------------------------------------------------------------
+local function slot_report()
+    log("---- STREAMING SLOT report")
+    local all = FindAllOf("LevelStreamingDynamic") or {}
+    log("  objects: " .. #all)
+    local first = true
+    for i, ls in ipairs(all) do
+        if ls:IsValid() then
+            local name = ls:GetFName():ToString()
+            local pkg = "?"
+            local ok1, v1 = pcall(function() return ls:GetWorldAssetPackageFName():ToString() end)
+            if ok1 then pkg = tostring(v1) end
+            local loaded, visible = "?", "?"
+            pcall(function() loaded = tostring(ls:IsLevelLoaded()) end)
+            pcall(function() visible = tostring(ls:IsLevelVisible()) end)
+            local off = "?"
+            pcall(function() local t = ls.LevelTransform.Translation; off = string.format("%.0f, %.0f, %.0f", t.X, t.Y, t.Z) end)
+            log(string.format("  %2d. %-26s pkg=%-44s loaded=%-5s visible=%-5s offset=%s", i, name, pkg, loaded, visible, off))
+            if first then
+                first = false
+                log("  -- members available on the first object:")
+                for _, member in ipairs({ "SetWorldAssetByPackageName", "SetShouldBeLoaded", "SetShouldBeVisible", "SetLevelTransform",
+                                          "GetWorldAssetPackageFName", "GetWorldAssetPackageName", "WorldAsset", "PackageNameToLoad", "LevelTransform",
+                                          "bShouldBeLoaded", "bShouldBeVisible", "bInitiallyLoaded", "bInitiallyVisible", "bDisableDistanceStreaming" }) do
+                    local ok, v = pcall(function() return ls[member] end)
+                    log(string.format("       %-28s %s", member, ok and type(v) or "error"))
+                end
+            end
+        end
+    end
+    log("---- STREAMING SLOT report done")
+end
+RegisterKeyBind(Key.MULTIPLY, function() ExecuteInGameThread(slot_report) end)
+log("prototype 3 key: NUMPAD * (multiply) = list the game's streaming slots (read-only)")
