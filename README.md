@@ -15,6 +15,10 @@ Otherwise, apologies for getting your hopes up!
 
 Back to the AI's walkthrough. If any part of the process is poorly explained, let me know via the Nexus Mod Page and I'll update accordingly!
 
+
+DISCLAIMER:
+I've done all I could to prevent folks from trying to enable any DLC/paid content with this mod as-is. I am not liable nor responsible if you
+attempt to stiff the developers on their hard-earned money. If you want the DLC Worlds, then pony up the dough and go buy it ya cheapskate!
 ---------------------------------------------------
 
 A [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) Lua mod for **Abiotic Factor** that turns the Homeworld "portal room" (Office Sector) into a
