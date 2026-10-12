@@ -240,13 +240,41 @@ local function find_streaming(world, level)
             local ls = elem:get()
             if ls and ls:IsValid() then
                 local ok, name = pcall(function() return ls.PackageNameToLoad:ToString() end)
-                if ok and name == level then found = ls end
+                local ok2, asset = pcall(function() return ls:GetWorldAssetPackageFName():ToString() end)
+                if (ok and name == level) or (ok2 and type(asset) == "string" and asset:sub(1, #level) == level) then found = ls end
             end
         end)
     end)
     return found
 end
 
+-- Diagnostic: what does the world's streaming list actually hold, and where is the loader? Read-only; every object is checked first.
+local function diag_streaming(world, def)
+    local n, matches = 0, {}
+    local ok = pcall(function()
+        world.StreamingLevels:ForEach(function(_, elem)
+            n = n + 1
+            local ls = elem:get()
+            if ls and ls:IsValid() then
+                local a, b = "?", "?"
+                pcall(function() a = ls.PackageNameToLoad:ToString() end)
+                pcall(function() b = ls:GetWorldAssetPackageFName():ToString() end)
+                local hay = (a .. " " .. b):lower()
+                if hay:find("cordona") or hay:find("levelinstance") or hay:find("/mods/") then matches[#matches + 1] = a .. " | " .. b end
+            end
+        end)
+    end)
+    log(string.format("worlds: diag: StreamingLevels readable=%s, entries=%d, entries that look like ours=%d", tostring(ok), n, #matches))
+    for i = 1, math.min(#matches, 5) do log("worlds: diag:   " .. matches[i]) end
+    local dyn = FindAllOf("LevelStreamingDynamic") or {}
+    log("worlds: diag: LevelStreamingDynamic objects in the world: " .. #dyn)
+    for _, a in ipairs(FindAllOf(def.loaderClass) or {}) do
+        if a:IsValid() then
+            local ok2, loc = pcall(function() local l = a:K2_GetActorLocation(); return string.format("%.0f, %.0f, %.0f", l.X, l.Y, l.Z) end)
+            log("worlds: diag: loader actor " .. a:GetFName():ToString() .. " at " .. (ok2 and loc or "?"))
+        end
+    end
+end
 local function spawn_arrival_pad(world, def)
     for _, t in ipairs(all_pads()) do
         if pad_id(t) == def.id then return t end        -- already there
@@ -276,6 +304,7 @@ end
 local function start_world(world, def)
     local st = { status = "loading", tries = 0 }
     worldState[def.id] = st
+    if loader_present(def) then log("worlds: a loader for " .. def.id .. " already exists, not spawning another") end
     if not loader_present(def) then
         local cls, err = loader_class(def)
         if not cls then st.status = "failed"; log("worlds: " .. def.id .. " cannot load: " .. tostring(err)) return end
@@ -290,6 +319,12 @@ local function start_world(world, def)
         st.tries = st.tries + 1
         if not world:IsValid() then st.status = "failed"; log("worlds: " .. def.id .. ": the game world changed while loading") return end
         local ls = find_streaming(world, def.level)
+        if st.tries == 1 or st.tries % 20 == 0 then
+            local loaded, visible = "?", "?"
+            if ls then pcall(function() loaded = tostring(ls:IsLevelLoaded()) end); pcall(function() visible = tostring(ls:IsLevelVisible()) end) end
+            log(string.format("worlds: %s waiting (%.0f s): streaming level %s, loaded=%s, visible=%s", def.id, st.tries * WORLD_POLL_MS / 1000, ls and "found" or "NOT found", loaded, visible))
+            if not ls and (st.tries == 1 or st.tries == 40) then diag_streaming(world, def) end
+        end
         if ls then
             if st.tries % 5 == 0 then pcall(function() UEHelpers.GetGameplayStatics():FlushLevelStreaming(world) end) end
             local visible = false
@@ -320,6 +355,7 @@ local function ensure_worlds(world)
         if def and not seen[def.id] then
             seen[def.id] = true
             local st = worldState[def.id]
+            log("worlds: checking " .. def.id .. " (status " .. (st and st.status or "none") .. ", loader present " .. tostring(loader_present(def)) .. ")")
             if st and st.status ~= "failed" and not loader_present(def) then st = nil end    -- a new game world: start over
             if not st or st.status == "failed" then
                 start_world(world, def)
@@ -370,6 +406,7 @@ local function install_hook()
 end
 
 local function spawn_all()
+    log("spawn_all: starting")
     local world = UEHelpers.GetWorld()
     if not world or not world:IsValid() then log("no world yet") return end
     local class = StaticFindObject(TELEPORTER_CLASS)
@@ -399,11 +436,16 @@ resolve_config()
 log(#state.entries .. " portal(s) configured")
 
 -- Spawn whenever the hub room's own portals appear (world load), and now if the world is already up.
-NotifyOnNewObject(HOMEWORLD_CLASS, function() schedule_spawn(SPAWN_DELAY_MS) end)
+NotifyOnNewObject(HOMEWORLD_CLASS, function() log("a Homeworld pad appeared; spawning the hub portals shortly"); schedule_spawn(SPAWN_DELAY_MS) end)
 local existing = FindFirstOf("BP_Teleporter_HomeWorld_C")
-if existing and existing:IsValid() then schedule_spawn(500) end
+if existing and existing:IsValid() then
+    log("the portal room is already loaded; spawning the hub portals")
+    schedule_spawn(500)
+else
+    log("the portal room is not loaded yet; the hub portals will spawn when you get near it (or press NUMPAD 1 in the room)")
+end
 
-RegisterKeyBind(Key.NUM_ONE, function() ExecuteInGameThread(spawn_all) end)
+RegisterKeyBind(Key.NUM_ONE, function() log("NUMPAD 1 pressed"); ExecuteInGameThread(spawn_all) end)
 RegisterKeyBind(Key.NUM_TWO, function()
     ExecuteInGameThread(function()
         log("removed " .. destroy_hub_pads() .. " pad(s)")
@@ -411,6 +453,9 @@ RegisterKeyBind(Key.NUM_TWO, function()
     end)
 end)
 log("loaded - NUMPAD 1 respawn portals, NUMPAD 2 remove them")
+
+
+
 
 
 

@@ -4,8 +4,8 @@
 any call that passes a text argument fails inside `push_strproperty` (see portal-designs.md). The way around it is to avoid passing text at all.
 
 ## The technique
-1. **Ship a small "loader" actor Blueprint in the world's pak.** Its job is to stream the custom level in. The level path is baked into the
-   Blueprint, so Lua never has to pass a text argument.
+1. **Ship a small "loader" Blueprint in the world's pak, whose parent class is the engine's Level Instance actor** (`ALevelInstance`). Set its Level (World Asset)
+   to the map and its Desired Runtime Behavior to **Standalone**. The level is chosen inside the Blueprint, so Lua never has to pass a text argument.
 2. **Find the Blueprint class using names only:** `AssetRegistryHelpers:GetAsset({ PackageName = FName(...), AssetName = FName(...) })`.
    FName values pass fine from Lua.
 3. **Spawn the loader** with `world:SpawnActor(class, location, rotation)` at a far-away "origin", so the level cannot overlap anything.
@@ -25,9 +25,17 @@ any call that passes a text argument fails inside `push_strproperty` (see portal
   Put the `_P` triplet (`.pak`, `.ucas`, `.utoc`) straight into `Content/Paks`.
 - The hub's log says exactly this when it happens: `the world's pak is not installed (no <LoaderClass>)`, and the hub portals to that world stay off.
 
+## What did not work (tested)
+- **A loader whose BeginPlay calls Load Level Instance (by Name):** the cooked loader ran (a Blueprint variable set at BeginPlay read back true) but the node's
+  `Out Success` was false, `Return Value` was empty, no streaming level appeared and the engine log was silent. Not diagnosed further.
+- **A legacy (non-IoStore) pak:** it mounts, but the game loads packages through IoStore only, so the loader class was never found.
+- **A Level Instance loader with the default Runtime Behavior:** the map reference was not written into the cooked Blueprint (the cooked file held no map path) and nothing loaded.
+  Setting Desired Runtime Behavior to Standalone fixed that: the cooked file then held the map path.
+- **Print String in the loader:** it is Development Only and does nothing in a shipping game. To see what a loader did, read a Blueprint variable it set from Lua instead.
+
 ## Status
-Tested in game with a real, finished world pak: the hub spawned the loader, waited for the level to become visible, spawned the arrival pad at
-`origin + arrive`, switched the hub portal on, and the portal put the player in the right spot. The hub's `worlds` config section drives it.
+Tested in game with our own Test World (a small map plus a Level Instance loader, `BP_CordonaTestLoader`): the hub spawned the loader, waited for the level to become visible, spawned the arrival pad at
+`origin + arrive`, switched the hub portal on, and the portal put the player in the right spot. The level was found already loaded and visible at 0 s and the hub reported the world ready after 0.2 s. The hub's `worlds` config section drives it.
 
 ## Public sources for each building block
 - Spawning an actor class from Lua: UE4SS Lua API, `UWorld:SpawnActor(UClass, FVector, FRotator)`
@@ -36,14 +44,16 @@ Tested in game with a real, finished world pak: the hub spawned the loader, wait
   <https://docs.ue4ss.com/lua-api/global-functions/loadasset.html>, then `StaticFindObject("<package>.<ClassName>_C")`.
 - Name-only asset lookup (the fallback the hub also tries): Unreal `UAssetRegistryHelpers::GetAsset(FAssetData)`
   <https://dev.epicgames.com/documentation/unreal-engine/BlueprintAPI/AssetData/GetAsset>.
-- Streaming a level from a Blueprint (what a loader actor does inside the pak): the **Load Level Instance (by Name)** node, which loads a level at a world
-  location and rotation and does not need the level to be in a persistent map's Levels list (the map must be listed in Packaging > "List of Maps to Include")
-  <https://dev.epicgames.com/documentation/unreal-engine/BlueprintAPI/LevelStreaming/LoadLevelInstance_byName>. Epic's "Loading and Unloading Levels Using Blueprints" covers only Load Stream Level, which does need a registered sublevel
-  <https://dev.epicgames.com/documentation/unreal-engine/loading-and-unloading-levels-using-blueprints-in-unreal-engine>.
+- Streaming a level from a Blueprint: Epic's Level Instance actor, `ALevelInstance`, whose world reference is `GetWorldAsset`/`SetWorldAsset` and whose runtime behaviour setting is
+  `DesiredRuntimeBehavior`
+  <https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/ALevelInstance>. The documentation does not describe cooking or the Standalone choice: that Standalone is what makes the map
+  reference survive the cook, and that the engine then streams the level when the actor is spawned, comes from our own testing.
+  The **Load Level Instance (by Name)** Blueprint node is documented at
+  <https://dev.epicgames.com/documentation/unreal-engine/BlueprintAPI/LevelStreaming/LoadLevelInstance_byName>; it did not work for us in this game (see above).
 - Waiting for a streamed level: `ULevelStreaming` (the streaming object, with `PackageNameToLoad` and a visibility query)
   <https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/ULevelStreaming> and the blocking `UWorld::FlushLevelStreaming`
   <https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UWorld/FlushLevelStreaming>.
 - Patch-pak packaging and the `_P` naming: the community guide linked from the README.
 Notes: the documentation does not show the asset-registry call being made from Lua, which is why the hub tries `LoadAsset` first. Every piece above is
-ordinary, documented Unreal / UE4SS functionality; the loader actor is simply a Blueprint that uses Epic's documented level-streaming nodes.
+ordinary, documented Unreal / UE4SS functionality; the loader is simply a Blueprint based on Epic's documented Level Instance actor.
 

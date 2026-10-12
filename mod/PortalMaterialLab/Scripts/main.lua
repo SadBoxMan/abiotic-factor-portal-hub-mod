@@ -474,3 +474,87 @@ local function slot_report()
 end
 RegisterKeyBind(Key.MULTIPLY, function() ExecuteInGameThread(slot_report) end)
 log("prototype 3 key: NUMPAD * (multiply) = list the game's streaming slots (read-only)")
+
+------------------------------------------------------------------------------------------------------------------------
+-- Prototype 4: does the packaged loader Blueprint actually create a level instance when its BeginPlay runs?
+--   NUMPAD / (divide) = call BeginPlay again on the test loader, then (2 s later) report whether the streaming list grew.
+-- It also reads the loader's own variables if the Blueprint has them (BeginPlayRan, LoadSucceeded). Read-only apart from the one call.
+------------------------------------------------------------------------------------------------------------------------
+local function count_streaming()
+    local n = 0
+    local world = UEHelpers.GetWorld()
+    if world and world:IsValid() then
+        pcall(function() world.StreamingLevels:ForEach(function() n = n + 1 end) end)
+    end
+    return n
+end
+
+local function loader_test()
+    log("---- LOADER TEST")
+    local loaders = FindAllOf("BP_CordonaTestLoader_C") or {}
+    local loader
+    for _, a in ipairs(loaders) do if a:IsValid() then loader = a end end
+    if not loader then log("  no BP_CordonaTestLoader_C actor in the world") return end
+    log("  loader: " .. loader:GetFName():ToString())
+    for _, v in ipairs({ "BeginPlayRan", "LoadSucceeded", "LevelInstance" }) do
+        local ok, val = pcall(function() return loader[v] end)
+        log(string.format("  variable %-14s %s", v, ok and describe(val) or "(not on this Blueprint)"))
+    end
+    local before = count_streaming()
+    log("  streaming levels before: " .. before)
+    local ok, err = pcall(function() loader:ReceiveBeginPlay() end)
+    log("  called ReceiveBeginPlay: " .. (ok and "ok" or ("FAILED: " .. tostring(err))))
+    ExecuteWithDelay(2000, function()
+        ExecuteInGameThread(function()
+            log("  streaming levels 2 s later: " .. count_streaming() .. " (before: " .. before .. ")")
+            for _, v in ipairs({ "BeginPlayRan", "LoadSucceeded" }) do
+                local ok2, val = pcall(function() return loader[v] end)
+                if ok2 then log("  variable " .. v .. " = " .. describe(val)) end
+            end
+            log("---- package access (full object paths; a cooked Blueprint exists as its _C class)")
+            local helpers = StaticFindObject("/Script/AssetRegistry.Default__AssetRegistryHelpers")
+            for _, p in ipairs({
+                { "map",    "/Game/Mods/CordonaTest/Maps/CordonaTest_L0", "CordonaTest_L0" },
+                { "cube",   "/Game/Mods/CordonaTest/Cube",                "Cube" },
+                { "loader", "/Game/Mods/CordonaTest/BP_CordonaTestLoader", "BP_CordonaTestLoader_C" },
+            }) do
+                local full = p[2] .. "." .. p[3]
+                local okL = pcall(LoadAsset, full)
+                local obj = StaticFindObject(full)
+                local viaLoad = obj and obj:IsValid()
+                local viaReg = false
+                if helpers and helpers:IsValid() then
+                    pcall(function()
+                        local o = helpers:GetAsset({ PackageName = UEHelpers.FindOrAddFName(p[2]), AssetName = UEHelpers.FindOrAddFName(p[3]) })
+                        viaReg = (o and o:IsValid()) and true or false
+                    end)
+                end
+                local cls = "?"
+                if viaLoad then pcall(function() cls = obj:GetClass():GetFName():ToString() end) end
+                log(string.format("  %-7s %-52s LoadAsset call %s | found by path: %s%s | found by asset registry: %s", p[1], full,
+                    okL and "ok" or "failed", tostring(viaLoad), viaLoad and (" (" .. cls .. ")") or "", tostring(viaReg)))
+            end
+            log("---- direct load from Lua, using the engine's text type for the level name")
+            log("  FString constructor: " .. type(FString))
+            local world = UEHelpers.GetWorld()
+            local dyn = StaticFindObject("/Script/Engine.Default__LevelStreamingDynamic")
+            local dynClass = StaticFindObject("/Script/Engine.LevelStreamingDynamic")
+            if type(FString) == "function" and world and world:IsValid() and dyn and dyn:IsValid() then
+                local n0 = count_streaming()
+                local ok3, res = pcall(function()
+                    return dyn:LoadLevelInstance(world, FString("/Game/Mods/CordonaTest/Maps/CordonaTest_L0"), { X = 1100000.0, Y = 1400000.0, Z = 0.0 },
+                        { Pitch = 0.0, Yaw = 0.0, Roll = 0.0 }, {}, FString("CordonaTestDirect"), dynClass, false)
+                end)
+                log("  LoadLevelInstance with FString: " .. (ok3 and ("returned " .. tostring(res)) or ("FAILED: " .. tostring(res):match("^[^\r\n]*"))))
+                log("  streaming levels: " .. n0 .. " -> " .. count_streaming())
+            else
+                log("  skipped (no FString constructor in this UE4SS build)")
+            end
+            log("---- LOADER TEST done")
+        end)
+    end)
+end
+RegisterKeyBind(Key.DIVIDE, function() ExecuteInGameThread(loader_test) end)
+log("prototype 4 key: NUMPAD / (divide) = loader test")
+
+

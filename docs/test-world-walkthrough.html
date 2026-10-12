@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test World Walkthrough</title>
+<style>
+:root{
+  --bg:#f6f6f9; --panel:#ffffff; --ink:#1d1d26; --muted:#5e5e70; --line:#e2e2ea; --accent:#4a63e0; --ok:#1f8a4c; --ok-bg:#e3f5ea;
+  --warn-bg:#fdeed8; --warn:#9a5206; --code:#eeeef4; --codeink:#25253a;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#15151b; --panel:#1f1f28; --ink:#ececf2; --muted:#a2a2b4; --line:#33333f; --accent:#7f93ff; --ok:#58d68d; --ok-bg:#1c3a2a;
+    --warn-bg:#3d2d14; --warn:#f5b563; --code:#14141b; --codeink:#dcdcf0;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15151b; --panel:#1f1f28; --ink:#ececf2; --muted:#a2a2b4; --line:#33333f; --accent:#7f93ff; --ok:#58d68d; --ok-bg:#1c3a2a;
+  --warn-bg:#3d2d14; --warn:#f5b563; --code:#14141b; --codeink:#dcdcf0;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:860px;margin:0 auto;padding:24px 16px 90px}
+h1{margin:0 0 4px;font-size:1.8rem;letter-spacing:-.01em}
+.lead{color:var(--muted);margin:0 0 16px}
+.sticky{position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 0 8px;border-bottom:1px solid var(--line);margin-bottom:18px}
+.meter{display:flex;align-items:center;gap:12px;font-size:.9rem;color:var(--muted)}
+.track{flex:1;height:10px;background:var(--line);border-radius:999px;overflow:hidden}
+.track i{display:block;height:100%;width:0;background:var(--ok);transition:width .25s}
+nav.steps{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+nav.steps a{font-size:.82rem;text-decoration:none;color:var(--ink);border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:3px 10px}
+nav.steps a:hover{border-color:var(--accent)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:14px 0}
+.glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:8px 0 4px}
+.glance div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.glance b{display:block;font-size:.76rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:2px}
+table{width:100%;border-collapse:collapse;font-size:.93rem}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.07em}
+code{background:var(--code);color:var(--codeink);padding:1px 6px;border-radius:5px;font:.88em ui-monospace,Consolas,monospace}
+section.step{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin:16px 0;overflow:hidden}
+.step h2{margin:0;padding:14px 18px;font-size:1.1rem;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line)}
+.step h2 .n{flex:0 0 32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:700}
+.step.done h2 .n{background:var(--ok)}
+.step .in{padding:10px 18px 16px}
+ul.check{list-style:none;margin:6px 0;padding:0}
+ul.check li{display:flex;gap:10px;padding:7px 0;border-bottom:1px dashed var(--line)}
+ul.check li:last-child{border-bottom:0}
+ul.check input{margin-top:6px;width:18px;height:18px;flex:0 0 18px;accent-color:var(--ok)}
+ul.check label{cursor:pointer}
+ul.check input:checked + label{color:var(--muted);text-decoration:line-through}
+.codebox{position:relative;margin:10px 0}
+.codebox pre{margin:0;background:var(--code);color:var(--codeink);border-radius:10px;padding:12px 14px;overflow:auto;font:.86rem/1.5 ui-monospace,Consolas,monospace}
+.copy{position:absolute;top:8px;right:8px;font:inherit;font-size:.76rem;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:3px 9px;border-radius:7px;cursor:pointer}
+.copy:hover{border-color:var(--accent)}
+.note{background:var(--warn-bg);color:var(--ink);border-left:4px solid var(--warn);border-radius:8px;padding:9px 12px;margin:10px 0;font-size:.93rem}
+.note b{color:var(--warn)}
+.tip{background:var(--ok-bg);border-left:4px solid var(--ok);border-radius:8px;padding:9px 12px;margin:10px 0;font-size:.93rem}
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 0}
+button.t{font:inherit;font-size:.85rem;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:5px 11px;border-radius:8px;cursor:pointer}
+button.t:hover{border-color:var(--accent)}
+a{color:var(--accent)}
+sup.cite{font-size:.72em;line-height:0;margin-left:1px}
+sup.cite a{text-decoration:none;font-weight:600}
+ol.refs{padding-left:1.6em;margin:8px 0 0}
+ol.refs li{margin:8px 0;scroll-margin-top:90px}
+ol.refs li:target{background:var(--ok-bg);border-radius:8px}
+ol.refs .src{display:inline-block;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:0 7px;margin-right:6px}
+ol.refs .back{font-size:.8rem;margin-left:6px;white-space:nowrap}
+ol.refs .why{display:block;color:var(--muted);font-size:.9rem}
+ol.refs a.u{word-break:break-all}
+footer{margin-top:36px;color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Build a tiny test world for the Portal Hub</h1>
+<p class="lead">A minimal custom world, packaged as a patch pak, that the hub can load and send players to. It proves the whole chain and works as a template for other modders. No C++ needed. Numbers in brackets, like <sup class="cite"><a href="#ref-1" id="cite-1-1">[1]</a></sup>, point to the <a href="#sources">Sources</a> at the bottom: Epic or UE4SS documentation, a community guide, or this project's own test results (marked as such, where the documentation is silent).</p>
+
+<div class="sticky">
+  <div class="meter"><span id="count">0 of 0 done</span><div class="track"><i id="bar"></i></div></div>
+  <nav class="steps"><a href="#s1">1 Project</a><a href="#s2">2 Map</a><a href="#s3">3 Loader</a><a href="#s4">4 Chunk</a><a href="#s5">5 Package</a><a href="#s6">6 Install</a><a href="#fix">Troubleshooting</a><a href="#sources">Sources</a></nav>
+</div>
+
+<div class="card">
+  <strong>What you will build</strong>
+  <div class="glance">
+    <div><b>The map</b>A flat floor and a few lights, <code>CordonaTest_L0</code></div>
+    <div><b>The loader</b>A tiny Level Instance Blueprint that streams the map in <sup class="cite"><a href="#ref-1" id="cite-1-2">[1]</a></sup></div>
+    <div><b>Time</b>About an hour the first time, plus a slow first package</div>
+    <div><b>You need</b>Unreal Engine 5.4, Windows SDK and Visual Studio build tools, the game with UE4SS and the hub</div>
+  </div>
+  <p style="margin:12px 0 4px">The hub spawns the loader far from the Facility, waits for the level, then puts a teleporter pad at the arrival point. Keep these names in step in all three places they appear:</p>
+  <table>
+    <tr><th>What</th><th>Value</th></tr>
+    <tr><td>Content folder</td><td><code>/Game/Mods/CordonaTest/</code></td></tr>
+    <tr><td>Map</td><td><code>/Game/Mods/CordonaTest/Maps/CordonaTest_L0</code></td></tr>
+    <tr><td>Loader Blueprint</td><td><code>/Game/Mods/CordonaTest/BP_CordonaTestLoader</code> (class <code>BP_CordonaTestLoader_C</code>)</td></tr>
+    <tr><td>Arrival id</td><td><code>cordonatest_start</code></td></tr>
+    <tr><td>Chunk id</td><td><code>90</code> (the game itself uses 0) <sup class="cite"><a href="#ref-3" id="cite-3-3">[3]</a></sup></td></tr>
+  </table>
+  <div class="tools"><button class="t" id="reset">Reset my checklist</button><button class="t" id="theme">Switch theme</button></div>
+</div>
+
+<section class="step" id="s1">
+  <h2><span class="n">1</span>Open the project</h2>
+  <div class="in">
+    <p>The project folder is <code>TestWorld/AbioticFactor/</code> (git-ignored). It must be named exactly <code>AbioticFactor</code>. Its <code>Config/DefaultGame.ini</code> already turns on IoStore and chunk generation and lists the map to cook.</p>
+    <ul class="check">
+      <li><input type="checkbox" id="c1a"><label for="c1a">Double-click <code>AbioticFactor.uproject</code> (it is Blueprint-only). A warning about the startup map is fine: we make it next.</label></li>
+      <li><input type="checkbox" id="c1b"><label for="c1b"><b>Edit &rarr; Editor Preferences &rarr; Experimental</b>: tick <b>Allow ChunkID Assignments</b>. <sup class="cite"><a href="#ref-3" id="cite-3-4">[3]</a></sup></label></li>
+      <li><input type="checkbox" id="c1c"><label for="c1c"><b>Edit &rarr; Project Settings &rarr; Packaging</b>: confirm <i>Use Pak File</i>, <i>Use Io Store</i> and <i>Generate Chunks</i> are on.</label></li>
+      <li><input type="checkbox" id="c1d"><label for="c1d">Confirm <i>List of Maps to Include in a Packaged Build</i> contains <code>/Game/Mods/CordonaTest/Maps/CordonaTest_L0</code>.</label></li>
+      <li><input type="checkbox" id="c1e"><label for="c1e"><b>Leave <i>Use Io Store</i> on.</b> The game loads packages through IoStore only: a pak built without it still mounts, but the game never finds the loader class in it. <sup class="cite"><a href="#ref-10" id="cite-10-5">[10]</a></sup></label></li>
+    </ul>
+    <div class="note"><b>Why the map list matters:</b> a level loaded as an instance is not part of any persistent map, so it is only packaged if it is listed here. <sup class="cite"><a href="#ref-2" id="cite-2-6">[2]</a></sup></div>
+  </div>
+</section>
+
+<section class="step" id="s2">
+  <h2><span class="n">2</span>Make the map</h2>
+  <div class="in">
+    <ul class="check">
+      <li><input type="checkbox" id="c2a"><label for="c2a">In the Content Browser open <code>Content/Mods/CordonaTest/Maps</code>. <b>File &rarr; New Level &rarr; Empty Level</b> (<b>not</b> Basic). Save it as <code>CordonaTest_L0</code>. If you already made a Basic level, delete every actor in it.</label></li>
+      <li><input type="checkbox" id="c2a2"><label for="c2a2"><b>Check where it saved:</b> the Save dialog defaults to the top of <code>Content</code>. The map must end up in <code>Content/Mods/CordonaTest/Maps</code> with the path <code>/Game/Mods/CordonaTest/Maps/CordonaTest_L0</code>. If it is elsewhere, drag it there, choose Move Here, then right-click the <code>Content</code> folder &rarr; Update Redirector References (called Fix Up Redirectors in Folder in older editors).</label></li>
+      <li><input type="checkbox" id="c2b"><label for="c2b">Open the Content Browser (bottom-left <b>Content Drawer</b>, or Ctrl+Space), open <b>its own</b> Settings menu (not the editor&rsquo;s Settings at the top right) and tick <b>View &rarr; Show Engine Content</b>. Find <code>BasicShapes/Cube</code>, right-click &rarr; <b>Asset Actions &rarr; Create Copy</b> into <code>/Game/Mods/CordonaTest/</code>. Use <b>that copy</b>, not the engine one.</label></li>
+      <li><input type="checkbox" id="c2c"><label for="c2c">Floor: place the copy at <code>(0, 0, -50)</code>, scaled <code>(40, 40, 1)</code>. Its top face is at Z = 0, the floor height the hub uses.</label></li>
+      <li><input type="checkbox" id="c2d"><label for="c2d">Add a few more copies as pillars and one or two Point Lights from <b>Place Actors &rarr; Lights</b> (do not drop light assets onto the cubes). Set <b>every light's Mobility to Movable</b> so no baked lighting is needed. Add a Movable Sky Light if the floor looks black.</label></li>
+      <li><input type="checkbox" id="c2e"><label for="c2e">Keep everything within about &plusmn;4000 units of the origin.</label></li>
+      <li><input type="checkbox" id="c2f"><label for="c2f">Leave the area just in front of the origin clear: that is where players will stand.</label></li>
+    </ul>
+    <div class="tip"><b>Arrival point:</b> the hub puts a pad at the <code>arrive</code> position, and players appear <b>215 units in front of it and 127 up</b>. With <code>arrive = { 0, 0, 0, 0 }</code> the pad sits at the map origin facing +X, so players stand at (215, 0, 127), on the floor. <sup class="cite"><a href="#ref-10" id="cite-10-7">[10]</a></sup></div>
+    <div class="note"><b>Why Empty Level, not Basic:</b> the Basic template adds a sky, fog, clouds, a directional light and an engine floor mesh. The lighting and atmosphere actors are global, so streamed in they would change the lighting of the whole game world, and the engine mesh would not be in your pak.</div>
+    <div class="note"><b>Why a copy of the cube:</b> engine assets are not part of your chunk. If the floor used the original, it could be missing at runtime.</div>
+  </div>
+</section>
+
+<section class="step" id="s3">
+  <h2><span class="n">3</span>Make the loader Blueprint</h2>
+  <div class="in">
+    <ul class="check">
+      <li><input type="checkbox" id="c3a"><label for="c3a">In <code>Content/Mods/CordonaTest/</code>: right-click &rarr; <b>Blueprint Class</b>, open <b>All Classes</b>, search <code>Level Instance</code> and pick <b>Level Instance</b> (Epic's Level Instance actor, <code>ALevelInstance</code>). <sup class="cite"><a href="#ref-1" id="cite-1-8">[1]</a></sup> Name it <code>BP_CordonaTestLoader</code>.</label></li>
+      <li><input type="checkbox" id="c3b"><label for="c3b">Open it and click <b>Class Defaults</b>. Under <b>Level</b>, set the level to <code>CordonaTest_L0</code>. This is the Level Instance's world asset (<code>SetWorldAsset</code> / <code>GetWorldAsset</code> in the API). <sup class="cite"><a href="#ref-1" id="cite-1-9">[1]</a></sup></label></li>
+      <li><input type="checkbox" id="c3c"><label for="c3c">Still in Class Defaults, expand <b>Level Instance &rarr; Advanced</b> and set <b>Desired Runtime Behavior</b> to <b>Standalone</b>. The API lists this setting (<code>DesiredRuntimeBehavior</code>) <sup class="cite"><a href="#ref-1" id="cite-1-10">[1]</a></sup> but does not describe the choices. In testing, Standalone loads the map as its own streaming level, which the hub can watch for; <i>Embedded</i> would merge it into the main world. <b>This step matters:</b> with the default setting the map reference was not saved into the cooked Blueprint and nothing loaded. <sup class="cite"><a href="#ref-10" id="cite-10-11">[10]</a></sup></label></li>
+      <li><input type="checkbox" id="c3d"><label for="c3d">Leave the Event Graph empty. Compile (green tick) and save. <b>Do not</b> place the loader in the map: the hub spawns it, and the engine streams the level in at the loader's location. <sup class="cite"><a href="#ref-10" id="cite-10-12">[10]</a></sup></label></li>
+    </ul>
+    <div class="note"><b>Do not</b> build the loader as an Actor whose BeginPlay calls <i>Load Level Instance (by Name)</i>. <sup class="cite"><a href="#ref-2" id="cite-2-13">[2]</a></sup> It is documented, but in this game it reported failure and loaded nothing. <sup class="cite"><a href="#ref-10" id="cite-10-14">[10]</a></sup> Print String is Development Only, so it prints nothing in the shipping game: do not rely on it to debug. <sup class="cite"><a href="#ref-10" id="cite-10-15">[10]</a></sup></div>
+  </div>
+</section>
+
+<section class="step" id="s4">
+  <h2><span class="n">4</span>Mark the assets for your own chunk</h2>
+  <div class="in">
+    <ul class="check">
+      <li><input type="checkbox" id="c4a"><label for="c4a">In <code>Content/Mods/CordonaTest/</code>: right-click &rarr; <b>Miscellaneous &rarr; Data Asset &rarr; Primary Asset Label</b>, name it <code>PAL_CordonaTest</code>. <sup class="cite"><a href="#ref-3" id="cite-3-16">[3]</a></sup></label></li>
+      <li><input type="checkbox" id="c4b"><label for="c4b">Open it: <b>Priority</b> 1, <b>Chunk ID</b> 90, tick <b>Label Assets in My Directory</b>, and set the cook rule to always cook if offered. Assets with no chunk id, or a negative one, go into chunk 0, the game's own. <sup class="cite"><a href="#ref-3" id="cite-3-17">[3]</a></sup></label></li>
+      <li><input type="checkbox" id="c4b2"><label for="c4b2"><b>Make sure the loader is cooked.</b> Nothing references it (the hub spawns it), so the packager skips it. In <b>Project Settings &rarr; Packaging &rarr; Advanced</b>, add <code>/Game/Mods/CordonaTest</code> to <b>Additional Asset Directories to Cook</b> (already set in the project's <code>DefaultGame.ini</code>). <sup class="cite"><a href="#ref-10" id="cite-10-18">[10]</a></sup></label></li>
+      <li><input type="checkbox" id="c4c"><label for="c4c"><b>File &rarr; Save All</b>.</label></li>
+    </ul>
+  </div>
+</section>
+
+<section class="step" id="s5">
+  <h2><span class="n">5</span>Package it</h2>
+  <div class="in">
+    <ul class="check">
+      <li><input type="checkbox" id="c5a"><label for="c5a"><b>Platforms &rarr; Windows &rarr; Package Project</b>. Pick an output folder, such as <code>TestWorld/Packaged</code>. The first package is slow (shaders).</label></li>
+      <li><input type="checkbox" id="c5a2"><label for="c5a2"><b>Check the cooked loader before installing anything.</b> Open <code>TestWorld/AbioticFactor/Saved/Cooked/Windows/AbioticFactor/Content/Mods/CordonaTest/</code> and confirm <code>BP_CordonaTestLoader.uasset</code> contains the text <code>/Game/Mods/CordonaTest/Maps/CordonaTest_L0</code> (open it in a text editor and search). If it is missing, the loader's Level or its Desired Runtime Behavior (step 3) is not set, and the game will load nothing. <sup class="cite"><a href="#ref-10" id="cite-10-19">[10]</a></sup></label></li>
+      <li><input type="checkbox" id="c5b"><label for="c5b">In the output, open <code>Windows/AbioticFactor/Content/Paks/</code>. You need <b>only</b> <code>pakchunk90-Windows.pak</code>, <code>.ucas</code> and <code>.utoc</code> (the <code>.pak</code> is only a few hundred bytes: that is normal for IoStore). <b>Do not install <code>pakchunk0-*</code> or <code>global.*</code></b>: they hold engine content and a shader cache that would override the game&rsquo;s own and crash it. <sup class="cite"><a href="#ref-10" id="cite-10-20">[10]</a></sup></label></li>
+      <li><input type="checkbox" id="c5c"><label for="c5c">Rename all three together so the name ends in <code>_P</code>: <code>pakchunk90-Windows_P.pak</code>, <code>.ucas</code>, <code>.utoc</code>. <sup class="cite"><a href="#ref-4" id="cite-4-21">[4]</a></sup></label></li>
+    </ul>
+  </div>
+</section>
+
+<section class="step" id="s6">
+  <h2><span class="n">6</span>Install and connect to the hub</h2>
+  <div class="in">
+    <ul class="check">
+      <li><input type="checkbox" id="c6a"><label for="c6a">Copy the three files <b>directly into</b> <code>AbioticFactor/Content/Paks</code>. <sup class="cite"><a href="#ref-4" id="cite-4-22">[4]</a></sup><sup class="cite"><a href="#ref-10" id="cite-10-23">[10]</a></sup> Replace any earlier <code>pakchunk90-Windows_P.*</code> files, and make sure no leftover single <code>.pak</code> from a build made without IoStore remains.</label></li>
+      <li><input type="checkbox" id="c6b"><label for="c6b">Add the world to the hub's <code>config.lua</code> (below), and give a hub portal the destination <code>cordonatest_start</code> (in the editor: <b>Custom Destination</b>).</label></li>
+      <li><input type="checkbox" id="c6c"><label for="c6c">Restart the game, load a world, wait about 5 seconds, open the UE4SS GUI (<b>Ctrl+O</b>).</label></li>
+      <li><input type="checkbox" id="c6d"><label for="c6d">Look for <code>worlds: loader spawned for cordonatest_start ...</code>, then <code>worlds: cordonatest_start waiting (0 s): streaming level found, loaded=true, visible=true</code>, then <code>worlds: cordonatest_start is ready after ... s</code>. The hub portal switches on and takes you in.</label></li>
+    </ul>
+    <div class="tip"><b>What the hub does behind that log:</b> it finds the loader class with <code>LoadAsset</code> <sup class="cite"><a href="#ref-5" id="cite-5-24">[5]</a></sup> (falling back to the asset registry's <code>GetAsset</code> <sup class="cite"><a href="#ref-9" id="cite-9-25">[9]</a></sup>), spawns it at <code>origin</code> with <code>SpawnActor</code> <sup class="cite"><a href="#ref-6" id="cite-6-26">[6]</a></sup>, watches <code>world.StreamingLevels</code> for the entry whose <code>PackageNameToLoad</code> is your map and asks whether it is loaded and visible <sup class="cite"><a href="#ref-7" id="cite-7-27">[7]</a></sup> (flushing level streaming now and then <sup class="cite"><a href="#ref-8" id="cite-8-28">[8]</a></sup>), places the arrival pad at <code>origin + arrive</code>, and switches the hub portal on. Because the level is chosen inside the Blueprint, Lua never has to pass a text argument, which fails in this UE4SS build. <sup class="cite"><a href="#ref-10" id="cite-10-29">[10]</a></sup></div>
+    <div class="note"><b>Not a subfolder:</b> on the Steam install a <code>~mods</code> subfolder is not mounted. The pak must sit directly in <code>Content/Paks</code>.</div>
+    <p>Config entry:</p>
+    <div class="codebox"><pre>worlds = {
+    cordonatest_start = {
+        loaderAsset = "/Game/Mods/CordonaTest/BP_CordonaTestLoader",
+        loaderClass = "BP_CordonaTestLoader_C",
+        level       = "/Game/Mods/CordonaTest/Maps/CordonaTest_L0",
+        origin      = { 1100000, 1300000, 0 },
+        arrive      = { 0, 0, 0, 0 },
+    },
+},</pre><button class="copy" type="button">Copy</button></div>
+  </div>
+</section>
+
+<div class="card" id="fix">
+  <strong>If something goes wrong</strong>
+  <table>
+    <tr><th>Log line</th><th>Meaning</th></tr>
+    <tr><td><code>the world's pak is not installed (no BP_CordonaTestLoader_C ...)</code></td><td>The pak was not mounted (wrong folder, or no restart), was built <b>without IoStore</b> (it mounts but the game never loads it), or the Blueprint path or class in the config does not match.</td></tr>
+    <tr><td><code>loader spawned ...</code> but never <code>ready</code></td><td>The loader ran but the level did not stream in. Check the loader's Level is set, <b>Desired Runtime Behavior is Standalone</b>, the cooked loader contains the map path (step 5), and the map is in the Packaging list.</td></tr>
+    <tr><td><code>ready</code>, but you fall or land in a wall</td><td>Adjust <code>arrive</code>: z is the floor height, the last number is the way the pad faces.</td></tr>
+    <tr><td>(packaging) <code>Unable to find package for cooking /Game/Mods/CordonaTest/Maps/CordonaTest_L0</code></td><td>The map is not at that path (it was saved in the wrong folder). Move it into <code>Content/Mods/CordonaTest/Maps</code>.</td></tr>
+    <tr><td>(packaging) <code>Failed to load '/Game/Mods/CordonaTest/...': Can't find file</code></td><td>The map still references an asset you moved or deleted (for example a light asset dropped onto a cube). Replace it with a plain Point Light from Place Actors and package again. Usually harmless, but worth cleaning up.</td></tr>
+    <tr><td>(packaging) <code>Stage Failed. Missing receipt ...-Win64-Shipping.target</code> / <code>Missing UnrealGame binary</code></td><td>The packager thinks the project has code. Make sure the <code>.uproject</code> has no <code>Modules</code> entry (a Blueprint-only project has none), then reopen the editor.</td></tr>
+    <tr><td>The game crashes at start with <code>Missing global shader ...</code></td><td>The wrong pak was installed: <code>pakchunk0</code> or <code>global</code> (engine content and a shader cache). Remove it and install only the <code>pakchunk90</code> files.</td></tr>
+    <tr><td>The loader is not in your chunk (the chunk manifest lists only the map and meshes)</td><td>The loader was never cooked. Add <code>/Game/Mods/CordonaTest</code> to Additional Asset Directories to Cook and package again.</td></tr>
+    <tr><td>Every UE4SS mod stops reacting after a Lua error</td><td>A Lua error inside any mod's hook can make UE4SS remove its tick hook (&ldquo;removing hook!&rdquo; in the log), and all game-thread work stops until the game is restarted. Disable the mod that errored and restart.</td></tr>
+    <tr><td>The game crashes on load</td><td>Usually a bad cook. Re-package, and check the chunk id is not 0.</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <strong>What this exercise answered</strong>
+  <ul style="margin:8px 0 0">
+    <li>A self-contained map plus a Level Instance loader Blueprint streams in at the configured origin: ready after 0.2 s in testing.</li>
+    <li>The hub's <code>LoadAsset</code>-first lookup finds the loader class.</li>
+    <li>The packaging settings that work for a new content chunk alongside the game's own: IoStore on, chunk id 90, the always-cook directory, and only the <code>pakchunk90</code> triplet installed.</li>
+  </ul>
+</div>
+
+<div class="card" id="sources">
+  <strong>Sources</strong>
+  <p style="margin:6px 0 0;color:var(--muted);font-size:.9rem">Where a claim comes from. <b>Epic</b> and <b>UE4SS</b> are their official documentation, <b>Community</b> is a modding guide, <b>Testing</b> is this project's own results. Where the documentation is silent, the text above says the claim comes from testing.</p>
+  <ol class="refs">
+    <li id="ref-1"><span class="src">Epic</span><b>ALevelInstance (Unreal Engine API reference).</b> Lists the Level Instance actor, GetWorldAsset / SetWorldAsset and the DesiredRuntimeBehavior setting. It does not describe cooking or the runtime behaviour choices.<br><a class="u" href="https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/ALevelInstance">https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/ALevelInstance</a> <span class="back">&uarr; <a href="#cite-1-1">a</a> <a href="#cite-1-2">b</a> <a href="#cite-1-8">c</a> <a href="#cite-1-9">d</a> <a href="#cite-1-10">e</a></span></li>
+    <li id="ref-2"><span class="src">Epic</span><b>Load Level Instance (by Name) (Blueprint API).</b> Says the map should be in the packaging map list so it is packaged, and that Out Success reports whether the map was found. We tested this node in a loader and it failed in this game (see 10).<br><a class="u" href="https://dev.epicgames.com/documentation/unreal-engine/BlueprintAPI/LevelStreaming/LoadLevelInstance_byName">https://dev.epicgames.com/documentation/unreal-engine/BlueprintAPI/LevelStreaming/LoadLevelInstance_byName</a> <span class="back">&uarr; <a href="#cite-2-6">a</a> <a href="#cite-2-13">b</a></span></li>
+    <li id="ref-3"><span class="src">Epic</span><b>Cooking Content and Creating Chunks in Unreal Engine.</b> Covers Primary Asset Labels and chunk ids; assets without a chunk id, or with a negative one, go into chunk 0.<br><a class="u" href="https://dev.epicgames.com/documentation/unreal-engine/cooking-content-and-creating-chunks-in-unreal-engine">https://dev.epicgames.com/documentation/unreal-engine/cooking-content-and-creating-chunks-in-unreal-engine</a> <span class="back">&uarr; <a href="#cite-3-3">a</a> <a href="#cite-3-4">b</a> <a href="#cite-3-16">c</a> <a href="#cite-3-17">d</a></span></li>
+    <li id="ref-4"><span class="src">Community</span><b>Guide to making a patch pak for this game.</b> Blueprint project named AbioticFactor, chunk label, and the _P naming of the output.<br><a class="u" href="https://hackmd.io/f3Bl-APIQrOlKmAuBxbI_A">https://hackmd.io/f3Bl-APIQrOlKmAuBxbI_A</a> <span class="back">&uarr; <a href="#cite-4-21">a</a> <a href="#cite-4-22">b</a></span></li>
+    <li id="ref-5"><span class="src">UE4SS</span><b>LoadAsset.</b> Loads an asset by path and name; game thread only.<br><a class="u" href="https://docs.ue4ss.com/lua-api/global-functions/loadasset.html">https://docs.ue4ss.com/lua-api/global-functions/loadasset.html</a> <span class="back">&uarr; <a href="#cite-5-24">a</a></span></li>
+    <li id="ref-6"><span class="src">UE4SS</span><b>UWorld Lua class, SpawnActor.</b> The class passed must be the Blueprint's generated _C class.<br><a class="u" href="https://docs.ue4ss.com/dev/lua-api/classes/uworld.html">https://docs.ue4ss.com/dev/lua-api/classes/uworld.html</a> <span class="back">&uarr; <a href="#cite-6-26">a</a></span></li>
+    <li id="ref-7"><span class="src">Epic</span><b>ULevelStreaming (API reference).</b> Lists PackageNameToLoad, IsLevelLoaded() and IsLevelVisible().<br><a class="u" href="https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/ULevelStreaming">https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/ULevelStreaming</a> <span class="back">&uarr; <a href="#cite-7-27">a</a></span></li>
+    <li id="ref-8"><span class="src">Epic</span><b>UWorld::FlushLevelStreaming (API reference).</b> Blocks until pending level streaming finishes.<br><a class="u" href="https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UWorld/FlushLevelStreaming">https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UWorld/FlushLevelStreaming</a> <span class="back">&uarr; <a href="#cite-8-28">a</a></span></li>
+    <li id="ref-9"><span class="src">Epic</span><b>Get Asset in the Asset Registry Helpers (Blueprint API).</b> The hub's fallback lookup for the loader class.<br><a class="u" href="https://dev.epicgames.com/documentation/unreal-engine/BlueprintAPI/AssetData/GetAsset">https://dev.epicgames.com/documentation/unreal-engine/BlueprintAPI/AssetData/GetAsset</a> <span class="back">&uarr; <a href="#cite-9-25">a</a></span></li>
+    <li id="ref-10"><span class="src">Testing</span><b>This project's own test results</b>, recorded in <a href="../findings/custom-world-loading.md"><code>findings/custom-world-loading.md</code></a>: what failed, what worked, and the observations the documentation does not cover (IoStore only, <code>Content/Paks</code> not <code>~mods</code>, the Standalone setting, the cooked-map-reference check, the dev-only Print String, the UE4SS text-argument limit, the 215 / 127 arrival offset). <span class="back">&uarr; <a href="#cite-10-5">a</a> <a href="#cite-10-7">b</a> <a href="#cite-10-11">c</a> <a href="#cite-10-12">d</a> <a href="#cite-10-14">e</a> <a href="#cite-10-15">f</a> <a href="#cite-10-18">g</a> <a href="#cite-10-19">h</a> <a href="#cite-10-20">i</a> <a href="#cite-10-23">j</a> <a href="#cite-10-29">k</a></span></li>
+  </ol>
+</div>
+
+<footer>Dedicated to the public domain under CC0 1.0. Written with AI assistance from public documentation. Source: <code>docs/test-world-walkthrough.md</code> (same content in plain text).</footer>
+</div>
+<script>
+(function(){
+  var KEY='cordona-testworld-checklist-v1';
+  var boxes=[].slice.call(document.querySelectorAll('ul.check input'));
+  var store={};
+  try{ store=JSON.parse(localStorage.getItem(KEY)||'{}'); }catch(e){ store={}; }
+  function save(){ try{ localStorage.setItem(KEY,JSON.stringify(store)); }catch(e){} }
+  function paint(){
+    var n=boxes.filter(function(b){return b.checked}).length;
+    document.getElementById('count').textContent=n+' of '+boxes.length+' done';
+    document.getElementById('bar').style.width=(boxes.length?100*n/boxes.length:0)+'%';
+    document.querySelectorAll('section.step').forEach(function(s){
+      var bs=[].slice.call(s.querySelectorAll('input'));
+      s.classList.toggle('done',bs.length>0&&bs.every(function(b){return b.checked}));
+    });
+  }
+  boxes.forEach(function(b){
+    if(store[b.id]) b.checked=true;
+    b.addEventListener('change',function(){ store[b.id]=b.checked; save(); paint(); });
+  });
+  document.getElementById('reset').onclick=function(){ boxes.forEach(function(b){b.checked=false}); store={}; save(); paint(); };
+  document.getElementById('theme').onclick=function(){
+    var r=document.documentElement, cur=r.getAttribute('data-theme');
+    if(!cur){cur=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+    r.setAttribute('data-theme',cur==='dark'?'light':'dark');
+  };
+  document.querySelectorAll('.copy').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var text=btn.parentNode.querySelector('pre').textContent;
+      function done(){ var old=btn.textContent; btn.textContent='Copied'; setTimeout(function(){btn.textContent=old},1200); }
+      if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(done,function(){}); }
+      else{ var t=document.createElement('textarea'); t.value=text; document.body.appendChild(t); t.select(); try{document.execCommand('copy');done();}catch(e){} document.body.removeChild(t); }
+    });
+  });
+  paint();
+})();
+</script>
+</body>
+</html>

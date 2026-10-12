@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portal Hub Roadmap</title>
+<style>
+:root{
+  --bg:#f6f6f9; --panel:#ffffff; --ink:#1d1d26; --muted:#5e5e70; --line:#e2e2ea; --accent:#4a63e0;
+  --done:#1f8a4c; --done-bg:#e3f5ea; --next:#b45f06; --next-bg:#fdeed8; --plan:#4a63e0; --plan-bg:#e8ecfd;
+  --rec:#1f8a4c; --code:#eeeef4;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#15151b; --panel:#1f1f28; --ink:#ececf2; --muted:#a2a2b4; --line:#33333f; --accent:#7f93ff;
+    --done:#58d68d; --done-bg:#1c3a2a; --next:#f5b563; --next-bg:#3d2d14; --plan:#8fa0ff; --plan-bg:#262b4d;
+    --rec:#58d68d; --code:#2a2a36;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15151b; --panel:#1f1f28; --ink:#ececf2; --muted:#a2a2b4; --line:#33333f; --accent:#7f93ff;
+  --done:#58d68d; --done-bg:#1c3a2a; --next:#f5b563; --next-bg:#3d2d14; --plan:#8fa0ff; --plan-bg:#262b4d;
+  --rec:#58d68d; --code:#2a2a36;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding:28px 16px 80px}
+header h1{margin:0 0 4px;font-size:1.9rem;letter-spacing:-.01em}
+header p{margin:0;color:var(--muted)}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:20px 0 6px}
+.chip{padding:4px 12px;border-radius:999px;font-size:.85rem;font-weight:600}
+.chip.done{background:var(--done-bg);color:var(--done)} .chip.next{background:var(--next-bg);color:var(--next)} .chip.plan{background:var(--plan-bg);color:var(--plan)}
+.progress{height:10px;border-radius:999px;background:var(--line);overflow:hidden;display:flex;margin:10px 0 24px}
+.progress i{display:block;height:100%}
+.progress .d{background:var(--done)} .progress .n{background:var(--next)} .progress .p{background:var(--plan);opacity:.55}
+nav.pills{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 22px}
+nav.pills a{color:var(--ink);text-decoration:none;border:1px solid var(--line);background:var(--panel);padding:5px 11px;border-radius:999px;font-size:.88rem}
+nav.pills a:hover{border-color:var(--accent)}
+.tools{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+button{font:inherit;font-size:.88rem;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 12px;border-radius:8px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+details.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin:12px 0;overflow:hidden}
+details.card summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:14px 16px}
+details.card summary::-webkit-details-marker{display:none}
+.num{flex:0 0 34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:700;background:var(--code)}
+.title{flex:1;font-weight:650}
+.title small{display:block;color:var(--muted);font-weight:400;font-size:.86rem}
+.badge{font-size:.78rem;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap}
+.badge.done{background:var(--done-bg);color:var(--done)} .badge.next{background:var(--next-bg);color:var(--next)} .badge.plan{background:var(--plan-bg);color:var(--plan)}
+.chev{color:var(--muted);transition:transform .15s}
+details[open] .chev{transform:rotate(90deg)}
+.body{padding:2px 18px 18px;border-top:1px solid var(--line)}
+.body h3{font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:18px 0 6px}
+.body p{margin:6px 0}
+ul.routes{list-style:none;padding:0;margin:6px 0}
+ul.routes li{border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin:7px 0;background:var(--bg)}
+ul.routes li b{color:var(--accent)}
+ul.routes li.rec{border-color:var(--rec)}
+ul.routes li.rec::after{content:"recommended";float:right;font-size:.72rem;font-weight:700;color:var(--rec);text-transform:uppercase;letter-spacing:.06em}
+ul.plain{margin:6px 0;padding-left:20px}
+code{background:var(--code);padding:1px 6px;border-radius:5px;font:.88em ui-monospace,Consolas,monospace}
+.need{margin-top:14px;padding:10px 12px;border-radius:10px;background:var(--plan-bg);color:var(--ink);font-size:.93rem}
+.need b{color:var(--plan)}
+.order{counter-reset:o;list-style:none;padding:0;margin:8px 0}
+.order li{counter-increment:o;position:relative;padding:8px 12px 8px 46px;border-left:3px solid var(--line);margin:0 0 6px 14px}
+.order li::before{content:counter(o);position:absolute;left:-17px;top:7px;width:30px;height:30px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:700;font-size:.85rem}
+h2{margin:34px 0 4px}
+footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);padding-top:14px}
+@media (max-width:560px){ .badge{display:none} }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Portal Hub roadmap</h1>
+  <p>Where each goal stands, the routes to finish it, and what to watch out for. Tap a card to open it.</p>
+</header>
+
+<div class="bar">
+  <span class="chip done">2 done</span><span class="chip next">1 next</span><span class="chip plan">5 planned</span>
+</div>
+<div class="progress" aria-hidden="true"><i class="d" style="width:25%"></i><i class="n" style="width:12.5%"></i><i class="p" style="width:62.5%"></i></div>
+
+<nav class="pills">
+  <a href="#i1">1 Prove it</a><a href="#i2">2 Test world</a><a href="#i3">3 Baked hubs</a><a href="#i4">4 Open source</a>
+  <a href="#i5">5 Licence</a><a href="#i6">6 Presets</a><a href="#i7">7 Friendly GUI</a><a href="#i8">8 One mod</a><a href="#i9">9 Annotated guide</a><a href="#order">Order</a>
+</nav>
+
+<div class="tools"><button id="open">Expand all</button><button id="close">Collapse all</button><button id="theme">Switch theme</button></div>
+
+<details class="card" id="i1">
+  <summary><span class="num">1</span><span class="title">Prove custom world hooking is doable<small>A hub portal that loads and enters a world from another pak</small></span><span class="badge done">Done</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <h3>Where it stands</h3>
+    <p>Proven with our own Test World: the hub spawned the world's loader, the level streamed in (found loaded and visible at once, ready after 0.2 s), the arrival pad appeared at the right spot, the hub portal switched on, and the return trip was wired back to the hub portal. The hub's <code>LoadAsset</code> lookup found the loader class.</p>
+    <h3>What it took</h3>
+    <ul class="plain">
+      <li>The loader must be a Blueprint based on Epic's <b>Level Instance</b> actor with its Desired Runtime Behavior set to <b>Standalone</b>. A BeginPlay graph that calls Load Level Instance (by Name) did not work in this game.</li>
+      <li>The pak must be IoStore, and sit directly in <code>Content\Paks</code>.</li>
+    </ul>
+  </div>
+</details>
+
+<details class="card" id="i2" open>
+  <summary><span class="num">2</span><span class="title">Create the test world<small>A tiny map and a loader Blueprint, packaged as a patch pak</small></span><span class="badge done">Done</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <h3>Where it stands</h3>
+    <p>The Test World is built, packaged and loads through the hub. The step-by-step walkthrough (see the walkthrough page) reflects the method that worked, including the Level Instance loader and the pitfalls hit on the way.</p>
+    <h3>Watch-outs</h3>
+    <ul class="plain">
+      <li>Chunk label settings and the chunk id.</li>
+      <li>Engine assets are not part of your pak: copy the cube into your own folder.</li>
+      <li>The map must be listed under Packaging &rarr; maps to include, or it is not packaged.</li>
+    </ul>
+    <h3>If packaging fights back</h3>
+    <ul class="routes">
+      <li><b>Command-line package</b> (<code>RunUAT BuildCookRun</code>) for clearer error messages.</li>
+      <li><b>UnrealPak</b> on the cooked files directly, which is already in the tools folder.</li>
+    </ul>
+    <div class="need"><b>Needs from you:</b> about an hour in the editor on a first attempt, plus a slow first package.</div>
+  </div>
+</details>
+
+<details class="card" id="i3">
+  <summary><span class="num">3</span><span class="title">Hard-baked hub layouts for mod makers<small>Ready-to-upload hub setups that come with a world mod</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <h3>The idea</h3>
+    <p>A world modder produces a bundle that already puts their portal in the hub. (My reading of the goal; worth confirming.)</p>
+    <h3>Routes</h3>
+    <ul class="routes">
+      <li class="rec"><b>A: Preset files.</b> Each mod ships a small <code>hub_preset.lua</code> (slot, destination, look, light, world) that the hub merges. Needs a rule for two mods wanting one slot: first come, a priority number, or the player chooses.</li>
+      <li class="rec"><b>B: An Export button in the editor.</b> Writes a self-contained folder (hub, config, the modder's world entry) ready to zip. Easy to test, and it sits on top of A.</li>
+      <li><b>C: A runtime registration call</b> other UE4SS mods use to add portals. Most flexible, but load order needs care.</li>
+    </ul>
+    <h3>Watch-outs</h3>
+    <ul class="plain"><li>Slot conflicts between mods.</li><li>The DLC rule must still apply to baked layouts.</li><li>Clear naming so ids don't collide.</li></ul>
+  </div>
+</details>
+
+<details class="card" id="i4">
+  <summary><span class="num">4</span><span class="title">Open source, usable for learning<small>Other modders can read, fork and build on it</small></span><span class="badge done">Mostly done</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <h3>Where it stands</h3>
+    <p>The repository is public, with a README, a test-world walkthrough, and findings that cite public sources for every technique.</p>
+    <h3>Still to do</h3>
+    <ul class="plain">
+      <li>A short "how the code is organised" guide.</li>
+      <li>A contributing note.</li>
+      <li>Trim the experiments so a newcomer is not confused (the lab and logger code is a good learning resource, so it should be easy to find but clearly labelled).</li>
+    </ul>
+  </div>
+</details>
+
+<details class="card" id="i5">
+  <summary><span class="num">5</span><span class="title">A licence with no credit required<small>Completely free use</small></span><span class="badge done">Done</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <h3>Where it stands</h3>
+    <p>The project is under <b>CC0 1.0 Universal</b>: public domain, no credit needed. The licence file is the official text, unmodified.</p>
+    <h3>Watch-outs</h3>
+    <ul class="plain">
+      <li>CC0 covers our own code, notes and tools. It does <b>not</b> cover the game, UE4SS, or the wiki icons (the README says so).</li>
+      <li>On the Nexus upload form, state the permissions plainly: open, no credit needed.</li>
+    </ul>
+  </div>
+</details>
+
+<details class="card" id="i6">
+  <summary><span class="num">6</span><span class="title">Presets for the Nexus page<small>Ready-made hubs players can download</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <h3>What they could be</h3>
+    <p>Ready-made <code>config.lua</code> files such as &ldquo;Story worlds&rdquo;, &ldquo;All worlds&rdquo;, a colour-themed hub, or an &ldquo;Anteverse tour&rdquo;.</p>
+    <h3>Routes</h3>
+    <ul class="routes">
+      <li><b>Ship them as files</b> to copy into place. Simple.</li>
+      <li class="rec"><b>Add &ldquo;Load preset&rdquo; and &ldquo;Save as preset&rdquo;</b> to the editor. No hand-copying, and it ties in with items 7 and 8.</li>
+    </ul>
+    <h3>Watch-outs</h3>
+    <ul class="plain"><li>Test each preset in game first; only some worlds have been walked through.</li><li>Leave out the DLC areas.</li></ul>
+    <div class="need"><b>Needs from you:</b> which sets you want, and screenshots for the page.</div>
+  </div>
+</details>
+
+<details class="card" id="i7">
+  <summary><span class="num">7</span><span class="title">A friendlier GUI that antivirus leaves alone<small>Package the editor for everyday users</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <h3>Routes</h3>
+    <ul class="routes">
+      <li><b>A: Keep the PowerShell script.</b> Plain text, visible console, readable by anyone. Least suspicious form of script, though never zero-risk. Add a README note that it is plain, inspectable text.</li>
+      <li class="rec"><b>B: A single-file web editor</b> (HTML) in Edge or Chrome that reads and writes <code>config.lua</code> directly. No executable, no script, no install, so almost no antivirus risk. Needs a Chromium browser and a one-time file permission each session.</li>
+      <li><b>C: A compiled <code>.exe</code></b> (for example .NET). Looks polished, but unsigned executables are flagged far more often than scripts, and signing certificates cost money.</li>
+      <li><b>D: No external tool.</b> Only presets and hand-editing.</li>
+    </ul>
+    <h3>Recommendation</h3>
+    <p>B, keeping A as a fallback. B is a rebuild of the interface, so it is a real piece of work, but it removes the biggest worry.</p>
+  </div>
+</details>
+
+<details class="card" id="i8">
+  <summary><span class="num">8</span><span class="title">Condense into one mod<small>Separate what is for function from what is for debugging</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <h3>The plan</h3>
+    <ul class="plain">
+      <li><b>Keep, for function:</b> the hub mod and the editor.</li>
+      <li><b>Move out, for debugging:</b> the logger, the material lab and the old proof of concept. Ship them as a separate <code>dev/</code> folder, or fold the useful bits into the hub behind a <code>debug = true</code> switch.</li>
+      <li><b>Release shape:</b> one <code>PortalHub</code> folder in the Mods folder, an optional <code>tools</code> folder, a version number and a changelog.</li>
+    </ul>
+    <h3>Watch-outs</h3>
+    <p>UE4SS loads Lua modules slightly differently from a normal setup, so test the combined layout carefully, including hot reload.</p>
+  </div>
+</details>
+
+<details class="card" id="i9">
+  <summary><span class="num">9</span><span class="title">Annotated methodology walkthrough<small>A detailed guide with sources from the Unreal Engine API</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <h3>What it is</h3>
+    <p>A detailed walkthrough of the method the hub uses to load a custom world, with every step annotated and linked to Epic&rsquo;s public Unreal Engine documentation (the API reference and the Blueprint node pages). A modder should be able to see not just what to do but why it works, and check each claim at its source.</p>
+    <h3>What it would cover</h3>
+    <ul class="plain">
+      <li>The loader Blueprint, the level it streams, and how the hub spawns it, polls for the level and places the arrival pad.</li>
+      <li>Packaging as an IoStore patch pak: chunk ids, always-cook directories, which files to install and which never to.</li>
+      <li>What was tried and why it fails (for example calling the streaming functions from Lua, or a legacy pak), so nobody repeats it.</li>
+    </ul>
+    <h3>Watch-outs</h3>
+    <p>Cite only public sources, mark what is inferred from testing rather than documented, and keep it in step with the walkthrough in item 2 once the method is settled.</p>
+  </div>
+</details>
+
+<h2 id="order">Suggested order</h2>
+<p style="color:var(--muted);margin-top:0">Structure first, promotion last, so what you advertise is stable.</p>
+<ol class="order">
+  <li><b>Test world</b> (item 2), which gives the clean re-proof for item 1.</li>
+  <li><b>Condense into one mod</b> (item 8), so the structure settles.</li>
+  <li><b>Baked hub layouts</b> (item 3).</li>
+  <li><b>Presets and the friendlier editor</b> (items 6 and 7), done together, since presets live in the editor.</li>
+  <li><b>Open-source polish and licence notes</b> (items 4 and 5), and the annotated methodology guide (item 9), to finish.</li>
+</ol>
+
+<footer>Dedicated to the public domain under CC0 1.0. Roadmap by the project author; layout written with AI assistance. Source: <code>docs/roadmap.html</code>.</footer>
+</div>
+<script>
+(function(){
+  var cards=document.querySelectorAll('details.card');
+  document.getElementById('open').onclick=function(){cards.forEach(function(c){c.open=true})};
+  document.getElementById('close').onclick=function(){cards.forEach(function(c){c.open=false})};
+  document.getElementById('theme').onclick=function(){
+    var r=document.documentElement, cur=r.getAttribute('data-theme');
+    if(!cur){cur=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+    r.setAttribute('data-theme',cur==='dark'?'light':'dark');
+  };
+  document.querySelectorAll('nav.pills a').forEach(function(a){
+    a.addEventListener('click',function(){var t=document.querySelector(a.getAttribute('href'));if(t&&t.tagName==='DETAILS')t.open=true;});
+  });
+})();
+</script>
+</body>
+</html>

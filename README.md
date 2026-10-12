@@ -83,10 +83,12 @@ Everything else (the portal in the hub, its look, the return trip) is handled by
    chunk with a Primary Asset Label, package, and rename the output `pakchunk<N>-Windows_P.*`. Copy the three files (`.pak`, `.ucas`, `.utoc`)
    **directly into** `AbioticFactor/Content/Paks` (not a subfolder: a `~mods` subfolder is not mounted on the Steam install).
    See the community guide: <https://hackmd.io/f3Bl-APIQrOlKmAuBxbI_A>.
-2. **Include a loader actor.** A small actor Blueprint in your pak whose BeginPlay calls Epic's
-   [Load Level Instance (by Name)](https://dev.epicgames.com/documentation/unreal-engine/BlueprintAPI/LevelStreaming/LoadLevelInstance_byName) node, with the level's full package path and the actor's own location. That node streams a level in at a world
-   location without it being listed in any persistent map. List your map under Project Settings > Packaging > "List of Maps to Include in a Packaged Build" so it is packaged.
-   Baking the level path into the Blueprint means Lua never has to pass a text argument (calling the streaming functions with text from Lua fails in UE4SS 3.0.1).
+2. **Include a loader actor.** A small Blueprint in your pak whose parent class is Epic's **Level Instance** actor
+   ([ALevelInstance](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/ALevelInstance)), with its **Level** (World Asset) set to your map and, under Level Instance > Advanced,
+   **Desired Runtime Behavior** set to **Standalone**, so the map loads as its own streaming level. It needs no graph: the engine streams the level
+   in at the actor's location when the hub spawns it. List your map under Project Settings > Packaging > "List of Maps to Include in a Packaged Build" so it is packaged.
+   Because the level is chosen inside the Blueprint, Lua never has to pass a text argument (calling the streaming functions with text from Lua fails in UE4SS 3.0.1).
+   (A loader whose BeginPlay calls the *Load Level Instance (by Name)* node was tested and did not work in this game: the node reported failure and no level appeared.)
 3. **Add a `worlds` entry to the hub's `config.lua`:**
    ```lua
    worlds = {
