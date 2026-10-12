@@ -373,13 +373,110 @@ function Write-HubConfig([string]$path, $header, [string]$humMode, [int]$humFloo
     [IO.File]::WriteAllText($path, $sb.ToString(), (New-Object Text.UTF8Encoding($false)))
 }
 
+# ---------------------------------------------------------------- custom worlds (config.lua's  worlds = { id = { ... } }  block)
+$LuaReserved = @('and', 'break', 'do', 'else', 'elseif', 'end', 'false', 'for', 'function', 'goto', 'if', 'in', 'local', 'nil', 'not', 'or', 'repeat', 'return', 'then', 'true', 'until', 'while')
+function Format-Num([double]$n) { $n.ToString('0.###', [Globalization.CultureInfo]::InvariantCulture) }
+$NumRx = '-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?'
+
+# One world entry -> an editable item. If the entry is not exactly the five known fields (an unknown field, a trailing comment,
+# a missing value) it is kept as written (Raw) and shown read-only, so nothing a person typed by hand is ever lost.
+function ConvertFrom-WorldEntry([string]$id, [string]$inside, [string]$raw) {
+    $item = [pscustomobject]@{ Id = $id; Asset = ''; Class = ''; Level = ''; Origin = @(0, 0, 0); Arrive = @(0, 0, 0, 0); Raw = $raw; ClassAuto = $false; Bad = '' }
+    $left = $inside
+    $str = @{}
+    foreach ($f in [regex]::Matches($inside, '\b(loaderAsset|loaderClass|level)\s*=\s*"((?:[^"\\]|\\.)*)"')) {
+        $str[$f.Groups[1].Value] = ($f.Groups[2].Value -replace '\\(["\\])', '$1')
+        $left = $left.Replace($f.Value, '')
+    }
+    $nums = @{}
+    foreach ($key in 'origin', 'arrive') {
+        $mm = [regex]::Match($inside, '\b' + $key + '\s*=\s*\{([^{}]*)\}')
+        if ($mm.Success) {
+            $vals = @([regex]::Matches($mm.Groups[1].Value, $NumRx) | ForEach-Object { [double]::Parse($_.Value, [Globalization.CultureInfo]::InvariantCulture) })
+            $leftover = [regex]::Replace($mm.Groups[1].Value, $NumRx, '') -replace '[\s,]', ''
+            if (-not $leftover) { $nums[$key] = $vals }
+            $left = $left.Replace($mm.Value, '')
+        }
+    }
+    $clean = $str.ContainsKey('loaderAsset') -and $str.ContainsKey('loaderClass') -and $str.ContainsKey('level') `
+        -and $nums.ContainsKey('origin') -and $nums['origin'].Count -eq 3 `
+        -and $nums.ContainsKey('arrive') -and ($nums['arrive'].Count -eq 3 -or $nums['arrive'].Count -eq 4) `
+        -and -not ($left -replace '[\s,]', '')
+    if ($clean) {
+        $item.Asset = $str['loaderAsset']; $item.Class = $str['loaderClass']; $item.Level = $str['level']
+        $item.Origin = @($nums['origin'])
+        $a = @($nums['arrive']); if ($a.Count -eq 3) { $a += 0.0 }
+        $item.Arrive = $a
+        $item.Raw = $null
+    }
+    return $item
+}
+
+# Reads the worlds block. Whole-line comments are kept (Notes) and written back first. If anything other than entries sits in
+# the block, Editable is $false and the block is saved exactly as it was.
+function Get-WorldList([string]$inner) {
+    $res = @{ Items = @(); Notes = @(); Editable = $true }
+    if ($null -eq $inner) { return $res }
+    $notes = New-Object Collections.ArrayList
+    $body = New-Object Text.StringBuilder
+    foreach ($line in ($inner -split "\r?\n")) {
+        if ($line -match '^\s*--') { [void]$notes.Add($line.Trim()) } else { [void]$body.AppendLine($line) }
+    }
+    $res.Notes = @($notes)
+    $text = $body.ToString()
+    $keyRx = [regex]'(?:\["(?<q>[^"]+)"\]|(?<id>[A-Za-z_][A-Za-z0-9_]*))\s*=\s*\{'
+    $items = New-Object Collections.ArrayList
+    $rest = New-Object Text.StringBuilder
+    $pos = 0
+    while ($pos -lt $text.Length) {
+        $m = $keyRx.Match($text, $pos)
+        if (-not $m.Success) { [void]$rest.Append($text.Substring($pos)); break }
+        [void]$rest.Append($text.Substring($pos, $m.Index - $pos))
+        $start = $m.Index + $m.Length; $depth = 1; $j = $start
+        while ($j -lt $text.Length) {
+            $ch = $text[$j]
+            if ($ch -eq '{') { $depth++ } elseif ($ch -eq '}') { $depth--; if ($depth -eq 0) { break } }
+            $j++
+        }
+        if ($depth -ne 0) { $res.Editable = $false; return $res }
+        $id = if ($m.Groups['q'].Success) { $m.Groups['q'].Value } else { $m.Groups['id'].Value }
+        [void]$items.Add((ConvertFrom-WorldEntry $id $text.Substring($start, $j - $start) $text.Substring($m.Index, $j - $m.Index + 1)))
+        $pos = $j + 1
+    }
+    if ($rest.ToString() -replace '[\s,]', '') { $res.Editable = $false }
+    $res.Items = @($items)
+    return $res
+}
+
+function ConvertTo-WorldsInner($items, $notes) {
+    $lines = @()
+    foreach ($n in @($notes)) { $lines += '        ' + $n }
+    foreach ($w in @($items)) {
+        if ($w.Raw) { $r = $w.Raw.TrimEnd(); if (-not $r.EndsWith(',')) { $r += ',' }; $lines += '        ' + $r; continue }
+        $key = if ($w.Id -match '^[A-Za-z_][A-Za-z0-9_]*$' -and $LuaReserved -notcontains $w.Id) { $w.Id } else { '["' + $w.Id + '"]' }
+        $lines += '        ' + $key + ' = {'
+        $lines += '            loaderAsset = ' + (ConvertTo-LuaString $w.Asset) + ','
+        $lines += '            loaderClass = ' + (ConvertTo-LuaString $w.Class) + ','
+        $lines += '            level       = ' + (ConvertTo-LuaString $w.Level) + ','
+        $lines += '            origin      = { ' + (($w.Origin | ForEach-Object { Format-Num $_ }) -join ', ') + ' },'
+        $lines += '            arrive      = { ' + (($w.Arrive | ForEach-Object { Format-Num $_ }) -join ', ') + ' },'
+        $lines += '        },'
+    }
+    if ($lines.Count -eq 0) { return "`r`n    " }
+    return "`r`n" + ($lines -join "`r`n") + "`r`n    "
+}
+
 $cfg = Read-HubConfig $ConfigPath
 $script:hideMap = Get-HideMap $cfg.Blocks['hideEmitters']
 $script:hideEditable = ($null -ne $script:hideMap)
 if (-not $script:hideEditable) { $script:hideMap = @{} }
+$wl = Get-WorldList $cfg.Blocks['worlds']
+$script:worlds = @($wl.Items); $script:worldNotes = @($wl.Notes); $script:worldsEditable = $wl.Editable
+function Test-UserWorld([string]$id) { foreach ($w in $script:worlds) { if ($w.Id -ceq $id) { return $true } }; return $false }
 function Get-BlocksForSave {
     $b = @{}; foreach ($k in $cfg.Blocks.Keys) { $b[$k] = $cfg.Blocks[$k] }
     if ($script:hideEditable) { $b['hideEmitters'] = ConvertTo-HideInner $script:hideMap }
+    if ($script:worldsEditable) { $b['worlds'] = ConvertTo-WorldsInner $script:worlds $script:worldNotes }
     return $b
 }
 
@@ -474,6 +571,271 @@ function Show-EffectsDialog([string]$designPath, [string]$designLabel) {
     }
 }
 
+# ---------------------------------------------------------------- custom worlds dialog
+# Checks every world in the list. Errors block Apply; warnings (origins that may overlap) are shown but allowed.
+function Get-WorldProblems($items) {
+    $out = @()
+    for ($i = 0; $i -lt $items.Count; $i++) {
+        $w = $items[$i]; $err = @(); $warn = @()
+        if ($w.Raw) { $out += [pscustomobject]@{ Errors = @(); Warnings = @() }; continue }
+        $id = [string]$w.Id
+        if (-not $id) { $err += 'Enter a world ID.' }
+        elseif ($id -notmatch '^[A-Za-z0-9_\-]+$') { $err += 'The world ID can use letters, numbers, _ and - only.' }
+        elseif ($id -like 'hub_*') { $err += 'IDs starting with hub_ are reserved for the hub''s own portals.' }
+        elseif ($KnownById.Keys -contains $id) { $err += 'That ID is one of the game''s own pads; pick your own.' }
+        else {
+            for ($k = 0; $k -lt $items.Count; $k++) { if ($k -ne $i -and [string]$items[$k].Id -ieq $id) { $err += 'Another world already uses this ID.'; break } }
+        }
+        if ([string]$w.Asset -notmatch '^/[A-Za-z0-9_/\-]+[A-Za-z0-9_\-]$') { $err += 'Loader Blueprint: enter its package path, like /Game/Mods/MyWorld/BP_MyWorldLoader (no dots, no spaces).' }
+        if ([string]$w.Class -notmatch '^[A-Za-z0-9_]+_C$') { $err += 'Loader class should end in _C, like BP_MyWorldLoader_C.' }
+        if ([string]$w.Level -notmatch '^/[A-Za-z0-9_/\-]+[A-Za-z0-9_\-]$') { $err += 'Level: enter the map''s package path, like /Game/Mods/MyWorld/Maps/MyWorld_L0.' }
+        if ($w.Bad) { $err += $w.Bad }
+        else {
+            $ox = [double]$w.Origin[0]; $oy = [double]$w.Origin[1]; $oz = [double]$w.Origin[2]
+            if ([math]::Max([math]::Abs($ox), [math]::Abs($oy)) -lt 500000) { $warn += 'This origin is close to the Facility''s own levels. Use a far one (1,000,000 or more).' }
+            for ($k = 0; $k -lt $items.Count; $k++) {
+                if ($k -eq $i -or $items[$k].Raw) { continue }
+                $d = [math]::Sqrt([math]::Pow($ox - [double]$items[$k].Origin[0], 2) + [math]::Pow($oy - [double]$items[$k].Origin[1], 2) + [math]::Pow($oz - [double]$items[$k].Origin[2], 2))
+                $other = $(if ($items[$k].Id) { $items[$k].Id } else { 'another world' })
+                if ($d -lt 1) { $err += "Same origin as '$other': the two worlds would load on top of each other." }
+                elseif ($d -lt 100000) { $warn += ("Only {0:N0} units from '{1}'. Worlds bigger than that would overlap." -f $d, $other) }
+            }
+        }
+        $out += [pscustomobject]@{ Errors = $err; Warnings = $warn }
+    }
+    return $out
+}
+function Get-NextOrigin($items, $skip) {
+    $x = $null; $y = 1200000.0
+    foreach ($w in $items) { if ($w.Raw -or [object]::ReferenceEquals($w, $skip)) { continue }; if ($null -eq $x -or [double]$w.Origin[0] -gt $x) { $x = [double]$w.Origin[0]; $y = [double]$w.Origin[1] } }
+    if ($null -eq $x) { return @(1000000.0, 1200000.0, 0.0) }
+    return @(($x + 200000.0), $y, 0.0)
+}
+function Update-WorldsButton {
+    $n = @($script:worlds).Count
+    if ($script:worldsEditable) { $btnWorlds.Text = "Custom worlds ($n)" } else { $btnWorlds.Text = 'Custom worlds (view)' }
+}
+
+function Show-WorldsDialog {
+    if (-not $script:worldsEditable) {
+        [void][Windows.Forms.MessageBox]::Show("The worlds section of config.lua uses a layout this editor can't read, so it is left exactly as written. Edit it in config.lua.", 'Custom worlds')
+        return
+    }
+    $work = New-Object Collections.ArrayList
+    foreach ($w in $script:worlds) { [void]$work.Add([pscustomobject]@{ Id = $w.Id; Asset = $w.Asset; Class = $w.Class; Level = $w.Level; Origin = @($w.Origin); Arrive = @($w.Arrive); Raw = $w.Raw; ClassAuto = $false; Bad = '' }) }
+    $st = @{ Index = -1; Guard = $false; Problems = @() }
+    $colWarn = C '#f5b563'; $colErr = C '#ff9b9b'; $colOk = C '#7be09a'
+
+    $dlg = New-Object Windows.Forms.Form
+    $dlg.Text = 'Custom worlds'; $dlg.StartPosition = 'CenterParent'; $dlg.FormBorderStyle = 'FixedDialog'
+    $dlg.MaximizeBox = $false; $dlg.MinimizeBox = $false; $dlg.ShowInTaskbar = $false
+    $dlg.BackColor = $colBg; $dlg.ForeColor = $colFg; $dlg.Font = $fontBase
+    $dlg.ClientSize = New-Object Drawing.Size(900, 700)
+    $dlg.Add_HandleCreated({ $v = 1; [void][DwmDark]::DwmSetWindowAttribute($dlg.Handle, 20, [ref]$v, 4) }.GetNewClosure())
+
+    $title2 = New-Object Windows.Forms.Label
+    $title2.Text = 'Custom worlds'; $title2.Font = $fontTitle; $title2.ForeColor = $colFg; $title2.AutoSize = $true; $title2.Location = New-Object Drawing.Point(20, 14)
+    $sub2 = New-Object Windows.Forms.Label
+    $sub2.Text = 'Connect a world that ships its own pak. Each world gets an ID; a hub portal uses that ID as its destination.'
+    $sub2.ForeColor = $colMuted; $sub2.AutoSize = $true; $sub2.Location = New-Object Drawing.Point(22, 48)
+    $dlg.Controls.AddRange(@($title2, $sub2))
+
+    # --- left: the list of worlds
+    $list = New-Object Windows.Forms.ListBox
+    $list.DrawMode = 'OwnerDrawFixed'; $list.ItemHeight = 34; $list.BorderStyle = 'None'; $list.IntegralHeight = $false
+    $list.BackColor = $colInput; $list.ForeColor = $colFg; $list.Font = $fontBase
+    $list.Location = New-Object Drawing.Point(20, 84); $list.Size = New-Object Drawing.Size(236, 500)
+    $list.Add_HandleCreated({ [void][DwmDark]::SetWindowTheme($list.Handle, 'DarkMode_Explorer', $null) }.GetNewClosure())
+    $btnAdd = New-Button 'Add world' $true;  $btnAdd.Width = 114; $btnAdd.Location = New-Object Drawing.Point(20, 594)
+    $btnDel = New-Button 'Remove' $false;    $btnDel.Width = 114; $btnDel.Location = New-Object Drawing.Point(142, 594)
+    $dlg.Controls.AddRange(@($list, $btnAdd, $btnDel))
+
+    # --- right: the form, in three tidy groups
+    $right = New-Object Windows.Forms.Panel
+    $right.Location = New-Object Drawing.Point(284, 84); $right.Size = New-Object Drawing.Size(596, 540); $right.BackColor = $colBg
+    $dlg.Controls.Add($right)
+    $fontSmall = New-Object Drawing.Font('Segoe UI', 8.5)
+    $mkHead = { param($t, $y) $l = New-Object Windows.Forms.Label; $l.Text = $t; $l.Font = $fontBold; $l.ForeColor = $colAccent; $l.AutoSize = $true; $l.Location = New-Object Drawing.Point(0, $y); $right.Controls.Add($l) }.GetNewClosure()
+    $mkCap = { param($t, $x, $y) $l = New-Object Windows.Forms.Label; $l.Text = $t; $l.ForeColor = $colFg; $l.AutoSize = $true; $l.Location = New-Object Drawing.Point($x, $y); $right.Controls.Add($l) }.GetNewClosure()
+    $mkHint = { param($t, $x, $y) $l = New-Object Windows.Forms.Label; $l.Text = $t; $l.Font = $fontSmall; $l.ForeColor = $colMuted; $l.AutoSize = $false; $l.Size = New-Object Drawing.Size(580, 18); $l.Location = New-Object Drawing.Point($x, $y); $right.Controls.Add($l) }.GetNewClosure()
+    $mkBox = {
+        param($x, $y, $w)
+        $t = New-Object Windows.Forms.TextBox
+        $t.Font = $fontBase; $t.BackColor = $colInput; $t.ForeColor = $colFg; $t.BorderStyle = 'FixedSingle'
+        $t.Location = New-Object Drawing.Point($x, $y); $t.Width = $w
+        $right.Controls.Add($t); return $t
+    }.GetNewClosure()
+
+    & $mkHead 'IDENTITY' 0
+    & $mkCap 'World ID' 0 24
+    $tbId = & $mkBox 0 44 300
+    & $mkHint 'You choose this. A hub portal''s destination must be exactly this text. Letters, numbers, _ and - only.' 0 72
+
+    & $mkHead 'LOADER AND LEVEL' 106
+    & $mkCap 'Loader Blueprint (package path)' 0 130
+    $tbAsset = & $mkBox 0 150 580
+    & $mkHint 'The Blueprint in your pak that streams your map in, e.g. /Game/Mods/MyWorld/BP_MyWorldLoader' 0 178
+    & $mkCap 'Loader class' 0 206
+    $tbClass = & $mkBox 0 226 300
+    & $mkHint 'Filled in for you: the Blueprint''s name plus _C.' 316 230
+    & $mkCap 'Level (map package path)' 0 264
+    $tbLevel = & $mkBox 0 284 580
+    & $mkHint 'Your map, e.g. /Game/Mods/MyWorld/Maps/MyWorld_L0. Used to tell when the level has finished loading.' 0 312
+
+    & $mkHead 'PLACEMENT' 348
+    & $mkCap 'Origin  (x, y, z)' 0 372
+    $numBoxes = @()
+    foreach ($k in 0..2) { $b = & $mkBox ($k * 120) 392 108; $b.TextAlign = 'Center'; $numBoxes += $b }
+    $btnSuggest = New-Button 'Suggest an origin' $false; $btnSuggest.Width = 150; $btnSuggest.Height = 28; $btnSuggest.Location = New-Object Drawing.Point(390, 390)
+    $right.Controls.Add($btnSuggest)
+    & $mkHint 'Where the world is loaded. Keep it far from the Facility, and different for every world.' 0 420
+    & $mkCap 'Arrival pad  (x, y, floor z, yaw)' 0 448
+    foreach ($k in 0..3) { $b = & $mkBox ($k * 120) 468 108; $b.TextAlign = 'Center'; $numBoxes += $b }
+    & $mkHint 'The pad players arrive at and return through, relative to the origin. Yaw is the way it faces.' 0 496
+    $msg = New-Object Windows.Forms.Label
+    $msg.AutoSize = $false; $msg.Location = New-Object Drawing.Point(0, 524); $msg.Size = New-Object Drawing.Size(590, 16); $msg.ForeColor = $colMuted
+    $right.Controls.Add($msg)
+    $empty = New-Object Windows.Forms.Label
+    $empty.Text = "No custom worlds yet.`r`n`r`nClick Add world to connect a world from your own pak. The test-world walkthrough shows how to build one: docs/test-world-walkthrough.html"
+    $empty.ForeColor = $colMuted; $empty.AutoSize = $false; $empty.Location = New-Object Drawing.Point(284, 100); $empty.Size = New-Object Drawing.Size(560, 90)
+    $dlg.Controls.Add($empty)
+    $inputs = @($tbId, $tbAsset, $tbClass, $tbLevel) + $numBoxes + @($btnSuggest)
+
+    # --- bottom bar
+    $note = New-Object Windows.Forms.Label
+    $note.Text = 'Applied changes are written to config.lua when you press Save in the main window.'
+    $note.ForeColor = $colMuted; $note.Font = $fontSmall; $note.AutoSize = $true; $note.Location = New-Object Drawing.Point(20, 664)
+    $btnApply = New-Button 'Apply' $true; $btnApply.Width = 110; $btnApply.Location = New-Object Drawing.Point(660, 654)
+    $btnCancel = New-Button 'Cancel' $false; $btnCancel.Width = 110; $btnCancel.Location = New-Object Drawing.Point(780, 654); $btnCancel.DialogResult = 'Cancel'
+    $dlg.Controls.AddRange(@($note, $btnApply, $btnCancel)); $dlg.CancelButton = $btnCancel
+
+    # --- behaviour
+    $refreshUi = {
+        $st.Problems = @(Get-WorldProblems @($work))
+        $list.Invalidate()
+        $has = ($work.Count -gt 0)
+        $empty.Visible = (-not $has); $right.Visible = $has; $btnDel.Enabled = ($st.Index -ge 0)
+        $errCount = 0; foreach ($p in $st.Problems) { if (@($p.Errors).Count -gt 0) { $errCount++ } }
+        $btnApply.Enabled = ($errCount -eq 0)
+        if ($errCount -eq 0) { $btnApply.BackColor = $colAccent; $btnApply.ForeColor = $colFg } else { $btnApply.BackColor = $colInput; $btnApply.ForeColor = $colMuted }
+        if ($st.Index -ge 0 -and $st.Index -lt $work.Count) {
+            $w = $work[$st.Index]; $p = $st.Problems[$st.Index]
+            if ($w.Raw) { $msg.ForeColor = $colMuted; $msg.Text = 'This entry uses a layout the editor can''t read. It is kept exactly as written; edit it in config.lua.' }
+            elseif (@($p.Errors).Count -gt 0) { $msg.ForeColor = $colErr; $msg.Text = [string]$p.Errors[0] }
+            elseif (@($p.Warnings).Count -gt 0) { $msg.ForeColor = $colWarn; $msg.Text = [string]$p.Warnings[0] }
+            else { $msg.ForeColor = $colOk; $msg.Text = 'Looks good.' }
+        } else { $msg.Text = '' }
+    }.GetNewClosure()
+    $load = {
+        $st.Guard = $true
+        $i = $st.Index
+        if ($i -ge 0 -and $i -lt $work.Count) {
+            $w = $work[$i]
+            $tbId.Text = [string]$w.Id; $tbAsset.Text = [string]$w.Asset; $tbClass.Text = [string]$w.Class; $tbLevel.Text = [string]$w.Level
+            foreach ($k in 0..2) { $numBoxes[$k].Text = Format-Num $w.Origin[$k] }
+            foreach ($k in 0..3) { $numBoxes[3 + $k].Text = Format-Num $w.Arrive[$k] }
+            foreach ($c in $inputs) { $c.Enabled = (-not $w.Raw) }
+        } else { foreach ($c in $inputs) { $c.Text = ''; $c.Enabled = $false } }
+        $st.Guard = $false
+        & $refreshUi
+    }.GetNewClosure()
+    $list.Add_DrawItem({
+        param($s, $e)
+        if ($e.Index -lt 0) { return }
+        $w = $work[$e.Index]
+        $hot = (($e.State -band [Windows.Forms.DrawItemState]::Selected) -ne 0)
+        $b1 = New-Object Drawing.SolidBrush($(if ($hot) { $colAccent } else { $colInput }))
+        $b2 = New-Object Drawing.SolidBrush($colFg); $b3 = New-Object Drawing.SolidBrush($(if ($hot) { $colFg } else { $colMuted }))
+        $e.Graphics.FillRectangle($b1, $e.Bounds)
+        $label = $(if ($w.Id) { [string]$w.Id } else { '(new world)' })
+        $dot = $colOk; $p = $null
+        if ($e.Index -lt $st.Problems.Count) { $p = $st.Problems[$e.Index] }
+        if ($w.Raw) { $dot = $colMuted } elseif ($p -and @($p.Errors).Count -gt 0) { $dot = $colErr } elseif ($p -and @($p.Warnings).Count -gt 0) { $dot = $colWarn }
+        $bd = New-Object Drawing.SolidBrush($dot)
+        $e.Graphics.FillEllipse($bd, ($e.Bounds.X + 10), ($e.Bounds.Y + 13), 8, 8)
+        $e.Graphics.DrawString($label, $e.Font, $b2, ($e.Bounds.X + 28), ($e.Bounds.Y + 3))
+        $sub = $(if ($w.Raw) { 'kept as written' } elseif ($w.Level) { ($w.Level -replace '^.*/', '') } else { 'not finished' })
+        $e.Graphics.DrawString($sub, $fontSmall, $b3, ($e.Bounds.X + 28), ($e.Bounds.Y + 18))
+        $b1.Dispose(); $b2.Dispose(); $b3.Dispose(); $bd.Dispose()
+    }.GetNewClosure())
+    $list.Add_SelectedIndexChanged({ if ($st.Guard) { return }; $st.Index = $list.SelectedIndex; & $load }.GetNewClosure())
+
+    $edited = {
+        if ($st.Guard -or $st.Index -lt 0 -or $st.Index -ge $work.Count) { return }
+        $w = $work[$st.Index]
+        $w.Id = $tbId.Text.Trim(); $w.Asset = $tbAsset.Text.Trim(); $w.Level = $tbLevel.Text.Trim(); $w.Class = $tbClass.Text.Trim()
+        $vals = @(); $bad = ''
+        foreach ($nb in $numBoxes) {
+            $v = 0.0
+            if ([double]::TryParse($nb.Text.Trim(), [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$v)) { $vals += $v } else { $bad = 'Origin and arrival values must be numbers.'; $vals += 0.0 }
+        }
+        $w.Bad = $bad
+        if (-not $bad) { $w.Origin = @($vals[0..2]); $w.Arrive = @($vals[3..6]) }
+        & $refreshUi
+    }.GetNewClosure()
+    foreach ($c in @($tbId, $tbAsset, $tbLevel) + $numBoxes) { $c.Add_TextChanged($edited) }
+    $tbClass.Add_TextChanged({ if (-not $st.Guard -and $st.Index -ge 0) { $work[$st.Index].ClassAuto = $false }; & $edited }.GetNewClosure())
+    # typing the Blueprint's path fills in its class (name + _C) until you edit the class yourself
+    $tbAsset.Add_TextChanged({
+        if ($st.Guard -or $st.Index -lt 0) { return }
+        $w = $work[$st.Index]
+        if (-not $w.Class -or $w.ClassAuto) {
+            $seg = ($tbAsset.Text.Trim() -replace '^.*/', '')
+            $st.Guard = $true; $tbClass.Text = $(if ($seg) { $seg + '_C' } else { '' }); $st.Guard = $false
+            $w.Class = $tbClass.Text; $w.ClassAuto = [bool]$seg
+            & $edited
+        }
+    }.GetNewClosure())
+
+    $btnSuggest.Add_Click({
+        if ($st.Index -lt 0) { return }
+        $o = Get-NextOrigin @($work) $work[$st.Index]
+        $st.Guard = $true; foreach ($k in 0..2) { $numBoxes[$k].Text = Format-Num $o[$k] }; $st.Guard = $false
+        $work[$st.Index].Origin = @($o); $work[$st.Index].Bad = ''
+        & $edited
+    }.GetNewClosure())
+    $btnAdd.Add_Click({
+        $base = 'myworld_start'; $n = 1; $id = $base
+        while (@($work | Where-Object { $_.Id -ieq $id }).Count -gt 0) { $n++; $id = "myworld${n}_start" }
+        $o = Get-NextOrigin @($work) $null
+        [void]$work.Add([pscustomobject]@{ Id = $id; Asset = ''; Class = ''; Level = ''; Origin = @($o); Arrive = @(0.0, 0.0, 0.0, 0.0); Raw = $null; ClassAuto = $true; Bad = '' })
+        $list.Items.Add($id) | Out-Null
+        $st.Guard = $true; $list.SelectedIndex = $work.Count - 1; $st.Guard = $false
+        $st.Index = $work.Count - 1; & $load
+        [void]$tbId.Focus(); $tbId.SelectAll()
+    }.GetNewClosure())
+    $btnDel.Add_Click({
+        $i = $st.Index
+        if ($i -lt 0 -or $i -ge $work.Count) { return }
+        $id = [string]$work[$i].Id
+        if (-not $script:ShotMode) {
+            $users = @($script:rows | Where-Object { $_.Check.Checked -and $_.Dest.Input.Text.Trim() -ceq $id } | ForEach-Object { $_.Slot })
+            $q = "Remove the world '$id'?"
+            if ($users.Count -gt 0) { $q += "`r`n`r`nPortal " + ($users -join ', ') + " still leads to it. That portal will have nothing to load until you pick another destination." }
+            if ([Windows.Forms.MessageBox]::Show($q, 'Remove world', 'YesNo', 'Question') -ne 'Yes') { return }
+        }
+        $work.RemoveAt($i); $list.Items.RemoveAt($i)
+        $st.Index = [math]::Min($i, $work.Count - 1)
+        $st.Guard = $true; $list.SelectedIndex = $st.Index; $st.Guard = $false
+        & $load
+    }.GetNewClosure())
+    $btnApply.Add_Click({
+        $script:worlds = @($work | ForEach-Object { $_ })
+        Update-WorldsButton
+        foreach ($r in $script:rows) {
+            $t = $r.Dest.Input.Text.Trim()
+            $r.Dest.Input.ReadOnly = ($t -eq '' -or $KnownById.ContainsKey($t) -or (Test-UserWorld $t))
+        }
+        $dlg.DialogResult = 'OK'; $dlg.Close()
+    }.GetNewClosure())
+
+    foreach ($w in $work) { [void]$list.Items.Add([string]$w.Id) }
+    if ($work.Count -gt 0) { $list.SelectedIndex = 0; $st.Index = 0 }
+    & $load
+    if ($script:ShotMode) { return $dlg }
+    [void]$dlg.ShowDialog($form)
+}
+
 # Light colour: a drop-down of rainbow presets. "Default" leaves the pad's own light colour alone; "Custom" opens a colour picker.
 $LightPresets = @(
     [pscustomobject]@{ Label = 'Default'; Hex = ''; Kind = 'none' },
@@ -559,7 +921,7 @@ function New-DestControl([string]$text) {
     $tb.Text = $text; $tb.Font = $fontBase; $tb.BackColor = $colInput; $tb.ForeColor = $colFg
     $tb.BorderStyle = 'FixedSingle'; $tb.Dock = 'Fill'
     # A listed world (or an empty row) is chosen from the list; only "Custom Destination" lets you type an ID.
-    $tb.ReadOnly = ($text -eq '' -or $KnownById.ContainsKey($text)); $tb.BackColor = $colInput
+    $tb.ReadOnly = ($text -eq '' -or $KnownById.ContainsKey($text) -or (Test-UserWorld $text)); $tb.BackColor = $colInput
     $btn = New-Object Windows.Forms.Button
     $btn.Text = [string][char]0x25BE; $btn.FlatStyle = 'Flat'; $btn.Dock = 'Right'; $btn.Width = 30
     $btn.BackColor = $colInput; $btn.ForeColor = $colFg; $btn.FlatAppearance.BorderSize = 1; $btn.FlatAppearance.BorderColor = $colBorder
@@ -571,16 +933,26 @@ function New-DestControl([string]$text) {
     $list = New-Object Windows.Forms.ListBox
     $list.DrawMode = 'OwnerDrawFixed'; $list.ItemHeight = $rowH; $list.BorderStyle = 'None'; $list.IntegralHeight = $false
     $list.BackColor = $colInput; $list.ForeColor = $colFg; $list.Font = $fontBase
-    # group headings (Story / Optional ...) are inserted as non-selectable rows
-    $lastGroup = $null
-    foreach ($kd in $KnownDestinations) {
-        if ($kd.Group -ne $lastGroup) { [void]$list.Items.Add([pscustomobject]@{ Header = $kd.Group; Id = $null }); $lastGroup = $kd.Group }
-        [void]$list.Items.Add([pscustomobject]@{ Header = $null; Id = $kd.Id })
-    }
-    # last entry: type any pad ID yourself (a custom world, or an existing one that is not listed)
-    [void]$list.Items.Add([pscustomobject]@{ Header = 'Custom'; Id = $null })
-    [void]$list.Items.Add([pscustomobject]@{ Header = $null; Id = '__custom__' })
-    $list.Size = New-Object Drawing.Size(640, ([math]::Min([math]::Max($list.Items.Count, 1), $visibleRows) * $rowH + 2))
+    # group headings (Story / Optional ...) are inserted as non-selectable rows. Rebuilt each time the menu opens, so worlds
+    # added in the Custom worlds dialog show up straight away.
+    $fillList = {
+        $list.Items.Clear()
+        $lastGroup = $null
+        foreach ($kd in $KnownDestinations) {
+            if ($kd.Group -ne $lastGroup) { [void]$list.Items.Add([pscustomobject]@{ Header = $kd.Group; Id = $null }); $lastGroup = $kd.Group }
+            [void]$list.Items.Add([pscustomobject]@{ Header = $null; Id = $kd.Id })
+        }
+        $mine = @($script:worlds | Where-Object { -not $_.Raw -and $_.Id })
+        if ($mine.Count -gt 0) {
+            [void]$list.Items.Add([pscustomobject]@{ Header = 'Your worlds'; Id = $null })
+            foreach ($w in $mine) { [void]$list.Items.Add([pscustomobject]@{ Header = $null; Id = [string]$w.Id }) }
+        }
+        # last entry: type any pad ID yourself (an existing pad that is not listed)
+        [void]$list.Items.Add([pscustomobject]@{ Header = 'Custom'; Id = $null })
+        [void]$list.Items.Add([pscustomobject]@{ Header = $null; Id = '__custom__' })
+        $list.Size = New-Object Drawing.Size(640, ([math]::Min([math]::Max($list.Items.Count, 1), $visibleRows) * $rowH + 2))
+    }.GetNewClosure()
+    & $fillList
     $list.Add_HandleCreated({ [void][DwmDark]::SetWindowTheme($list.Handle, 'DarkMode_Explorer', $null) }.GetNewClosure())
     $list.Add_DrawItem({
         param($s, $e)
@@ -604,7 +976,9 @@ function New-DestControl([string]$text) {
         } else {
             $info = $KnownById[$id]
             if ($info) { $e.Graphics.DrawString($info.World, $e.Font, $b2, ($e.Bounds.X + 14), ($e.Bounds.Y + 4)) }
-            $e.Graphics.DrawString($id, $e.Font, $b3, ($e.Bounds.X + 270), ($e.Bounds.Y + 4))
+            elseif (Test-UserWorld $id) { $e.Graphics.DrawString($id, $e.Font, $b2, ($e.Bounds.X + 14), ($e.Bounds.Y + 4)) }
+            if ($info -or -not (Test-UserWorld $id)) { $e.Graphics.DrawString($id, $e.Font, $b3, ($e.Bounds.X + 270), ($e.Bounds.Y + 4)) }
+            else { $e.Graphics.DrawString('custom world', $e.Font, $b3, ($e.Bounds.X + 270), ($e.Bounds.Y + 4)) }
         }
         $b1.Dispose(); $b2.Dispose(); $b3.Dispose()
     })
@@ -633,6 +1007,8 @@ function New-DestControl([string]$text) {
             $tgt.Name.Text = $KnownById[$id].World
             $want = "/Game/Particles/$($KnownById[$id].Look).$($KnownById[$id].Look)"
             foreach ($it in $tgt.Combo.Items) { if ($it.Path -eq $want) { $tgt.Combo.SelectedItem = $it; break } }
+        } elseif ($tgt -and (Test-UserWorld $id)) {
+            $tgt.Name.Text = $id         # one of your own worlds: the portal's name starts as its ID (rename it freely)
         }
         $drop.Close()
     }.GetNewClosure()
@@ -640,6 +1016,8 @@ function New-DestControl([string]$text) {
     $list.Add_MouseUp($choose)
     $list.Add_KeyDown({ param($s, $e) if ($e.KeyCode -eq 'Return') { & $choose } }.GetNewClosure())
     $btn.Add_Click({
+        & $fillList
+        $listHost.Size = $list.Size
         $cur = -1
         for ($k = 0; $k -lt $list.Items.Count; $k++) { if ($list.Items[$k].Id -eq $tb.Text.Trim()) { $cur = $k; break } }
         $list.SelectedIndex = $cur
@@ -876,12 +1254,16 @@ $btnReload = New-Button 'Reload from file' $false
 $btnReload.Location = New-Object Drawing.Point(180, 48)
 $btnFolder = New-Button 'Open config folder' $false
 $btnFolder.Location = New-Object Drawing.Point(340, 48)
+$btnWorlds = New-Button 'Custom worlds' $false
+$btnWorlds.Location = New-Object Drawing.Point(500, 48)
+$btnWorlds.Add_Click({ Show-WorldsDialog })
+Update-WorldsButton
 $status = New-Object Windows.Forms.Label
-$status.AutoSize = $false; $status.Size = New-Object Drawing.Size(520, 34); $status.Location = New-Object Drawing.Point(510, 48)
+$status.AutoSize = $false; $status.Size = New-Object Drawing.Size(520, 34); $status.Location = New-Object Drawing.Point(670, 48)
 $status.TextAlign = 'MiddleLeft'; $status.ForeColor = $colMuted
 $status.Text = 'Config: ' + $ConfigPath
-$footer.Controls.AddRange(@($humTitle, $modeCombo, $humLabel, $hum, $humHint, $btnSave, $btnReload, $btnFolder, $status))
-$footer.Add_Resize({ $status.Width = [math]::Max(200, $footer.ClientSize.Width - 530) })
+$footer.Controls.AddRange(@($humTitle, $modeCombo, $humLabel, $hum, $humHint, $btnSave, $btnReload, $btnFolder, $btnWorlds, $status))
+$footer.Add_Resize({ $status.Width = [math]::Max(200, $footer.ClientSize.Width - 690) })
 # Saving is blocked while any ticked portal has no valid destination pad ID: the Save button greys out, the empty field turns
 # red and the status line names the slot(s). Unticking the portal (or entering an ID) clears it.
 $script:statusWarn = $false
@@ -932,7 +1314,8 @@ $btnSave.Add_Click({
         if ($script:humVals.ContainsKey($mode)) { $script:humVals[$mode] = [int]$hum.Value }
         Write-HubConfig $ConfigPath $cfg.Header $mode $script:humVals.dynamic $script:humVals.manual $list (Get-BlocksForSave)
         $status.ForeColor = C '#7be09a'
-        $status.Text = "Saved $($list.Count) portal(s). In game press Ctrl+O, then click Restart All Mods."
+        $wn = @($script:worlds).Count
+        $status.Text = "Saved $($list.Count) portal(s)" + $(if ($wn -gt 0) { " and $wn custom world(s)" } else { '' }) + ". In game press Ctrl+O, then click Restart All Mods."
     } catch {
         $status.ForeColor = C '#ff7b7b'
         $status.Text = 'Could not save: ' + $_.Exception.Message
@@ -971,6 +1354,32 @@ if ($Screenshot) {
     $dlgForm.DrawToBitmap($db, (New-Object Drawing.Rectangle(0, 0, $dlgForm.Width, $dlgForm.Height)))
     $db.Save(($Screenshot -replace '\.png$', '_effects.png'), [Drawing.Imaging.ImageFormat]::Png)
     $dlgForm.Close()
+    # and the Custom worlds dialog (first world selected, then a second one with problems)
+    $wd = Show-WorldsDialog
+    if ($wd) {
+        $wd.Show($form); [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 300; [Windows.Forms.Application]::DoEvents()
+        $wb = New-Object Drawing.Bitmap($wd.Width, $wd.Height)
+        $wd.DrawToBitmap($wb, (New-Object Drawing.Rectangle(0, 0, $wd.Width, $wd.Height)))
+        $wb.Save(($Screenshot -replace '\.png$', '_worlds.png'), [Drawing.Imaging.ImageFormat]::Png)
+        $wd.Close()
+    }
+    $wd = Show-WorldsDialog
+    if ($wd) {
+        $wd.Show($form); [Windows.Forms.Application]::DoEvents()
+        $addBtn = $wd.Controls | Where-Object { $_.Text -eq 'Add world' }
+        $addBtn.PerformClick(); [Windows.Forms.Application]::DoEvents()
+        $rp = $wd.Controls | Where-Object { $_ -is [Windows.Forms.Panel] } | Select-Object -First 1
+        $tbs = @($rp.Controls | Where-Object { $_ -is [Windows.Forms.TextBox] })
+        $tbs[1].Text = '/Game/Mods/Hello/BP_HelloLoader'; [Windows.Forms.Application]::DoEvents()
+        $tbs[3].Text = '/Game/Mods/Hello/Maps/Hello_L0'; [Windows.Forms.Application]::DoEvents()
+        $tbs[4].Text = '1100000'; [Windows.Forms.Application]::DoEvents()    # same x as the first world: too close
+        Start-Sleep -Milliseconds 300; [Windows.Forms.Application]::DoEvents()
+        Write-Host ('autofill class: ' + $tbs[2].Text)
+        $wb = New-Object Drawing.Bitmap($wd.Width, $wd.Height)
+        $wd.DrawToBitmap($wb, (New-Object Drawing.Rectangle(0, 0, $wd.Width, $wd.Height)))
+        $wb.Save(($Screenshot -replace '\.png$', '_worlds2.png'), [Drawing.Imaging.ImageFormat]::Png)
+        $wd.Close()
+    }
     $form.Close(); return
 }
 [void]$form.ShowDialog()

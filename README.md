@@ -54,6 +54,7 @@ Each open slot (A-1, A-2 and B-3 are the game's own Stone Garden, Torii and Cabi
 - **Base Portal** - the portal's look. Picking a world sets that world's own entrance look; **Default Portal** is the plain one.
 - **Effects** - switch parts of a look on or off (for example SnowFlurry's accretion disk is its `Swirl` part). The `portal` part is always on.
 - **Light / Bright** - tint the pad's own light with a rainbow preset or **Custom** colour, and scale its brightness in 0.1 steps (1.0 = the game's normal).
+- **Custom worlds** (button at the bottom) - connect a world from your own pak without touching `config.lua`: give it an ID, the loader Blueprint and level paths, and an origin and arrival point. Problems (a clashing ID, two worlds at the same origin, a missing field) are shown in red and block Apply. Worlds you add appear under *Your worlds* in each portal's destination menu. A hand-written entry the editor can't read exactly is kept as written.
 - A **hub portal volume** mode: dynamic (quieter as portals are added), manual, or the game's default.
 
 Save is blocked, with the problem shown in red, while a ticked portal has no valid destination.
@@ -89,7 +90,7 @@ Everything else (the portal in the hub, its look, the return trip) is handled by
    in at the actor's location when the hub spawns it. List your map under Project Settings > Packaging > "List of Maps to Include in a Packaged Build" so it is packaged.
    Because the level is chosen inside the Blueprint, Lua never has to pass a text argument (calling the streaming functions with text from Lua fails in UE4SS 3.0.1).
    (A loader whose BeginPlay calls the *Load Level Instance (by Name)* node was tested and did not work in this game: the node reported failure and no level appeared.)
-3. **Add a `worlds` entry to the hub's `config.lua`:**
+3. **Add the world to the hub.** Click **Custom worlds** in `PortalHubConfig.bat` and fill in the form, or add a `worlds` entry to `config.lua` by hand:
    ```lua
    worlds = {
        mymod_start = {

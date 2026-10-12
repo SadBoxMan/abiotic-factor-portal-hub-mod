@@ -10,7 +10,7 @@ this project's own test results; the **Sources** list says which, and notes wher
 (`BP_CordonaTestLoader`), that streams the map in at its own location.<sup>[[1]](#ref-1)</sup> The hub spawns the loader far from the Facility, waits for the level,
 then puts a teleporter pad at the arrival point.
 
-Names used below (change them for your own world, but keep the three places that use them in step):
+Names used below (change them for your own world; see **How the names fit together** in step 6 for which ones must match):
 
 | What | Value |
 |---|---|
@@ -81,7 +81,7 @@ Its `Config/DefaultGame.ini` already turns on **IoStore**, **chunk generation** 
 ## 6. Install and connect
 1. Copy the three files **directly into** `AbioticFactor/Content/Paks` (not a subfolder: a `~mods` subfolder is not mounted on the Steam install).<sup>[[4]](#ref-4)</sup><sup>[[10]](#ref-10)</sup>
    Replace any earlier `pakchunk90-Windows_P.*` files, and make sure no leftover single `.pak` from a build made without IoStore remains.
-2. In the hub's `config.lua` add:
+2. Add the world to the hub. The easy way: open `PortalHubConfig.bat`, click **Custom worlds**, **Add world**, and fill in the form (the editor fills in the loader class, suggests a free origin, and warns about clashes). Then pick the world under *Your worlds* in a free slot's destination menu and **Save**. Or edit the hub's `config.lua` by hand and add:
    ```lua
    worlds = {
        cordonatest_start = {
@@ -102,6 +102,22 @@ What the hub does behind that log, in order: it finds the loader class with `Loa
 with `SpawnActor`<sup>[[6]](#ref-6)</sup>, watches `world.StreamingLevels` for the entry whose `PackageNameToLoad` is your map and asks whether it is loaded and visible<sup>[[7]](#ref-7)</sup>
 (flushing level streaming now and then<sup>[[8]](#ref-8)</sup>), places the arrival pad at `origin + arrive`, and switches the hub portal on. Because the level is chosen inside the Blueprint, Lua never
 has to pass a text argument, which fails in this UE4SS build.<sup>[[10]](#ref-10)</sup>
+
+## How the names fit together
+Only some of these names have to match each other, and none of them is set inside Unreal except the asset paths.
+
+| Name | Where you set it | Must match |
+|---|---|---|
+| World id, e.g. `cordonatest_start` | **Only in the hub's `config.lua`** (or the editor's *Custom Destination* box): as the key of your `worlds` entry, and as the portal's `destination`. You invent it. Nothing in Unreal holds it. | The `worlds` key and the portal's `destination` must be the same text. Do not start it with `hub_`. |
+| `loaderAsset` and `loaderClass` | In the `worlds` entry. | Your loader Blueprint's package path and its generated `_C` class. |
+| `level` | In the `worlds` entry. | Your map's package path. It is only used to recognise the level when it has loaded; the loader Blueprint is what actually loads it. |
+| `origin` | In the `worlds` entry. | Free choice, but **every world needs its own** (see below). |
+| `arrive` | In the `worlds` entry. | Free choice: where the arrival and return pad goes (x, y, floor z, yaw). |
+| The map's name, e.g. `CordonaTest_L0` | In Unreal. | Not an id: it is not turned into the world id. |
+
+The hub connects a portal to a world through the shared id: the portal's `destination` is looked up as a key in `worlds`, and that entry names your loader and your level. The same id is stamped on the arrival pad the hub spawns, which is how the game's teleporter finds it. The arrival pad is also the way back: its destination is pointed at whichever hub portal you came through just before you step in.
+
+**Several custom worlds.** Each world is placed at its own `origin`, and the hub does not choose or check these for you. If two worlds share an origin (or are close enough for their levels to overlap) they will occupy the same space. Give each world an origin far from every other world and from the Facility, for example 200,000 units apart. Only worlds that an enabled portal points at are loaded.
 
 ## If something goes wrong
 | Log line | Meaning |

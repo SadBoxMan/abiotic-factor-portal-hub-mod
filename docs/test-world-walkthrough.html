@@ -92,7 +92,7 @@ footer{margin-top:36px;color:var(--muted);font-size:.85rem;border-top:1px solid 
     <div><b>Time</b>About an hour the first time, plus a slow first package</div>
     <div><b>You need</b>Unreal Engine 5.4, Windows SDK and Visual Studio build tools, the game with UE4SS and the hub</div>
   </div>
-  <p style="margin:12px 0 4px">The hub spawns the loader far from the Facility, waits for the level, then puts a teleporter pad at the arrival point. Keep these names in step in all three places they appear:</p>
+  <p style="margin:12px 0 4px">The hub spawns the loader far from the Facility, waits for the level, then puts a teleporter pad at the arrival point. See <a href="#names">How the names fit together</a> for which of these must match:</p>
   <table>
     <tr><th>What</th><th>Value</th></tr>
     <tr><td>Content folder</td><td><code>/Game/Mods/CordonaTest/</code></td></tr>
@@ -179,13 +179,13 @@ footer{margin-top:36px;color:var(--muted);font-size:.85rem;border-top:1px solid 
   <div class="in">
     <ul class="check">
       <li><input type="checkbox" id="c6a"><label for="c6a">Copy the three files <b>directly into</b> <code>AbioticFactor/Content/Paks</code>. <sup class="cite"><a href="#ref-4" id="cite-4-22">[4]</a></sup><sup class="cite"><a href="#ref-10" id="cite-10-23">[10]</a></sup> Replace any earlier <code>pakchunk90-Windows_P.*</code> files, and make sure no leftover single <code>.pak</code> from a build made without IoStore remains.</label></li>
-      <li><input type="checkbox" id="c6b"><label for="c6b">Add the world to the hub's <code>config.lua</code> (below), and give a hub portal the destination <code>cordonatest_start</code> (in the editor: <b>Custom Destination</b>).</label></li>
+      <li><input type="checkbox" id="c6b"><label for="c6b">Add the world to the hub. Easiest: in <code>PortalHubConfig.bat</code> click <b>Custom worlds</b> &rarr; <b>Add world</b> and fill in the form (it fills in the loader class, suggests a free origin and warns about clashes), then pick the world under <i>Your worlds</i> in a free slot's destination menu and <b>Save</b>. Or edit <code>config.lua</code> by hand (entry below).</label></li>
       <li><input type="checkbox" id="c6c"><label for="c6c">Restart the game, load a world, wait about 5 seconds, open the UE4SS GUI (<b>Ctrl+O</b>).</label></li>
       <li><input type="checkbox" id="c6d"><label for="c6d">Look for <code>worlds: loader spawned for cordonatest_start ...</code>, then <code>worlds: cordonatest_start waiting (0 s): streaming level found, loaded=true, visible=true</code>, then <code>worlds: cordonatest_start is ready after ... s</code>. The hub portal switches on and takes you in.</label></li>
     </ul>
     <div class="tip"><b>What the hub does behind that log:</b> it finds the loader class with <code>LoadAsset</code> <sup class="cite"><a href="#ref-5" id="cite-5-24">[5]</a></sup> (falling back to the asset registry's <code>GetAsset</code> <sup class="cite"><a href="#ref-9" id="cite-9-25">[9]</a></sup>), spawns it at <code>origin</code> with <code>SpawnActor</code> <sup class="cite"><a href="#ref-6" id="cite-6-26">[6]</a></sup>, watches <code>world.StreamingLevels</code> for the entry whose <code>PackageNameToLoad</code> is your map and asks whether it is loaded and visible <sup class="cite"><a href="#ref-7" id="cite-7-27">[7]</a></sup> (flushing level streaming now and then <sup class="cite"><a href="#ref-8" id="cite-8-28">[8]</a></sup>), places the arrival pad at <code>origin + arrive</code>, and switches the hub portal on. Because the level is chosen inside the Blueprint, Lua never has to pass a text argument, which fails in this UE4SS build. <sup class="cite"><a href="#ref-10" id="cite-10-29">[10]</a></sup></div>
     <div class="note"><b>Not a subfolder:</b> on the Steam install a <code>~mods</code> subfolder is not mounted. The pak must sit directly in <code>Content/Paks</code>.</div>
-    <p>Config entry:</p>
+    <p>The same thing as a config entry (what the editor writes for you):</p>
     <div class="codebox"><pre>worlds = {
     cordonatest_start = {
         loaderAsset = "/Game/Mods/CordonaTest/BP_CordonaTestLoader",
@@ -197,6 +197,22 @@ footer{margin-top:36px;color:var(--muted);font-size:.85rem;border-top:1px solid 
 },</pre><button class="copy" type="button">Copy</button></div>
   </div>
 </section>
+
+<div class="card" id="names">
+  <strong>How the names fit together</strong>
+  <p style="margin:6px 0 8px;color:var(--muted);font-size:.93rem">Only some names have to match each other, and none of them is set inside Unreal except the asset paths.</p>
+  <table>
+    <tr><th>Name</th><th>Where you set it</th><th>Must match</th></tr>
+    <tr><td>World id, e.g. <code>cordonatest_start</code></td><td><b>Only in the hub's <code>config.lua</code></b> (or the editor's <i>Custom Destination</i> box): as the key of your <code>worlds</code> entry and as the portal's <code>destination</code>. You invent it. Nothing in Unreal holds it.</td><td>The <code>worlds</code> key and the portal's <code>destination</code> must be the same text. Do not start it with <code>hub_</code>.</td></tr>
+    <tr><td><code>loaderAsset</code>, <code>loaderClass</code></td><td>In the <code>worlds</code> entry.</td><td>Your loader Blueprint's package path and its generated <code>_C</code> class.</td></tr>
+    <tr><td><code>level</code></td><td>In the <code>worlds</code> entry.</td><td>Your map's package path. Only used to recognise the level once loaded; the loader Blueprint is what loads it.</td></tr>
+    <tr><td><code>origin</code></td><td>In the <code>worlds</code> entry.</td><td>Free choice, but <b>every world needs its own</b> (below).</td></tr>
+    <tr><td><code>arrive</code></td><td>In the <code>worlds</code> entry.</td><td>Free choice: where the arrival and return pad goes (x, y, floor z, yaw).</td></tr>
+    <tr><td>The map's name, e.g. <code>CordonaTest_L0</code></td><td>In Unreal.</td><td>Not an id: it is not turned into the world id.</td></tr>
+  </table>
+  <p>The hub connects a portal to a world through the shared id: the portal's <code>destination</code> is looked up as a key in <code>worlds</code>, and that entry names your loader and your level. The same id is stamped on the arrival pad the hub spawns, which is how the game's teleporter finds it. The arrival pad is also the way back: its destination is pointed at whichever hub portal you came through just before you step in.</p>
+  <div class="note"><b>Several custom worlds:</b> each world is placed at its own <code>origin</code>, and the hub does not choose or check these for you. If two worlds share an origin (or sit close enough for their levels to overlap) they will occupy the same space. Give each world an origin far from every other world and from the Facility, for example 200,000 units apart. Only worlds that an enabled portal points at are loaded.</div>
+</div>
 
 <div class="card" id="fix">
   <strong>If something goes wrong</strong>
