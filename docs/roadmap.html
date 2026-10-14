@@ -235,6 +235,12 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid 
       <li>More level-name and vignette testing, with copies of the Test World under different names.</li>
       <li>Make a custom world act exactly like a vignette does: clearing the weather, the proper world flags, the level name, and so on.</li>
       <li>A custom title for the world (the one shown on entry).</li>
+      <li><b>World types</b>, once the vignette tests pass on a few more worlds. The game has two, and modders pick one:
+        <ul class="plain">
+          <li><b>Vignette</b> (<code>V_</code>): puzzle worlds and adventures. Equipment can't be used until the player reaches the world's exit, which is separate from its entrance; using the exit clears that restriction.</li>
+          <li><b>Home</b> (<code>H_</code>, like Temple of Stone, Torii and the Cabin): player homes. No equipment restriction, and no separate exit.</li>
+        </ul>
+        <span style="color:var(--muted)">To find out: what the game uses to tell the two apart and to block equipment. Both kinds are marked as vignettes in the level table, so it is something else, perhaps a world flag or the level name.</span></li>
     </ul></li>
   <li><b>Lighting</b>: how do we give the world custom lighting for days and nights? Dynamic lighting, like Stone Garden, and static lighting, like Albatross.<br><span style="color:var(--muted)">A world can already borrow another area's lighting through the game's own system (Stone Garden's was shown in the Test World). Next: lighting of our own for day and night.</span></li>
   <li><b>Skyboxes</b>: can we successfully make a skybox and relay that info to modders?<br><span style="color:var(--muted)">Surveyed: the game's skies are dome meshes under <code>/Game/Sky</code>. Not started.</span></li>
