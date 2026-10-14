@@ -2,10 +2,11 @@
 #
 # Why: importing an OBJ / FBX usually generates a "simple" collision shape, often a convex hull around the whole object. A convex hull
 # has no hollow inside, so a room, a street or a building reads as one solid block you cannot enter. This script removes that generated
-# collision and sets Collision Complexity to "Use Complex Collision As Simple", so the mesh's own triangles are the collision.
+# collision and sets Collision Complexity to "Use Complex Collision As Simple", so the mesh's own triangles are the collision. It also ticks
+# "Double Sided Geometry", because imported floors and walls are often one-sided and the character would otherwise fall into or hover over them.
 #
-# Status: written for Unreal Engine 5.4's Python API. matte_materials.py is confirmed working; this script has not been run in the
-# editor yet, so if it errors, set Collision Complexity by hand (Static Mesh Editor > Details > Collision Complexity) and report it.
+# Status: written for Unreal Engine 5.4's Python API but not yet run in the editor (the project currently fixes collision by hand), so if it
+# errors, set Collision Complexity by hand (Static Mesh Editor > Details > Collision Complexity) and report it.
 #
 # How to use (editor only; it changes your project's assets, not the game):
 #   1. Edit > Plugins: enable "Python Editor Script Plugin" and "Editor Scripting Utilities", restart the editor (one time).
@@ -24,6 +25,10 @@ for asset in unreal.EditorUtilityLibrary.get_selected_assets():
     subsystem.remove_collisions(asset)                     # drop the generated hull / box
     body = asset.get_editor_property('body_setup')
     body.set_editor_property('collision_trace_flag', unreal.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
+    try:                                                   # triangles then collide from both sides (imported floors are often one-sided)
+        body.set_editor_property('double_sided_geometry', True)
+    except Exception as err:
+        unreal.log_warning('could not set Double Sided Geometry on %s: %s' % (asset.get_name(), err))
     unreal.EditorAssetLibrary.save_loaded_asset(asset)
     fixed += 1
     unreal.log('collision fixed: ' + asset.get_name())

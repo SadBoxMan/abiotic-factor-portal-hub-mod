@@ -1,46 +1,14 @@
--- PortalMaterialLab: experiment to see whether the material (or texture) of a hub portal can be swapped from Lua.
---
--- Background: the game's plain portal effect (Niagara_Portal, and looks built on it such as Blueverse) exposes a Niagara user
--- parameter called  User.PortalTexture , and the teleporter Blueprint calls "SetVariableMaterial" and refers to M_WorldPortal.
--- So the "window" of those portals may be a material that can be replaced. This lab tries that, one step at a time, and logs
--- every result so we can see what is possible. It only touches the hub portals spawned by PortalHub (IDs starting "hub_").
---
---   NUMPAD 7 = report: what the hub portals' effects look like, which test materials/textures are already loaded
---   NUMPAD 8 = apply the NEXT material in the list to every hub portal (SetVariableMaterial), then look at the portals
---   NUMPAD 9 = apply the NEXT texture in the list to every hub portal (SetVariableTexture)
---   NUMPAD 0 = put the original M_WorldPortal material back
---
--- Everything is wrapped in pcall, so a call that does not exist or fails prints a message instead of crashing the game.
+-- PortalMaterialLab: the project's read-only survey lab. It never changes the game; it only logs what it finds, so features can be
+-- designed from facts. (It started as a material-swap experiment, hence the name; those experiments are finished and were removed, they
+-- are in the git history.) Keys, all read-only:
+--   NUMPAD 4        sky domes: dome meshes, their materials and parameters, and the sky Blueprint actors
+--   NUMPAD 5        hazards: water / pain-causing volumes, hazard-style classes, underwater and damage data tables
+--   NUMPAD 6        NPCs: NPC, creature and spawner classes, plus the settings of one spawner and one NPC
+--   CTRL + NUMPAD + the player's lighting state: the controller's FX rows, the real light values, and the DT_LevelFX row names
+-- Free keys: NUMPAD 0 1 2 3 7 8 9, NUMPAD . * / - and +  (NUMPAD 1 and 2 belong to PortalHub). Note: Shift + a numpad digit does not work,
+-- because with Num Lock on Shift turns the digit into Home / arrow keys.
+-- Rule: every object is checked with IsValid() before anything is called on it (a call on an invalid object crashes the game).
 
-local PARAM_NAMES = { "User.PortalTexture", "PortalTexture" }   -- tried in this order; the second is a fallback spelling
-
-local MATERIALS = {
-    "/Game/Particles/Materials/M_WorldPortal.M_WorldPortal",
-    "/Game/Particles/Materials/M_WorldPortal_HCabin.M_WorldPortal_HCabin",
-    "/Game/Particles/Materials/M_WorldPortal_Offices.M_WorldPortal_Offices",
-    "/Game/Particles/Materials/M_WorldPortal_Warehouse.M_WorldPortal_Warehouse",
-    "/Game/Particles/Materials/M_WorldPortal_Fog.M_WorldPortal_Fog",
-    "/Game/Particles/Materials/M_WorldPortal_AnteA.M_WorldPortal_AnteA",
-    "/Game/Particles/Materials/M_WorldPortal_AnteC.M_WorldPortal_AnteC",
-    "/Game/Particles/Materials/M_Portal_Torii.M_Portal_Torii",
-    "/Game/Particles/Materials/M_Portal_Arch.M_Portal_Arch",
-    "/Game/Particles/Materials/M_Portal_FractureOpening.M_Portal_FractureOpening",
-    "/Game/Particles/Materials/M_Portal_Friendly_Blue.M_Portal_Friendly_Blue",
-    "/Game/Particles/Materials/M_Portal_Friendly_Cyan.M_Portal_Friendly_Cyan",
-    "/Game/Particles/Materials/M_Portal_Shadowgate.M_Portal_Shadowgate",
-    "/Game/Particles/Materials/M_Portal_Botanical_Green.M_Portal_Botanical_Green",
-}
-
-local TEXTURES = {
-    "/Game/Particles/RenderTargets/TC_Portal_Torii.TC_Portal_Torii",
-    "/Game/Particles/RenderTargets/TC_Portal_Alps.TC_Portal_Alps",
-    "/Game/Particles/RenderTargets/TC_Portal_Anteverse_A.TC_Portal_Anteverse_A",
-    "/Game/Particles/RenderTargets/TC_Portal_Fog.TC_Portal_Fog",
-    "/Game/Particles/RenderTargets/TC_Portal_Offices.TC_Portal_Offices",
-    "/Game/Particles/RenderTargets/TC_Portal_Warehouse.TC_Portal_Warehouse",
-}
-
-local mat_index, tex_index = 0, 0
 
 local function log(msg) print("[MaterialLab] " .. msg .. "\n") end
 
@@ -52,51 +20,6 @@ local function pad_id(t)
     return nil
 end
 
-local function hub_pads()
-    local list = {}
-    for _, t in ipairs(FindAllOf("BP_Teleporter_ParentBP_C") or {}) do
-        if t:IsValid() then
-            local id = pad_id(t)
-            if id and id:sub(1, 4) == "hub_" then list[#list + 1] = t end
-        end
-    end
-    return list
-end
-
--- Find an asset that is already loaded, or load it. Returns the object or nil.
-local function find_object(path)
-    local obj = StaticFindObject(path)
-    if obj and obj:IsValid() then return obj, "already loaded" end
-    local ok = pcall(LoadAsset, path)
-    obj = StaticFindObject(path)
-    if ok and obj and obj:IsValid() then return obj, "loaded now" end
-    return nil, "not found"
-end
-
-local function describe(v)
-    if v == nil then return "nil" end
-    local t = type(v)
-    if t == "userdata" then
-        local ok, s = pcall(function()
-            if v.IsValid and not v:IsValid() then return "<invalid object>" end
-            if v.GetFullName then return v:GetFullName() end
-            return "<" .. tostring(v) .. ">"
-        end)
-        return ok and tostring(s) or "<unreadable>"
-    end
-    return t .. ":" .. tostring(v)
-end
-
--- NOTE: calling a method (GetFName, GetFullName, ...) on an object that is not valid crashes the game, and pcall cannot
--- catch that. So every object is checked with IsValid() before anything is called on it, and each step is logged first.
-local function design_of(pad)
-    local pl = pad.ParticleLoop
-    if not (pl and pl:IsValid()) then return "(no effect component)" end
-    local asset = pl:GetAsset()
-    if not (asset and asset:IsValid()) then return "(no effect asset)" end
-    return asset:GetFName():ToString()
-end
-
 local function class_of(obj)
     if not (obj and obj:IsValid()) then return "?" end
     local cls = obj:GetClass()
@@ -104,457 +27,779 @@ local function class_of(obj)
     return cls:GetFName():ToString()
 end
 
-local function report()
-    local pads = hub_pads()
-    log("---- REPORT: " .. #pads .. " hub portal(s)")
-    for i, p in ipairs(pads) do
-        local id = pad_id(p) or "?"
-        log("step: pad " .. i .. " " .. id)
-        local design = design_of(p)
-        log("  effect = " .. design)
-        local pl = p.ParticleLoop
-        if pl and pl:IsValid() then
-            log("  step: checking SetVariableMaterial on the effect component")
-            local ok, fn = pcall(function() return pl.SetVariableMaterial end)
-            log("  SetVariableMaterial member type = " .. (ok and type(fn) or "error"))
-        end
-        log("  step: PortalImage / PortalTexture")
-        log("  PortalImage = " .. describe(select(2, pcall(function() return p.PortalImage end))))
-        log("  PortalTexture = " .. describe(select(2, pcall(function() return p.PortalTexture end))))
-    end
-    log("---- test materials (already loaded only; nothing is loaded by this report):")
-    for _, path in ipairs(MATERIALS) do
-        local obj = StaticFindObject(path)
-        local loaded = obj and obj:IsValid()
-        log(string.format("  %-34s %s%s", short(path), loaded and "loaded" or "not loaded yet", loaded and (" | class " .. class_of(obj)) or ""))
-    end
-    log("---- test textures (already loaded only):")
-    for _, path in ipairs(TEXTURES) do
-        local obj = StaticFindObject(path)
-        local loaded = obj and obj:IsValid()
-        log(string.format("  %-34s %s%s", short(path), loaded and "loaded" or "not loaded yet", loaded and (" | class " .. class_of(obj)) or ""))
-    end
-    log("---- REPORT done")
+local function lower_has(s, words)
+    s = s:lower()
+    for _, w in ipairs(words) do if s:find(w, 1, true) then return true end end
+    return false
 end
-local function apply(kind, path)
-    log("step: " .. kind .. " " .. short(path))
-    local obj, how = find_object(path)
-    if not obj then log(kind .. " " .. short(path) .. ": " .. how .. ", nothing applied") return end
-    local pads = hub_pads()
-    log(string.format("---- %s -> %s (%s) on %d hub portal(s)", kind, short(path), how, #pads))
-    for _, p in ipairs(pads) do
-        local applied = false
-        for _, name in ipairs(PARAM_NAMES) do
-            local ok, err = pcall(function()
-                local pl = p.ParticleLoop
-                if not (pl and pl:IsValid()) then error("no effect component") end
-                if kind == "material" then pl:SetVariableMaterial(FName(name), obj)
-                else pl:SetVariableTexture(FName(name), obj) end
-            end)
-            if ok then
-                log(string.format("  %-8s %-26s ok with '%s'", pad_id(p), design_of(p), name))
-                applied = true
-                break
-            else
-                log(string.format("  %-8s %-26s '%s' failed: %s", pad_id(p), design_of(p), name, tostring(err)))
+
+local function loc_text(actor)
+    local ok, t = pcall(function() local l = actor:K2_GetActorLocation(); return string.format("%.0f, %.0f, %.0f", l.X, l.Y, l.Z) end)
+    return ok and t or "?"
+end
+
+local function rot_text(actor)
+    local ok, t = pcall(function() local r = actor:K2_GetActorRotation(); return string.format("pitch %.1f yaw %.1f roll %.1f", r.Pitch, r.Yaw, r.Roll) end)
+    return ok and t or "?"
+end
+
+-- Logs the readable simple settings (numbers, booleans, names) of an object, up to a limit.
+
+local function dump_settings(obj, label, limit)
+    if not (obj and obj:IsValid()) then return end
+    local cls = obj:GetClass()
+    if not (cls and cls:IsValid()) then return end
+    log("    settings of " .. label .. ":")
+    local n = 0
+    pcall(function()
+        cls:ForEachProperty(function(prop)
+            if n >= limit then return end
+            local name = prop:GetFName():ToString()
+            local ok, v = pcall(function() return obj[name] end)
+            if not ok then return end
+            local t, shown = type(v), nil
+            if t == "number" or t == "boolean" or t == "string" then shown = tostring(v)
+            elseif t == "userdata" then
+                local ok2, s = pcall(function() if v.GetFullName then return nil end; return v:ToString() end)
+                if ok2 and type(s) == "string" then shown = s end
             end
+            if shown then n = n + 1; log(string.format("      %-36s %s", name, shown)) end
+        end)
+    end)
+    if n == 0 then log("      (no readable simple settings)") end
+end
+
+local FX_STRUCT = "/Game/Blueprints/Data/LevelFXData_Struct.LevelFXData_Struct"
+local FX_TABLE = "/Game/Blueprints/DataTables/Environment/DT_LevelFX.DT_LevelFX"
+
+local function value_text(v)
+    local t = type(v)
+    if t == "number" or t == "boolean" or t == "string" then return tostring(v) end
+    if t == "nil" then return "nil" end
+    local out
+    pcall(function()
+        if v.R ~= nil and v.G ~= nil and v.B ~= nil then out = string.format("(%.3f, %.3f, %.3f, %.3f)", v.R, v.G, v.B, v.A or 1)
+        elseif v.Pitch ~= nil then out = string.format("(pitch %.1f, yaw %.1f, roll %.1f)", v.Pitch, v.Yaw, v.Roll) end
+    end)
+    if out then return out end
+    pcall(function() if not v.GetFullName then out = v:ToString() end end)
+    return out or "<object>"
+end
+
+local FX_TABLE = "/Game/Blueprints/DataTables/Environment/DT_LevelFX.DT_LevelFX"
+
+local function value_text(v)
+    local t = type(v)
+    if t == "number" or t == "boolean" or t == "string" then return tostring(v) end
+    if t == "nil" then return "nil" end
+    local out
+    pcall(function()
+        if v.R ~= nil and v.G ~= nil and v.B ~= nil then out = string.format("(%.3f, %.3f, %.3f, %.3f)", v.R, v.G, v.B, v.A or 1)
+        elseif v.Pitch ~= nil then out = string.format("(pitch %.1f, yaw %.1f, roll %.1f)", v.Pitch, v.Yaw, v.Roll) end
+    end)
+    if out then return out end
+    pcall(function() if not v.GetFullName then out = v:ToString() end end)
+    return out or "<object>"
+end
+
+local function value_text(v)
+    local t = type(v)
+    if t == "number" or t == "boolean" or t == "string" then return tostring(v) end
+    if t == "nil" then return "nil" end
+    local out
+    pcall(function()
+        if v.R ~= nil and v.G ~= nil and v.B ~= nil then out = string.format("(%.3f, %.3f, %.3f, %.3f)", v.R, v.G, v.B, v.A or 1)
+        elseif v.Pitch ~= nil then out = string.format("(pitch %.1f, yaw %.1f, roll %.1f)", v.Pitch, v.Yaw, v.Roll) end
+    end)
+    if out then return out end
+    pcall(function() if not v.GetFullName then out = v:ToString() end end)
+    return out or "<object>"
+end
+
+local function short_field(n) return (n:gsub("_%d+_%x+$", "")) end
+
+local function dump_fx_struct(pc, prop, label)
+    local ok, val = pcall(function() return pc[prop] end)
+    if not ok or val == nil then log("    " .. label .. ": unreadable"); return end
+    local def = StaticFindObject(FX_STRUCT)
+    if not (def and def:IsValid()) then log("    " .. label .. ": struct definition not found"); return end
+    log("    " .. label .. ":")
+    pcall(function()
+        def:ForEachProperty(function(p)
+            local n = p:GetFName():ToString()
+            local okv, v = pcall(function() return val[n] end)
+            if okv then log(string.format("      %-28s %s", short_field(n), value_text(v))) end
+        end)
+    end)
+end
+
+local function dump_fx_struct(pc, prop, label)
+    local ok, val = pcall(function() return pc[prop] end)
+    if not ok or val == nil then log("    " .. label .. ": unreadable"); return end
+    local def = StaticFindObject(FX_STRUCT)
+    if not (def and def:IsValid()) then log("    " .. label .. ": struct definition not found"); return end
+    log("    " .. label .. ":")
+    pcall(function()
+        def:ForEachProperty(function(p)
+            local n = p:GetFName():ToString()
+            local okv, v = pcall(function() return val[n] end)
+            if okv then log(string.format("      %-28s %s", short_field(n), value_text(v))) end
+        end)
+    end)
+end
+
+-- Row names of DT_LevelFX, read through the engine's own data-table function (names pass as FName, no text needed).
+
+local fx_rows = nil
+local function level_fx_rows()
+    if fx_rows then return fx_rows end
+    local dt = StaticFindObject(FX_TABLE)
+    if not (dt and dt:IsValid()) then log("  DT_LevelFX is not loaded"); return nil end
+    local rows = {}
+    local lib = StaticFindObject("/Script/Engine.Default__DataTableFunctionLibrary")
+    if lib and lib:IsValid() then
+        local out = {}
+        local ok, a, b = pcall(function() return lib:GetDataTableRowNames(dt, out) end)
+        log(string.format("  GetDataTableRowNames: call %s, out table has %d entries (return types: %s, %s)", tostring(ok), #out, type(a), type(b)))
+        -- turn one array element into text, trying the ways UE4SS can hand an FName back
+        local function text_of(x)
+            local s
+            if pcall(function() s = x:ToString() end) and type(s) == "string" and s ~= "" then return s end
+            if pcall(function() s = x:get():ToString() end) and type(s) == "string" and s ~= "" then return s end
+            if pcall(function() s = tostring(x) end) and type(s) == "string" and s ~= "" then return s end
+            return nil
         end
+        if #out > 0 then
+            local first = out[1]
+            local okT, tn = pcall(function() return type(first) end)
+            local okS, sv = pcall(function() return tostring(first) end)
+            log(string.format("  first entry: type %s, tostring %s", okT and tn or "?", okS and sv or "?"))
+        end
+        for i = 1, #out do
+            local s = text_of(out[i])
+            if s then rows[#rows + 1] = s end
+        end
+        if #rows == 0 and ok and type(b) == "table" then
+            for i = 1, #b do local s = text_of(b[i]); if s then rows[#rows + 1] = s end end
+        end
+        if #rows > 0 and rows[1]:find("^userdata") then rows = {} end    -- tostring gave only a pointer: not usable
     end
+    if #rows == 0 then
+        local okR = pcall(function() dt.RowMap:ForEach(function(k) rows[#rows + 1] = k:get():ToString() end) end)
+        log("  RowMap:ForEach fallback: " .. tostring(okR) .. ", rows " .. #rows)
+    end
+    table.sort(rows)
+    fx_rows = rows
+    return rows
+end
+local function level_fx_rows()
+    if fx_rows then return fx_rows end
+    local dt = StaticFindObject(FX_TABLE)
+    if not (dt and dt:IsValid()) then log("  DT_LevelFX is not loaded"); return nil end
+    local rows = {}
+    local lib = StaticFindObject("/Script/Engine.Default__DataTableFunctionLibrary")
+    if lib and lib:IsValid() then
+        local out = {}
+        local ok, a, b = pcall(function() return lib:GetDataTableRowNames(dt, out) end)
+        log(string.format("  GetDataTableRowNames: call %s, out table has %d entries (return types: %s, %s)", tostring(ok), #out, type(a), type(b)))
+        -- turn one array element into text, trying the ways UE4SS can hand an FName back
+        local function text_of(x)
+            local s
+            if pcall(function() s = x:ToString() end) and type(s) == "string" and s ~= "" then return s end
+            if pcall(function() s = x:get():ToString() end) and type(s) == "string" and s ~= "" then return s end
+            if pcall(function() s = tostring(x) end) and type(s) == "string" and s ~= "" then return s end
+            return nil
+        end
+        if #out > 0 then
+            local first = out[1]
+            local okT, tn = pcall(function() return type(first) end)
+            local okS, sv = pcall(function() return tostring(first) end)
+            log(string.format("  first entry: type %s, tostring %s", okT and tn or "?", okS and sv or "?"))
+        end
+        for i = 1, #out do
+            local s = text_of(out[i])
+            if s then rows[#rows + 1] = s end
+        end
+        if #rows == 0 and ok and type(b) == "table" then
+            for i = 1, #b do local s = text_of(b[i]); if s then rows[#rows + 1] = s end end
+        end
+        if #rows > 0 and rows[1]:find("^userdata") then rows = {} end    -- tostring gave only a pointer: not usable
+    end
+    if #rows == 0 then
+        local okR = pcall(function() dt.RowMap:ForEach(function(k) rows[#rows + 1] = k:get():ToString() end) end)
+        log("  RowMap:ForEach fallback: " .. tostring(okR) .. ", rows " .. #rows)
+    end
+    table.sort(rows)
+    fx_rows = rows
+    return rows
 end
 
-RegisterKeyBind(Key.NUM_SEVEN, function() ExecuteInGameThread(report) end)
-RegisterKeyBind(Key.NUM_EIGHT, function()
-    ExecuteInGameThread(function()
-        mat_index = (mat_index % #MATERIALS) + 1
-        apply("material", MATERIALS[mat_index])
-    end)
-end)
-RegisterKeyBind(Key.NUM_NINE, function()
-    ExecuteInGameThread(function()
-        tex_index = (tex_index % #TEXTURES) + 1
-        apply("texture", TEXTURES[tex_index])
-    end)
-end)
-RegisterKeyBind(Key.NUM_ZERO, function()
-    ExecuteInGameThread(function()
-        mat_index = 0
-        apply("material", MATERIALS[1])
-    end)
-end)
+local PC_FX_PROPS = { "ActiveLevelName", "ActiveLevelFXName", "ActiveSubFXName", "ActiveWeatherFXName", "OverrideLevelFXName", "CheatLevelFXName",
+                      "Day_FX_Row", "Night_FX_Row", "PreviousDayFXRow", "PreviousNightFXRow", "DisableAutomaticFX", "HasDynamicSkyboxActive",
+                      "IsDebugLevel", "CurrentFXLevel", "LastLevelFXTransitionTime" }
 
-log("loaded - NUMPAD 7 report, 8 next material, 9 next texture, 0 reset material")
-
-
-------------------------------------------------------------------------------------------------------------------------
--- Prototype 2: overlay effects, colours and level streaming.  Everything is checked with IsValid() first and wrapped in pcall.
---   NUMPAD 4 = OVERLAY: spawn a SnowFlurry effect on top of the first hub portal with only its "Swirl" part left on
---   NUMPAD 5 = COLOUR (pad light): cycle the first hub portal's own light through red / green / blue / white
---   NUMPAD 6 = COLOUR SURVEY: tint every hub portal's effect (red / green / blue / white) and log which looks declare a colour setting
---   NUMPAD 3 = LEVEL STREAM test: try to stream the tiny existing map "Vignette_Theatre" in far below the world (log only)
---   NUMPAD . (decimal point) = remove the overlay / rift effects again
-------------------------------------------------------------------------------------------------------------------------
-local UEHelpers = require("UEHelpers")
-local SNOW = "/Game/Particles/Niagara_Portal_SnowFlurry.Niagara_Portal_SnowFlurry"
-local RIFT = "/Game/Particles/Niagara_Portal_Rift.Niagara_Portal_Rift"
-local COLOURS = {
-    { name = "red",   v = { R = 1.0, G = 0.1, B = 0.1, A = 1.0 } },
-    { name = "green", v = { R = 0.1, G = 1.0, B = 0.2, A = 1.0 } },
-    { name = "blue",  v = { R = 0.1, G = 0.3, B = 1.0, A = 1.0 } },
-    { name = "white", v = { R = 1.0, G = 1.0, B = 1.0, A = 1.0 } },
-}
-local spawned_fx = {}
-local light_index, rift_index = 0, 0
-local rift_comp = nil
-
-local function first_pad()
-    local pads = hub_pads()
-    return pads[1]
-end
-
-local function niagara_lib()
-    local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
-    if lib and lib:IsValid() then return lib end
+local function player_controller()
+    local pc = FindFirstOf("Abiotic_PlayerController_C")
+    if pc and pc:IsValid() then return pc end
     return nil
 end
 
-local function spawn_effect(path, loc, rot)
-    local lib = niagara_lib()
-    if not lib then log("  NiagaraFunctionLibrary not found") return nil end
-    local sys = find_object(path)
-    if not sys then log("  effect asset not found: " .. short(path)) return nil end
-    local world = UEHelpers.GetWorld()
-    if not (world and world:IsValid()) then log("  no world") return nil end
-    local ok, comp = pcall(function()
-        -- WorldContext, System, Location, Rotation, Scale, bAutoDestroy, bAutoActivate, PoolingMethod (0 = none), bPreCullCheck
-        return lib:SpawnSystemAtLocation(world, sys, loc, rot, { X = 1, Y = 1, Z = 1 }, false, true, 0, false)
+local function fx_player_survey()
+    log("---- PLAYER FX SURVEY")
+    local pc = player_controller()
+    if not pc then log("  no Abiotic_PlayerController_C found"); return end
+    local pawn = pc.Pawn
+    if pawn and pawn:IsValid() then log("  player at " .. loc_text(pawn)) end
+    log("  -- controller FX state")
+    for _, name in ipairs(PC_FX_PROPS) do
+        local ok, v = pcall(function() return pc[name] end)
+        log(string.format("    %-28s %s", name, ok and value_text(v) or "unreadable"))
+    end
+    local okV, inV = pcall(function()
+        local lib = StaticFindObject("/Game/Blueprints/Libraries/AbioticFunctionLibrary.Default__AbioticFunctionLibrary_C")
+        return lib:PlayerIsInVignette(pc, pc)
     end)
-    if not ok then log("  SpawnSystemAtLocation failed: " .. tostring(comp)) return nil end
-    if not (comp and comp:IsValid()) then log("  SpawnSystemAtLocation returned nothing usable") return nil end
-    spawned_fx[#spawned_fx + 1] = comp
-    return comp
-end
-
-local function overlay_test()
-    log("---- OVERLAY test")
-    local pad = first_pad()
-    if not pad then log("  no hub portal in the world") return end
-    local loc = pad:K2_GetActorLocation()
-    loc = { X = loc.X, Y = loc.Y, Z = loc.Z + 120 }
-    local rot = pad:K2_GetActorRotation()
-    local comp = spawn_effect(SNOW, loc, rot)
-    if not comp then return end
-    log("  overlay effect spawned at " .. pad_id(pad))
-    for _, part in ipairs({ "Blackhole", "smoke", "snowflakes", "SnowParticle01", "SnowParticle02" }) do
-        local ok, err = pcall(function() comp:SetEmitterEnable(FName(part), false) end)
-        log("  part off: " .. part .. (ok and " ok" or (" FAILED: " .. tostring(err))))
+    log(string.format("    %-28s %s", "PlayerIsInVignette", okV and tostring(inV) or ("call failed: " .. tostring(inV))))
+    local mgr = FindFirstOf("DayNightManager_C")
+    if mgr and mgr:IsValid() then
+        local okW, w = pcall(function() return mgr.CurrentWeatherEvent:ToString() end)
+        log(string.format("    %-28s %s", "CurrentWeatherEvent", okW and w or "unreadable"))
     end
-    log("  only 'Swirl' should remain. Look at the first hub portal (hub_A3).")
-end
-
-local function light_test()
-    log("---- PAD LIGHT colour test")
-    local pad = first_pad()
-    if not pad then log("  no hub portal in the world") return end
-    local light = pad.PointLight
-    if not (light and light:IsValid()) then log("  pad has no PointLight component") return end
-    light_index = (light_index % #COLOURS) + 1
-    local c = COLOURS[light_index]
-    local ok, err = pcall(function() light:SetLightColor(c.v, true) end)
-    log("  " .. pad_id(pad) .. " light -> " .. c.name .. (ok and " ok" or (" FAILED: " .. tostring(err))))
-    pcall(function() light:SetIntensity(20000.0) end)
-end
-
--- COLOUR SURVEY: tints the effect of EVERY hub portal at once, whatever its look, and logs which ones declare a colour setting.
--- Niagara silently ignores a setting a look does not have, so the call always "succeeds"; the only way to tell is to watch which
--- portals change colour. DECLARED = the look's effect file lists that parameter (from the game's data); watch those first.
-local DECLARED_COLOUR = {
-    Niagara_Portal_Rift = "User.Color", Niagara_Portal_Rift_BlueFade = "User.Color", Niagara_Portal_Rift_Collapse = "User.Color",
-}
-local COLOUR_PARAMS = { "User.Color", "User.Color01", "User.Tint", "User.PortalColor" }
-
-local function rift_test()
-    rift_index = (rift_index % #COLOURS) + 1
-    local c = COLOURS[rift_index]
-    local BOOST = 6.0      -- effect colours often need values above 1.0 to show as a strong tint
-    local v = { R = c.v.R * BOOST, G = c.v.G * BOOST, B = c.v.B * BOOST, A = 1.0 }
-    log(string.format("---- COLOUR SURVEY: %s (x%.0f) on every hub portal", c.name, BOOST))
-    local pads = hub_pads()
-    if #pads == 0 then log("  no hub portals in the world") return end
-    for _, p in ipairs(pads) do
-        local id = pad_id(p) or "?"
-        local pl = p.ParticleLoop
-        if not (pl and pl:IsValid()) then
-            log("  " .. id .. ": no effect component")
-        else
-            local asset = pl:GetAsset()
-            local design = (asset and asset:IsValid()) and asset:GetFName():ToString() or "(no effect asset)"
-            local sent = 0
-            for _, name in ipairs(COLOUR_PARAMS) do
-                if pcall(function() pl:SetVariableLinearColor(FName(name), v) end) then sent = sent + 1 end
-            end
-            log(string.format("  %-7s %-30s sent %d colour setting(s) | declares: %s", id, design, sent, DECLARED_COLOUR[design] or "none"))
-        end
-    end
-    log("  -> now watch which portals changed colour; press NUMPAD 6 again for the next colour")
-end
-local function kill_effect(comp, label)
-    local ok1 = pcall(function() comp:DeactivateImmediate() end)
-    local ok2, err2 = pcall(function() comp:K2_DestroyComponent(comp) end)
-    local ok3 = pcall(function() comp:SetVisibility(false, true) end)
-    log(string.format("  %s: deactivate=%s destroy=%s%s hide=%s", label, tostring(ok1), tostring(ok2), ok2 and "" or (" (" .. tostring(err2) .. ")"), tostring(ok3)))
-end
-
--- Removes the test effects. After a mod restart our list is gone, so we look for SnowFlurry / Rift effect components in the world.
--- Every one found is LOGGED with its owner. Components that belong to a teleporter pad (the game's own portals, and our hub
--- portals, keep their effect on the pad) are left alone; the rest are treated as leftover test effects and removed.
--- Every object is checked with IsValid() before anything is called on it.
-local function owner_label(comp)
-    local owner = comp:GetOwner()
-    if not (owner and owner:IsValid()) then return "(no owner)", "" end
-    local cls = owner:GetClass()
-    local cname = (cls and cls:IsValid()) and cls:GetFName():ToString() or "?"
-    return owner:GetFName():ToString() .. " [" .. cname .. "]", cname
-end
-
-local function clear_fx()
-    local n = 0
-    for _, comp in ipairs(spawned_fx) do
-        if comp and comp:IsValid() then kill_effect(comp, "tracked effect"); n = n + 1 end
-    end
-    spawned_fx = {}; rift_comp = nil
-    local scanned, loose, kept = 0, 0, 0
-    for _, comp in ipairs(FindAllOf("NiagaraComponent") or {}) do
-        if comp:IsValid() then
-            scanned = scanned + 1
-            local asset = comp:GetAsset()
-            if asset and asset:IsValid() then
-                local aname = asset:GetFName():ToString()
-                if aname == "Niagara_Portal_SnowFlurry" or aname == "Niagara_Portal_Rift" then
-                    local label, cname = owner_label(comp)
-                    local active = "?"
-                    pcall(function() active = tostring(comp:IsActive()) end)
-                    log(string.format("  found %s | comp %s | owner %s | active %s", aname, comp:GetFName():ToString(), label, active))
-                    if cname:find("Teleporter") then
-                        kept = kept + 1
-                    else
-                        kill_effect(comp, "removing " .. aname)
-                        loose = loose + 1
-                    end
+    dump_fx_struct(pc, "CurrentDaytimeFX", "CurrentDaytimeFX (the day values in force)")
+    dump_fx_struct(pc, "CurrentNighttimeFX", "CurrentNighttimeFX (the night values in force)")
+    log("  -- what the lights are actually set to right now")
+    for _, e in ipairs({ { "DirectionalLight", "LightComponent", { "Intensity", "LightColor", "Temperature" } },
+                         { "SkyLight", "LightComponent", { "Intensity", "LightColor" } },
+                         { "ExponentialHeightFog", "Component", { "FogDensity", "FogHeightFalloff", "FogInscatteringColor", "FogMaxOpacity" } } }) do
+        local a = FindFirstOf(e[1])
+        if a and a:IsValid() then
+            local okc, comp = pcall(function() return a[e[2]] end)
+            if okc and comp and comp:IsValid() then
+                for _, f in ipairs(e[3]) do
+                    local okf, v = pcall(function() return comp[f] end)
+                    log(string.format("    %-22s %-22s %s", e[1], f, okf and value_text(v) or "unreadable"))
                 end
             end
         end
     end
-    log(string.format("removed %d tracked + %d leftover; kept %d on teleporter pads (looked at %d effect components)", n, loose, kept, scanned))
+    local rows = level_fx_rows()
+    if rows then
+        log(string.format("  -- DT_LevelFX rows (%d)", #rows))
+        local line = "    "
+        for _, r in ipairs(rows) do
+            if #line + #r > 150 then log(line); line = "    " end
+            line = line .. " " .. r
+        end
+        if #line > 4 then log(line) end
+    end
+    log("---- PLAYER FX SURVEY done")
 end
--- Level streaming: which of the loading calls does this game accept? Only logs; uses the tiny empty map Vignette_Theatre.
--- Prints a function's real parameter list (name and type, in order), so we stop guessing at call shapes.
-local function dump_signature(path)
-    local fn = StaticFindObject(path)
-    if not (fn and fn:IsValid()) then log("  signature " .. short(path) .. ": function not found") return end
-    log("  signature of " .. path .. ":")
+
+------------------------------------------------------------------------------------------------------------------------
+-- Prototype 8: three read-only surveys for the next features. Nothing is changed.
+--   NUMPAD 4 = sky domes: every dome-like mesh actor with its mesh and material paths and material parameter values, and the
+--                      game's sky Blueprint actors with their object properties. Run in Stone Garden (day and night) and an outdoor world.
+--   NUMPAD 5 = hazards: engine volumes (water, pain-causing), underwater / drowning / oxygen classes, and the underwater FX table.
+--                      Run in Albatross (standing near the water) and once in the Facility.
+--   NUMPAD 6 = NPCs: NPC / creature / spawner classes with counts, positions and the settings of one of each, and NPC data tables.
+--                      Run in the Facility near NPCs.
+------------------------------------------------------------------------------------------------------------------------
+local function full_name(o)
+    if o and o:IsValid() then
+        local ok, s = pcall(function() return o:GetFullName() end)
+        if ok then return s end
+    end
+    return "none"
+end
+
+-- parameter values of a material instance (scalar and vector), as far as UE4SS lets us read them
+local function dump_material_params(mat, indent)
+    if not (mat and mat:IsValid()) then return end
+    local parent = "?"
+    pcall(function() parent = full_name(mat.Parent) end)
+    log(indent .. "material " .. full_name(mat) .. "  (parent " .. parent .. ")")
     local n = 0
-    local ok, err = pcall(function()
-        fn:ForEachProperty(function(prop)
+    pcall(function()
+        mat.ScalarParameterValues:ForEach(function(_, v)
+            local e = v:get()
             n = n + 1
-            local pname, ptype = "?", "?"
-            pcall(function() pname = prop:GetFName():ToString() end)
-            pcall(function() ptype = prop:GetClass():GetFName():ToString() end)
-            log(string.format("    %d. %s : %s", n, pname, ptype))
+            log(string.format("%s    scalar %-30s %s", indent, e.ParameterInfo.Name:ToString(), tostring(e.ParameterValue)))
         end)
     end)
-    if not ok then log("  could not list parameters: " .. tostring(err)) end
+    pcall(function()
+        mat.VectorParameterValues:ForEach(function(_, v)
+            local e = v:get()
+            n = n + 1
+            log(string.format("%s    vector %-30s %s", indent, e.ParameterInfo.Name:ToString(), value_text(e.ParameterValue)))
+        end)
+    end)
+    if n == 0 then log(indent .. "    (no readable parameters)") end
 end
-local function stream_test()
-    log("---- LEVEL STREAM test (Vignette_Theatre, far below the world)")
-    dump_signature("/Script/Engine.LevelStreamingDynamic:LoadLevelInstance")
-    dump_signature("/Script/Engine.LevelStreamingDynamic:LoadLevelInstanceBySoftObjectPtr")
-    dump_signature("/Script/AbioticFactor.LevelStreamingCustom:LoadStreamLevel")
-    local world = UEHelpers.GetWorld()
-    if not (world and world:IsValid()) then log("  no world") return end
-    local where = { X = 0.0, Y = 0.0, Z = -900000.0 }
-    local rot = { Pitch = 0.0, Yaw = 0.0, Roll = 0.0 }
-    local dyn = StaticFindObject("/Script/Engine.Default__LevelStreamingDynamic")
-    local dynClass = StaticFindObject("/Script/Engine.LevelStreamingDynamic")
-    log("  LevelStreamingDynamic default object: " .. ((dyn and dyn:IsValid()) and "found" or "NOT found"))
-    log("  LevelStreamingDynamic class: " .. ((dynClass and dynClass:IsValid()) and "found" or "NOT found"))
-    local before = #(FindAllOf("LevelStreamingDynamic") or {})
-    if dyn and dyn:IsValid() then
-        -- The call wants 9 arguments (the earlier try with 6 was refused). Known shape in UE 5.4:
-        -- WorldContext, LevelName, Location, Rotation, bOutSuccess, OptionalLevelNameOverride, OptionalLevelStreamingClass, bLoadAsTempPackage, (return slot)
-        -- The success flag (bOutSuccess) is an OUT parameter, so it must be given as a table, e.g. {}.
-        -- Signature confirmed from the game: (WorldContext, LevelName: Str, Location, Rotation, bOutSuccess: Bool OUT,
-        -- OptionalLevelNameOverride: Str, OptionalLevelStreamingClass: Class, bLoadAsTempPackage: Bool) -> LevelStreamingDynamic.
-        -- The earlier tries failed in push_strproperty, so test whether an EMPTY text value is the problem by giving real names.
-        -- Plain Lua strings fail in push_strproperty (even non-empty ones). Try the engine's own text type, if this UE4SS has one,
-        -- and the game's own LoadStreamLevel (also text-based) so we learn whether any string parameter can be passed at all.
-        log("  FString constructor available: " .. tostring(type(FString)))
-        local attempts = {}
-        if type(FString) == "function" then
-            attempts[#attempts + 1] = { "FString names", function()
-                return dyn:LoadLevelInstance(world, FString("/Game/Maps/Vignette_Theatre"), where, rot, {}, FString("PortalHubTest"), dynClass, false) end }
-        end
-        local custom0 = StaticFindObject("/Script/AbioticFactor.Default__LevelStreamingCustom")
-        if custom0 and custom0:IsValid() then
-            attempts[#attempts + 1] = { "game LoadStreamLevel (plain string)", function()
-                return custom0:LoadStreamLevel(world, "Vignette_Theatre", true, false, {}, {}) end }
-            if type(FString) == "function" then
-                attempts[#attempts + 1] = { "game LoadStreamLevel (FString)", function()
-                    return custom0:LoadStreamLevel(world, FString("Vignette_Theatre"), true, false, {}, {}) end }
-            end
-        end        for _, a in ipairs(attempts) do
-            local ok, res = pcall(a[2])
-            local desc = ok and ("returned " .. tostring(res)) or ("FAILED: " .. tostring(res):match("^[^\r\n]*"))
-            if ok and res ~= nil then
-                local good, nm = pcall(function() return res:IsValid() and res:GetFName():ToString() or "(invalid)" end)
-                desc = desc .. " -> " .. (good and nm or "?")
-            end
-            log("  LoadLevelInstance (" .. a[1] .. "): " .. desc)
-            if ok then break end
-        end
-    end
-    local after = #(FindAllOf("LevelStreamingDynamic") or {})
-    log(string.format("  LevelStreamingDynamic objects: %d before, %d after", before, after))
-    local custom = StaticFindObject("/Script/AbioticFactor.Default__LevelStreamingCustom")
-    log("  game's LevelStreamingCustom library: " .. ((custom and custom:IsValid()) and "found" or "NOT found"))
-end
-RegisterKeyBind(Key.NUM_FOUR, function() ExecuteInGameThread(overlay_test) end)
-RegisterKeyBind(Key.NUM_FIVE, function() ExecuteInGameThread(light_test) end)
-RegisterKeyBind(Key.NUM_SIX, function() ExecuteInGameThread(rift_test) end)
-RegisterKeyBind(Key.NUM_THREE, function() ExecuteInGameThread(stream_test) end)
-RegisterKeyBind(Key.DECIMAL, function() ExecuteInGameThread(clear_fx) end)
-log("prototype keys: NUMPAD 4 overlay, 5 pad-light colour, 6 rift colour, 3 level-stream test, NUMPAD . (decimal) clear effects")
 
-
-
-
-
-
-
-
-
-
-
-------------------------------------------------------------------------------------------------------------------------
--- Prototype 3: can an existing, unused LevelStreamingDynamic slot be pointed at a different map WITHOUT passing text?
--- The game keeps 59 LevelStreamingDynamic objects, one per world. If one of them can be re-pointed at another package name (an FName,
--- which Lua can pass), a custom map could be streamed in without LoadLevelInstance. This step is READ-ONLY: it lists the objects,
--- what each is pointed at, and which relevant functions/properties exist. Nothing is changed.
---   NUMPAD * (multiply) = report
-------------------------------------------------------------------------------------------------------------------------
-local function slot_report()
-    log("---- STREAMING SLOT report")
-    local all = FindAllOf("LevelStreamingDynamic") or {}
-    log("  objects: " .. #all)
-    local first = true
-    for i, ls in ipairs(all) do
-        if ls:IsValid() then
-            local name = ls:GetFName():ToString()
-            local pkg = "?"
-            local ok1, v1 = pcall(function() return ls:GetWorldAssetPackageFName():ToString() end)
-            if ok1 then pkg = tostring(v1) end
-            local loaded, visible = "?", "?"
-            pcall(function() loaded = tostring(ls:IsLevelLoaded()) end)
-            pcall(function() visible = tostring(ls:IsLevelVisible()) end)
-            local off = "?"
-            pcall(function() local t = ls.LevelTransform.Translation; off = string.format("%.0f, %.0f, %.0f", t.X, t.Y, t.Z) end)
-            log(string.format("  %2d. %-26s pkg=%-44s loaded=%-5s visible=%-5s offset=%s", i, name, pkg, loaded, visible, off))
-            if first then
-                first = false
-                log("  -- members available on the first object:")
-                for _, member in ipairs({ "SetWorldAssetByPackageName", "SetShouldBeLoaded", "SetShouldBeVisible", "SetLevelTransform",
-                                          "GetWorldAssetPackageFName", "GetWorldAssetPackageName", "WorldAsset", "PackageNameToLoad", "LevelTransform",
-                                          "bShouldBeLoaded", "bShouldBeVisible", "bInitiallyLoaded", "bInitiallyVisible", "bDisableDistanceStreaming" }) do
-                    local ok, v = pcall(function() return ls[member] end)
-                    log(string.format("       %-28s %s", member, ok and type(v) or "error"))
+local function sky_dome_survey()
+    log("---- SKY DOME SURVEY")
+    local pc = FindFirstOf("PlayerController")
+    local ploc = "?"
+    if pc and pc:IsValid() and pc.Pawn and pc.Pawn:IsValid() then ploc = loc_text(pc.Pawn) end
+    log("  player at " .. ploc)
+    local WORDS = { "sky", "dome", "bubble", "backdrop", "horizon", "panorama" }
+    log("  -- dome-like static mesh actors")
+    local listed = 0
+    for _, a in ipairs(FindAllOf("StaticMeshActor") or {}) do
+        if a:IsValid() and listed < 12 then
+            local comp = a.StaticMeshComponent
+            local meshName = "?"
+            local okM, mesh = pcall(function() return comp.StaticMesh end)
+            if okM and mesh and mesh:IsValid() then meshName = mesh:GetFName():ToString() end
+            if lower_has(a:GetFName():ToString(), WORDS) or lower_has(meshName, WORDS) then
+                listed = listed + 1
+                local scale = "?"
+                pcall(function() local s = a:GetActorScale3D(); scale = string.format("%.2f, %.2f, %.2f", s.X, s.Y, s.Z) end)
+                log(string.format("  %s  at %s  facing %s  scale %s", a:GetFName():ToString(), loc_text(a), rot_text(a), scale))
+                log("    mesh " .. full_name(mesh))
+                local nm = 0
+                pcall(function() nm = comp:GetNumMaterials() end)
+                for i = 0, math.min(nm, 3) - 1 do
+                    local okMat, m = pcall(function() return comp:GetMaterial(i) end)
+                    if okMat then dump_material_params(m, "    ") end
                 end
             end
         end
     end
-    log("---- STREAMING SLOT report done")
-end
-RegisterKeyBind(Key.MULTIPLY, function() ExecuteInGameThread(slot_report) end)
-log("prototype 3 key: NUMPAD * (multiply) = list the game's streaming slots (read-only)")
-
-------------------------------------------------------------------------------------------------------------------------
--- Prototype 4: does the packaged loader Blueprint actually create a level instance when its BeginPlay runs?
---   NUMPAD / (divide) = call BeginPlay again on the test loader, then (2 s later) report whether the streaming list grew.
--- It also reads the loader's own variables if the Blueprint has them (BeginPlayRan, LoadSucceeded). Read-only apart from the one call.
-------------------------------------------------------------------------------------------------------------------------
-local function count_streaming()
-    local n = 0
-    local world = UEHelpers.GetWorld()
-    if world and world:IsValid() then
-        pcall(function() world.StreamingLevels:ForEach(function() n = n + 1 end) end)
-    end
-    return n
-end
-
-local function loader_test()
-    log("---- LOADER TEST")
-    local loaders = FindAllOf("BP_CordonaTestLoader_C") or {}
-    local loader
-    for _, a in ipairs(loaders) do if a:IsValid() then loader = a end end
-    if not loader then log("  no BP_CordonaTestLoader_C actor in the world") return end
-    log("  loader: " .. loader:GetFName():ToString())
-    for _, v in ipairs({ "BeginPlayRan", "LoadSucceeded", "LevelInstance" }) do
-        local ok, val = pcall(function() return loader[v] end)
-        log(string.format("  variable %-14s %s", v, ok and describe(val) or "(not on this Blueprint)"))
-    end
-    local before = count_streaming()
-    log("  streaming levels before: " .. before)
-    local ok, err = pcall(function() loader:ReceiveBeginPlay() end)
-    log("  called ReceiveBeginPlay: " .. (ok and "ok" or ("FAILED: " .. tostring(err))))
-    ExecuteWithDelay(2000, function()
-        ExecuteInGameThread(function()
-            log("  streaming levels 2 s later: " .. count_streaming() .. " (before: " .. before .. ")")
-            for _, v in ipairs({ "BeginPlayRan", "LoadSucceeded" }) do
-                local ok2, val = pcall(function() return loader[v] end)
-                if ok2 then log("  variable " .. v .. " = " .. describe(val)) end
-            end
-            log("---- package access (full object paths; a cooked Blueprint exists as its _C class)")
-            local helpers = StaticFindObject("/Script/AssetRegistry.Default__AssetRegistryHelpers")
-            for _, p in ipairs({
-                { "map",    "/Game/Mods/CordonaTest/Maps/CordonaTest_L0", "CordonaTest_L0" },
-                { "cube",   "/Game/Mods/CordonaTest/Cube",                "Cube" },
-                { "loader", "/Game/Mods/CordonaTest/BP_CordonaTestLoader", "BP_CordonaTestLoader_C" },
-            }) do
-                local full = p[2] .. "." .. p[3]
-                local okL = pcall(LoadAsset, full)
-                local obj = StaticFindObject(full)
-                local viaLoad = obj and obj:IsValid()
-                local viaReg = false
-                if helpers and helpers:IsValid() then
-                    pcall(function()
-                        local o = helpers:GetAsset({ PackageName = UEHelpers.FindOrAddFName(p[2]), AssetName = UEHelpers.FindOrAddFName(p[3]) })
-                        viaReg = (o and o:IsValid()) and true or false
+    if listed == 0 then log("  (none)") end
+    log("  -- sky Blueprint actors")
+    for _, a in ipairs(FindAllOf("Actor") or {}) do
+        if a:IsValid() then
+            local cname = class_of(a)
+            if lower_has(cname, { "skydome", "skybox", "sky_" }) then
+                log(string.format("  %s (%s) at %s", a:GetFName():ToString(), cname, loc_text(a)))
+                local cls = a:GetClass()
+                pcall(function()
+                    cls:ForEachProperty(function(prop)
+                        local name = prop:GetFName():ToString()
+                        local ok, v = pcall(function() return a[name] end)
+                        if ok and v ~= nil then
+                            local t = type(v)
+                            if t == "number" or t == "boolean" or t == "string" then
+                                log(string.format("      %-34s %s", name, tostring(v)))
+                            elseif t == "userdata" then
+                                local isObj = false
+                                pcall(function() isObj = (v.IsValid ~= nil) end)
+                                if isObj then
+                                    if v:IsValid() then
+                                        log(string.format("      %-34s -> %s", name, full_name(v)))
+                                        local isMat = false
+                                        pcall(function() isMat = (v.ScalarParameterValues ~= nil) end)
+                                        if isMat then dump_material_params(v, "        ") end
+                                    end
+                                else
+                                    log(string.format("      %-34s %s", name, value_text(v)))
+                                end
+                            end
+                        end
                     end)
-                end
-                local cls = "?"
-                if viaLoad then pcall(function() cls = obj:GetClass():GetFName():ToString() end) end
-                log(string.format("  %-7s %-52s LoadAsset call %s | found by path: %s%s | found by asset registry: %s", p[1], full,
-                    okL and "ok" or "failed", tostring(viaLoad), viaLoad and (" (" .. cls .. ")") or "", tostring(viaReg)))
-            end
-            log("---- direct load from Lua, using the engine's text type for the level name")
-            log("  FString constructor: " .. type(FString))
-            local world = UEHelpers.GetWorld()
-            local dyn = StaticFindObject("/Script/Engine.Default__LevelStreamingDynamic")
-            local dynClass = StaticFindObject("/Script/Engine.LevelStreamingDynamic")
-            if type(FString) == "function" and world and world:IsValid() and dyn and dyn:IsValid() then
-                local n0 = count_streaming()
-                local ok3, res = pcall(function()
-                    return dyn:LoadLevelInstance(world, FString("/Game/Mods/CordonaTest/Maps/CordonaTest_L0"), { X = 1100000.0, Y = 1400000.0, Z = 0.0 },
-                        { Pitch = 0.0, Yaw = 0.0, Roll = 0.0 }, {}, FString("CordonaTestDirect"), dynClass, false)
                 end)
-                log("  LoadLevelInstance with FString: " .. (ok3 and ("returned " .. tostring(res)) or ("FAILED: " .. tostring(res):match("^[^\r\n]*"))))
-                log("  streaming levels: " .. n0 .. " -> " .. count_streaming())
-            else
-                log("  skipped (no FString constructor in this UE4SS build)")
             end
-            log("---- LOADER TEST done")
+        end
+    end
+    log("---- SKY DOME SURVEY done")
+end
+
+local function hazard_survey()
+    log("---- HAZARD SURVEY")
+    local pc = FindFirstOf("PlayerController")
+    if pc and pc:IsValid() and pc.Pawn and pc.Pawn:IsValid() then log("  player at " .. loc_text(pc.Pawn)) end
+    log("  -- physics volumes (water / pain-causing ones)")
+    local n, shown = 0, 0
+    for _, v in ipairs(FindAllOf("PhysicsVolume") or {}) do
+        if v:IsValid() then
+            n = n + 1
+            local water, pain, dps = false, false, 0
+            pcall(function() water = v.bWaterVolume end)
+            pcall(function() pain = v.bPainCausing end)
+            pcall(function() dps = v.DamagePerSec end)
+            if (water or pain) and shown < 25 then
+                shown = shown + 1
+                log(string.format("  %s (%s) at %s  water=%s pain=%s damagePerSec=%s", v:GetFName():ToString(), class_of(v), loc_text(v), tostring(water), tostring(pain), tostring(dps)))
+            end
+        end
+    end
+    log(string.format("  %d physics volume(s) in total, %d water or pain-causing", n, shown))
+    log("  -- game classes about water, drowning, oxygen, damage areas")
+    local WORDS = { "underwater", "drown", "oxygen", "swim", "water", "radiation", "toxic", "acid", "lava", "kill", "void", "pain", "hurt", "damagevolume", "damagezone" }
+    local counts, order, example = {}, {}, {}
+    for _, a in ipairs(FindAllOf("Actor") or {}) do
+        if a:IsValid() then
+            local cname = class_of(a)
+            if lower_has(cname, WORDS) and not lower_has(cname, { "deployed_", "figurine", "painting", "cooler", "filter" }) then
+                if not counts[cname] then counts[cname] = 0; order[#order + 1] = cname; example[cname] = a end
+                counts[cname] = counts[cname] + 1
+            end
+        end
+    end
+    for i, cname in ipairs(order) do
+        if i > 25 then break end
+        log(string.format("  %-44s x%d  e.g. %s at %s", cname, counts[cname], example[cname]:GetFName():ToString(), loc_text(example[cname])))
+        if i <= 6 then dump_settings(example[cname], cname, 40) end
+    end
+    if #order == 0 then log("  (none by name)") end
+    log("  -- underwater / damage data tables")
+    for _, dt in ipairs(FindAllOf("DataTable") or {}) do
+        if dt:IsValid() then
+            local name = dt:GetFName():ToString()
+            if lower_has(name, { "underwater", "damage", "hazard", "drown", "oxygen" }) then
+                log("  " .. dt:GetFullName())
+                local lib = StaticFindObject("/Script/Engine.Default__DataTableFunctionLibrary")
+                local out = {}
+                if lib and lib:IsValid() then pcall(function() lib:GetDataTableRowNames(dt, out) end) end
+                local rows = {}
+                for i = 1, #out do
+                    local ok, s = pcall(function() return tostring(out[i]) end)
+                    if ok then rows[#rows + 1] = s end
+                end
+                log("    rows (" .. #rows .. "): " .. table.concat(rows, " "):sub(1, 400))
+            end
+        end
+    end
+    log("---- HAZARD SURVEY done")
+end
+
+local function npc_survey()
+    log("---- NPC SURVEY")
+    local pc = FindFirstOf("PlayerController")
+    if pc and pc:IsValid() and pc.Pawn and pc.Pawn:IsValid() then log("  player at " .. loc_text(pc.Pawn)) end
+    local WORDS = { "npc", "creature", "enemy", "spawn", "pest", "mob", "critter", "ai_" }
+    local counts, order, example = {}, {}, {}
+    for _, a in ipairs(FindAllOf("Actor") or {}) do
+        if a:IsValid() then
+            local cname = class_of(a)
+            if lower_has(cname, WORDS) then
+                if not counts[cname] then counts[cname] = 0; order[#order + 1] = cname; example[cname] = a end
+                counts[cname] = counts[cname] + 1
+            end
+        end
+    end
+    table.sort(order)
+    log(string.format("  %d NPC-like class(es)", #order))
+    for i, cname in ipairs(order) do
+        if i > 60 then log("  ..."); break end
+        log(string.format("  %-46s x%-3d e.g. %s at %s", cname, counts[cname], example[cname]:GetFName():ToString(), loc_text(example[cname])))
+    end
+    -- the settings of one spawner and one NPC, to see what an NPC needs
+    local shownSpawner, shownNpc = false, false
+    for _, cname in ipairs(order) do
+        local a = example[cname]
+        local low = cname:lower()
+        if not shownSpawner and low:find("spawn", 1, true) then shownSpawner = true; dump_settings(a, cname, 60) end
+        if not shownNpc and low:find("npc", 1, true) and not low:find("spawn", 1, true) then shownNpc = true; dump_settings(a, cname, 80) end
+    end
+    log("  -- NPC / enemy data tables that are loaded")
+    for _, dt in ipairs(FindAllOf("DataTable") or {}) do
+        if dt:IsValid() then
+            local name = dt:GetFName():ToString()
+            if lower_has(name, { "npc", "enemy", "creature", "spawn", "faction", "ai" }) then log("  " .. dt:GetFullName()) end
+        end
+    end
+    log("---- NPC SURVEY done")
+end
+
+RegisterKeyBind(Key.NUM_FOUR, function() ExecuteInGameThread(sky_dome_survey) end)
+RegisterKeyBind(Key.NUM_FIVE, function() ExecuteInGameThread(hazard_survey) end)
+RegisterKeyBind(Key.NUM_SIX, function() ExecuteInGameThread(npc_survey) end)
+pcall(function() RegisterKeyBind(Key.ADD, { ModifierKey.CONTROL }, function() ExecuteInGameThread(fx_player_survey) end) end)
+log("keys: NUMPAD 4 = sky domes, NUMPAD 5 = hazards, NUMPAD 6 = NPCs, CTRL+NUMPAD+ = player lighting (all read-only)")
+
+------------------------------------------------------------------------------------------------------------------------
+-- Status (read-only): NUMPAD 9 logs the controller's ActiveLevelName, PlayerIsInVignette, the weather FX name and the weather event.
+-- NOTE: never write ActiveLevelName from Lua. It is a STRING property (StrProperty), not a name; writing an FName into it corrupted the
+-- value and the game crashed when it was written again. Check a property's type in UE4SS_ObjectDump.txt before writing to it.
+------------------------------------------------------------------------------------------------------------------------
+local function vignette_status(tag)
+    local pc = player_controller()
+    if not pc then log(tag .. ": no controller") return end
+    local okL, lvl = pcall(function() return pc.ActiveLevelName:ToString() end)
+    local okV, inV = pcall(function()
+        local lib = StaticFindObject("/Game/Blueprints/Libraries/AbioticFunctionLibrary.Default__AbioticFunctionLibrary_C")
+        return lib:PlayerIsInVignette(pc, pc)
+    end)
+    local okW, wfx = pcall(function() return pc.ActiveWeatherFXName:ToString() end)
+    local weather = "?"
+    local mgr = FindFirstOf("DayNightManager_C")
+    if mgr and mgr:IsValid() then pcall(function() weather = mgr.CurrentWeatherEvent:ToString() end) end
+    log(string.format("%s: ActiveLevelName=%s  PlayerIsInVignette=%s  ActiveWeatherFXName=%s  CurrentWeatherEvent=%s",
+        tag, okL and lvl or "?", okV and tostring(inV) or "call failed", okW and wfx or "?", weather))
+end
+RegisterKeyBind(Key.NUM_NINE, function() ExecuteInGameThread(function() vignette_status("status") end) end)
+log("status key: NUMPAD 9 = level name, vignette and weather status (read-only)")
+
+------------------------------------------------------------------------------------------------------------------------
+-- Level table survey (read-only), NUMPAD 8. The game finds the level the player is in through its level manager, then looks that level
+-- up in DT_Levels (rows of LevelMetadata_Struct: LevelFileName, IsVignette, EntranceTeleporter, ...). The row it lands on becomes the
+-- controller's ActiveLevelName, which PlayerIsInVignette, the respawn menu and the weather read. A custom world has no row, so the game
+-- keeps the last one (Facility). This logs every row and what the level manager reports where the player stands.
+------------------------------------------------------------------------------------------------------------------------
+local LEVELS_TABLE = "/Game/Blueprints/DataTables/Environment/DT_Levels.DT_Levels"
+local LEVEL_STRUCT = "/Game/Blueprints/Data/LevelMetadata_Struct.LevelMetadata_Struct"
+
+local function text_of(v)
+    if v == nil then return "nil" end
+    local t = type(v)
+    if t == "string" or t == "number" or t == "boolean" then return tostring(v) end
+    local s
+    if pcall(function() s = v:ToString() end) and type(s) == "string" then return s end
+    if pcall(function() s = v.RowName:ToString() end) and type(s) == "string" then return "row " .. s end
+    if pcall(function() s = v:get():ToString() end) and type(s) == "string" then return s end
+    return value_text(v)
+end
+
+local function row_fields(data)
+    local def = StaticFindObject(LEVEL_STRUCT)
+    local parts = {}
+    if not (def and def:IsValid()) then return "(struct definition not found)" end
+    pcall(function()
+        def:ForEachProperty(function(p)
+            local n = p:GetFName():ToString()
+            local okv, v = pcall(function() return data[n] end)
+            parts[#parts + 1] = short_field(n) .. "=" .. (okv and text_of(v) or "?")
         end)
     end)
+    return table.concat(parts, "  ")
 end
-RegisterKeyBind(Key.DIVIDE, function() ExecuteInGameThread(loader_test) end)
-log("prototype 4 key: NUMPAD / (divide) = loader test")
 
+local function level_table_survey()
+    log("---- LEVEL TABLE SURVEY")
+    local dt = StaticFindObject(LEVELS_TABLE)
+    if not (dt and dt:IsValid()) then log("  DT_Levels is not loaded"); return end
+    log("  table: " .. dt:GetFullName())
+    -- rows, through UE4SS's own data-table API
+    local names = {}
+    local okN, err = pcall(function()
+        local r = dt:GetRowNames()
+        for i = 1, #r do names[#names + 1] = text_of(r[i]) end
+    end)
+    log(string.format("  GetRowNames: %s, %d row(s)%s", tostring(okN), #names, okN and "" or (" (" .. tostring(err) .. ")")))
+    for _, name in ipairs(names) do
+        local okR, data = pcall(function() return dt:FindRow(name) end)
+        if okR and data ~= nil then log("  [" .. name .. "] " .. row_fields(data))
+        else log("  [" .. name .. "] FindRow failed: " .. tostring(data)) end
+    end
+    -- where the game thinks the player is
+    local pc = player_controller()
+    local pawn = pc and pc.Pawn
+    if not (pawn and pawn:IsValid()) then log("  no player pawn"); log("---- LEVEL TABLE SURVEY done"); return end
+    local loc = pawn:K2_GetActorLocation()
+    log(string.format("  player at %.0f, %.0f, %.0f", loc.X, loc.Y, loc.Z))
+    pcall(function() log("  controller CurrentFXLevel: " .. text_of(pc.CurrentFXLevel)) end)
+    local mgr = FindFirstOf("LevelManagerSubsystem")
+    if mgr and mgr:IsValid() then
+        local okA, at = pcall(function() return mgr:GetLevelAtLocation(loc) end)
+        log("  level manager, level at the player's location: " .. (okA and text_of(at) or ("call failed: " .. tostring(at))))
+        -- FindLatestLevelPlayerIsIn (soft-object out parameter) was removed after the run 5 crash in UE4SS's soft-object parameter code.
+        -- It reported true in the Facility and false inside the Test World (2026-10-14).
+    else
+        log("  level manager subsystem not found")
+    end
+    local lib = StaticFindObject("/Script/AbioticFactor.Default__LevelStreamingCustom")
+    if lib and lib:IsValid() then
+        local okL, name = pcall(function() return lib:GetActorLevelName(pawn, pawn) end)
+        log("  level the player actor belongs to: " .. (okL and text_of(name) or ("call failed: " .. tostring(name))))
+    end
+    -- the respawn menu: is one already built (then a hook on new menus never fires)?
+    local menus = FindAllOf("W_RespawnOptions_C") or {}
+    log(string.format("  respawn menus already built: %d", #menus))
+    vignette_status("  status")
+    log("---- LEVEL TABLE SURVEY done")
+end
+RegisterKeyBind(Key.NUM_EIGHT, function() ExecuteInGameThread(level_table_survey) end)
+log("survey key: NUMPAD 8 = level table and where the game thinks the player is (read-only)")
 
+------------------------------------------------------------------------------------------------------------------------
+-- Vignette experiment (WRITES; in memory only, nothing here is saved to disk).
+--   NUMPAD 0: add a DT_Levels row for the Test World (IsVignette, entrance = its arrival pad), then read it back.
+--   NUMPAD . : while standing in the Test World, set the controller's ActiveLevelName to that row (a real Lua string, never an FName),
+--              then ask the controller to re-check the weather, and log the status before and after.
+-- The level manager reports no level inside a custom world, so the game should leave the value alone until the player walks back
+-- into a Facility level.
+------------------------------------------------------------------------------------------------------------------------
+local TEST_ROW = "PortalHub_cordonatest_start"
+local TEST_ENTRANCE = "cordonatest_start"
+local FX_TABLE_PATH = "/Game/Blueprints/DataTables/Environment/DT_LevelFX.DT_LevelFX"
+
+local function struct_field_names()
+    local names = {}
+    local def = StaticFindObject(LEVEL_STRUCT)
+    if def and def:IsValid() then
+        def:ForEachProperty(function(p) local n = p:GetFName():ToString(); names[short_field(n)] = n end)
+    end
+    return names
+end
+
+local function add_test_row()
+    log("---- VIGNETTE EXPERIMENT: add row")
+    local dt = StaticFindObject(LEVELS_TABLE)
+    if not (dt and dt:IsValid()) then log("  DT_Levels is not loaded"); return end
+    local okE, existing = pcall(function() return dt:FindRow(TEST_ROW) end)
+    if okE and existing ~= nil then log("  row already there: " .. row_fields(existing)); return end
+    local f = struct_field_names()
+    for _, k in ipairs({ "ReleaseGroup", "LevelFileName", "LevelFXRow_Day", "LevelFXRow_Night", "SectorName",
+                         "ResettablePortalWorld", "HasFacilityShakes", "IsVignette", "EntranceTeleporter" }) do
+        if not f[k] then log("  field not found in the struct: " .. k .. " (stopping)"); return end
+    end
+    local fx = StaticFindObject(FX_TABLE_PATH)
+    local row = {}
+    row[f.ReleaseGroup] = 0
+    row[f.LevelFileName] = FName(TEST_ROW)
+    row[f.LevelFXRow_Day] = { DataTable = fx, RowName = FName("HGarden") }
+    row[f.LevelFXRow_Night] = { DataTable = fx, RowName = FName("HGarden") }
+    pcall(function() row[f.SectorName] = FText("Test World") end)
+    row[f.ResettablePortalWorld] = false
+    row[f.HasFacilityShakes] = false
+    row[f.IsVignette] = true
+    row[f.EntranceTeleporter] = FName(TEST_ENTRANCE)
+    local okA, err = pcall(function() dt:AddRow(TEST_ROW, row) end)
+    log("  AddRow: " .. tostring(okA) .. (okA and "" or (" (" .. tostring(err) .. ")")))
+    local okR, back = pcall(function() return dt:FindRow(TEST_ROW) end)
+    log("  read back: " .. ((okR and back ~= nil) and row_fields(back) or ("not found (" .. tostring(back) .. ")")))
+    local okG, garden = pcall(function() return dt:FindRow("HGarden") end)
+    log("  HGarden row untouched: " .. ((okG and garden ~= nil) and row_fields(garden) or "?"))
+    log("---- VIGNETTE EXPERIMENT: add row done")
+end
+
+-- PlayerIsInVignette looks a DT_Levels row up by a name it reads straight off the controller (no string conversion in it), so
+-- ActiveLevelName is not it. Try each name property in turn: set it to the test row, ask, put the old value back at once.
+local NAME_CANDIDATES = { "ActiveLevelFXName", "ActiveSubFXName", "OverrideLevelFXName", "CheatLevelFXName", "Day_FX_Row", "Night_FX_Row",
+                          "PreviousDayFXRow", "PreviousNightFXRow", "TerminalRespawnID", "ActiveWeatherFXName", "HeldTimer_LastTutorialPanelRow" }
+
+local function in_vignette(pc)
+    local lib = StaticFindObject("/Game/Blueprints/Libraries/AbioticFunctionLibrary.Default__AbioticFunctionLibrary_C")
+    local ok, r = pcall(function() return lib:PlayerIsInVignette(pc, pc) end)
+    if not ok then return "call failed" end
+    return r
+end
+
+local function probe_vignette_name(pc)
+    for _, prop in ipairs(NAME_CANDIDATES) do
+        local okO, old = pcall(function() return pc[prop]:ToString() end)
+        if not okO then
+            log("  probe " .. prop .. ": unreadable")
+        else
+            local okW = pcall(function() pc[prop] = FName(TEST_ROW) end)
+            local r = okW and in_vignette(pc) or nil
+            pcall(function() pc[prop] = FName(old) end)
+            local okB, back = pcall(function() return pc[prop]:ToString() end)
+            log(string.format("  probe %-30s was %-24s -> PlayerIsInVignette=%s  (restored: %s)", prop, old, tostring(r), tostring(okB and back == old)))
+        end
+    end
+end
+
+-- Run 2 found it: PlayerIsInVignette looks DT_Levels up by ActiveLevelFXName (a NameProperty holding the DT_Levels ROW name, e.g.
+-- "office1", "V_ISLAND"). ActiveLevelName (a string holding the map file name) is not read by the vignette check.
+
+local function light_values()
+    local function read(class, comp, prop)
+        local a = FindFirstOf(class)
+        if not (a and a:IsValid()) then return "?" end
+        local ok, v = pcall(function() return a[comp][prop] end)
+        return ok and string.format("%.2f", tonumber(v) or -1) or "?"
+    end
+    return string.format("sun %s  sky %s  fog %s", read("DirectionalLight", "LightComponent", "Intensity"),
+        read("SkyLight", "LightComponent", "Intensity"), read("ExponentialHeightFog", "Component", "FogDensity"))
+end
+
+local function fx_status(tag)
+    local pc = player_controller()
+    if not pc then return end
+    local function name_of(prop) local ok, v = pcall(function() return pc[prop]:ToString() end); return ok and v or "?" end
+    local okA, auto = pcall(function() return pc.DisableAutomaticFX end)
+    log(string.format("%s: ActiveLevelFXName=%s  Day_FX_Row=%s  Night_FX_Row=%s  ActiveWeatherFXName=%s  PlayerIsInVignette=%s  DisableAutomaticFX=%s  %s",
+        tag, name_of("ActiveLevelFXName"), name_of("Day_FX_Row"), name_of("Night_FX_Row"), name_of("ActiveWeatherFXName"), tostring(in_vignette(pc)),
+        okA and tostring(auto) or "?", light_values()))
+end
+
+-- Run 4: the weather check changed nothing even with the game's automatic lighting on, and TransitionToNewEnvironmentFX refused row DATA:
+-- its DayFX / NightFX inputs are DataTableRowHandles (table + row name), not LevelFXData.
+-- Run 5 CRASHED THE GAME (twice): calling the controller's "Attempt Level FXChange" with nil for its soft-object parameter (Level).
+-- Crash dump: UE4SS!RC::LuaType::push_softobjectproperty+0x124, null read at 0x70; pcall cannot catch it.
+-- NEVER pass nil, a table or anything made up to a SoftObjectProperty / soft class parameter from Lua with this UE4SS build.
+-- Run 6 uses only calls already proven safe: write ActiveLevelFXName (NUMPAD .), and TransitionToNewEnvironmentFX with row handles (NUMPAD /).
+local saved = nil     -- what NUMPAD * puts back
+
+local function one_line(err) return (tostring(err):gsub("[\r\n]+%s*", " | ")):sub(1, 300) end
+
+local function remember(pc)
+    if saved then return end
+    local function s(prop) local ok, v = pcall(function() return pc[prop]:ToString() end); return ok and v or nil end
+    saved = { levelName = s("ActiveLevelName"), fxName = s("ActiveLevelFXName"), day = s("Day_FX_Row"), night = s("Night_FX_Row") }
+    log(string.format("  kept for NUMPAD *: level %s, level row %s, lighting rows %s / %s",
+        tostring(saved.levelName), tostring(saved.fxName), tostring(saved.day), tostring(saved.night)))
+end
+
+local function fx_handle(name)
+    return { DataTable = StaticFindObject(FX_TABLE_PATH), RowName = FName(name) }
+end
+
+local function transition_to(pc, dayName, nightName, sector)
+    pcall(function() pc.DisableAutomaticFX = false end)
+    local okT, errT = pcall(function() pc:TransitionToNewEnvironmentFX(false, fx_handle(dayName), fx_handle(nightName), 1.0, FText(sector)) end)
+    log(string.format("  TransitionToNewEnvironmentFX(%s / %s): %s%s", dayName, nightName, tostring(okT), okT and "" or (" (" .. one_line(errT) .. ")")))
+    return okT
+end
+
+local function claim_test_level()
+    log("---- VIGNETTE EXPERIMENT: claim level (run 6: ActiveLevelFXName only)")
+    local dt = StaticFindObject(LEVELS_TABLE)
+    local okE, existing = pcall(function() return dt:FindRow(TEST_ROW) end)
+    if not (okE and existing ~= nil) then add_test_row() end
+    local pc = player_controller()
+    local pawn = pc and pc.Pawn
+    if not (pawn and pawn:IsValid()) then log("  no player pawn"); return end
+    local loc = pawn:K2_GetActorLocation()
+    if math.abs(loc.X - 1100000) > 100000 or math.abs(loc.Y - 1300000) > 100000 then
+        log(string.format("  you are not in the Test World (at %.0f, %.0f); nothing changed", loc.X, loc.Y)); return
+    end
+    remember(pc)
+    vignette_status("  before")
+    fx_status("  before")
+    local okW, err = pcall(function() pc.ActiveLevelFXName = FName(TEST_ROW) end)
+    log("  write ActiveLevelFXName: " .. tostring(okW) .. (okW and "" or (" (" .. one_line(err) .. ")")))
+    fx_status("  after write")
+end
+
+-- NUMPAD /: light the Test World with Stone Garden's lighting rows through the game's own lighting system (no manual light values).
+local function borrow_lighting()
+    log("---- VIGNETTE EXPERIMENT: borrow Stone Garden lighting")
+    local pc = player_controller()
+    if not pc then log("  no controller"); return end
+    remember(pc)
+    fx_status("  before")
+    transition_to(pc, "HGarden", "HGarden", "Test World")
+    fx_status("  right after")
+    ExecuteWithDelay(2000, function() ExecuteInGameThread(function() fx_status("  2 s later") end) end)
+    ExecuteWithDelay(6000, function() ExecuteInGameThread(function() fx_status("  6 s later") end) end)
+end
+
+local function release_test_level()
+    log("---- VIGNETTE EXPERIMENT: put everything back")
+    local pc = player_controller()
+    if not pc then log("  no controller"); return end
+    if not saved then log("  nothing to put back (NUMPAD . and NUMPAD / were not used since the lab loaded)"); fx_status("  status"); return end
+    if saved.fxName then
+        local okW = pcall(function() pc.ActiveLevelFXName = FName(saved.fxName) end)
+        log("  ActiveLevelFXName written back to " .. saved.fxName .. ": " .. tostring(okW))
+    end
+    if saved.day and saved.night then transition_to(pc, saved.day, saved.night, "") end
+    saved = nil
+    fx_status("  after")
+    ExecuteWithDelay(2000, function() ExecuteInGameThread(function() fx_status("  2 s later"); vignette_status("  2 s later") end) end)
+end
+
+-- The experiment keys (NUMPAD 0 / . / slash / *) are switched off: the Portal Hub now does the same thing itself on arrival and departure, and
+-- pressing them as well would fight it. The functions above stay as a record of how each step was found (runs 1-6, 2026-10-14).
+local EXPERIMENT_KEYS = false
+if EXPERIMENT_KEYS then
+    RegisterKeyBind(Key.NUM_ZERO, function() ExecuteInGameThread(add_test_row) end)
+    RegisterKeyBind(Key.DECIMAL, function() ExecuteInGameThread(claim_test_level) end)
+    RegisterKeyBind(Key.MULTIPLY, function() ExecuteInGameThread(release_test_level) end)
+    if not pcall(function() RegisterKeyBind(Key.DIVIDE, function() ExecuteInGameThread(borrow_lighting) end) end) then log("NUMPAD / could not be bound") end
+    log("experiment keys: NUMPAD 0 = add Test World level row, NUMPAD . = claim it in the Test World, NUMPAD / = borrow Stone Garden lighting, NUMPAD * = put everything back (memory only)")
+end

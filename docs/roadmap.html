@@ -84,7 +84,7 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid 
 
 <nav class="pills">
   <a href="#i1">1 Prove it</a><a href="#i2">2 Test world</a><a href="#i3">3 Baked hubs</a><a href="#i4">4 Open source</a>
-  <a href="#i5">5 Licence</a><a href="#i6">6 Presets</a><a href="#i7">7 Friendly GUI</a><a href="#i8">8 One mod</a><a href="#i9">9 Annotated guide</a><a href="#order">Order</a>
+  <a href="#i5">5 Licence</a><a href="#i6">6 Presets</a><a href="#i7">7 Friendly GUI</a><a href="#i8">8 One mod</a><a href="#i9">9 Annotated guide</a><a href="#order">Plan</a>
 </nav>
 
 <div class="tools"><button id="open">Expand all</button><button id="close">Collapse all</button><button id="theme">Switch theme</button></div>
@@ -219,6 +219,7 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid 
     <ul class="plain">
       <li>The loader Blueprint, the level it streams, and how the hub spawns it, polls for the level and places the arrival pad.</li>
       <li>Packaging as an IoStore patch pak: chunk ids, always-cook directories, which files to install and which never to.</li>
+      <li>An <b>Advanced</b> section for the small details modders trip over: transparency (Masked, not Translucent), bulk-setting materials, tiling and sub-region UVs, scrolling textures, lighting for a custom world, and a custom skybox.</li>
       <li>What was tried and why it fails (for example calling the streaming functions from Lua, or a legacy pak), so nobody repeats it.</li>
     </ul>
     <h3>Watch-outs</h3>
@@ -226,14 +227,21 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid 
   </div>
 </details>
 
-<h2 id="order">Suggested order</h2>
-<p style="color:var(--muted);margin-top:0">Structure first, promotion last, so what you advertise is stable.</p>
+<h2 id="order">The plan before packaging</h2>
+<p style="color:var(--muted);margin-top:0">The project author's order, set on 14 October 2026. Each step is figured out before the next one starts. The notes in grey say where each one stands.</p>
 <ol class="order">
-  <li><b>Test world</b> (item 2), which gives the clean re-proof for item 1.</li>
-  <li><b>Condense into one mod</b> (item 8), so the structure settles.</li>
-  <li><b>Baked hub layouts</b> (item 3).</li>
-  <li><b>Presets and the friendlier editor</b> (items 6 and 7), done together, since presets live in the editor.</li>
-  <li><b>Open-source polish and licence notes</b> (items 4 and 5), and the annotated methodology guide (item 9), to finish.</li>
+  <li><b>Vignette confirmation</b>: can we reliably set custom worlds as vignettes?<br><span style="color:var(--muted)">Method found and the hub version passed in game on 14 Oct: the hub gives each world its own entry in the game's level table and marks the player as being in it (vignette check, Portal Entrance respawn, level name, title banner, fog gone). Still to do before moving on:</span>
+    <ul class="plain">
+      <li>More level-name and vignette testing, with copies of the Test World under different names.</li>
+      <li>Make a custom world act exactly like a vignette does: clearing the weather, the proper world flags, the level name, and so on.</li>
+      <li>A custom title for the world (the one shown on entry).</li>
+    </ul></li>
+  <li><b>Lighting</b>: how do we give the world custom lighting for days and nights? Dynamic lighting, like Stone Garden, and static lighting, like Albatross.<br><span style="color:var(--muted)">A world can already borrow another area's lighting through the game's own system (Stone Garden's was shown in the Test World). Next: lighting of our own for day and night.</span></li>
+  <li><b>Skyboxes</b>: can we successfully make a skybox and relay that info to modders?<br><span style="color:var(--muted)">Surveyed: the game's skies are dome meshes under <code>/Game/Sky</code>. Not started.</span></li>
+  <li><b>Custom world music and ambient tracks</b> (Stone Garden has its own music, for example).<br><span style="color:var(--muted)">The game's lighting rows already carry music and ambient sound (<code>MusicTracks</code>, <code>AmbientSoundTrack</code>), so this likely builds on the lighting work.</span></li>
+  <li><b>Custom exit for new worlds</b>: we will need to pick a specific coordinate inside the world.</li>
+  <li><b>Full tutorial</b>: after vignette, skybox and lighting are all figured out, this can begin (it grows out of the walkthrough and the annotated guide, items 2 and 9).</li>
+  <li><b>Mod packaging</b>: package the mod, the program and everything else for Nexus Mods (items 6, 7 and 8 come in here).</li>
 </ol>
 
 <footer>Dedicated to the public domain under CC0 1.0. Roadmap by the project author; layout written with AI assistance. Source: <code>docs/roadmap.html</code>.</footer>
