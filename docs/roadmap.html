@@ -227,6 +227,14 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid 
   </div>
 </details>
 
+<h2 id="design">How the pieces fit (decided 14 October 2026)</h2>
+<ul class="plain">
+  <li><b>A world describes itself.</b> The map maker sets the world's details in their own project, as variables on the loader Blueprint: title, type (vignette or home), lighting, arrival point, exit, and later music. The hub reads them; it does not have to be told.</li>
+  <li><b>The Portal Hub only connects worlds.</b> Its job is putting each world's portal in the Portal Hub room. Its config shrinks to which world goes in which slot.</li>
+  <li><b>Some Lua is expected.</b> Making a world behave like a vignette needs a small runtime script; the tutorial gives modders those tools, so a world can also be used without our hub.</li>
+  <li><b>Portal locations elsewhere in the Facility come much later.</b> For now every world's portal goes in the Portal Hub room.</li>
+</ul>
+
 <h2 id="order">The plan before packaging</h2>
 <p style="color:var(--muted);margin-top:0">The project author's order, set on 14 October 2026. Each step is figured out before the next one starts. The notes in grey say where each one stands.</p>
 <ol class="order">
@@ -240,7 +248,7 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid 
           <li><b>Vignette</b> (<code>V_</code>): puzzle worlds and adventures. Equipment can't be used until the player reaches the world's exit, which is separate from its entrance; using the exit clears that restriction.</li>
           <li><b>Home</b> (<code>H_</code>, like Temple of Stone, Torii and the Cabin): player homes. No equipment restriction, and no separate exit.</li>
         </ul>
-        <span style="color:var(--muted)">To find out: what the game uses to tell the two apart and to block equipment. Both kinds are marked as vignettes in the level table, so it is something else, perhaps a world flag or the level name.</span></li>
+        <span style="color:var(--muted)">Found 14 Oct: both kinds hold the same Vignette_Zone, which gives the player <code>Buff_InVignette</code>. The equipment lock is <code>Debuff_PortalSickness</code>, applied only when the zone names a story flag (the Train's is <code>TrainCompletedOnce</code>; homes name none). How it works in the game: a vignette can have several exits but only one is the proper one; reaching it sets the flag, the sickness clears and never comes back for that world. Plan for custom vignettes: a completion flag per world, the zone pointed at it, and the world's proper exit setting it (<code>WorldFlagSubsystem:SetWorldFlag</code>). To check: flags are saved with the world, so what happens to a save if the world's mod is removed. The reward buff given on later uses of the proper exit is on the back burner.</span></li>
     </ul></li>
   <li><b>Lighting</b>: how do we give the world custom lighting for days and nights? Dynamic lighting, like Stone Garden, and static lighting, like Albatross.<br><span style="color:var(--muted)">A world can already borrow another area's lighting through the game's own system (Stone Garden's was shown in the Test World). Next: lighting of our own for day and night.</span></li>
   <li><b>Skyboxes</b>: can we successfully make a skybox and relay that info to modders?<br><span style="color:var(--muted)">Surveyed: the game's skies are dome meshes under <code>/Game/Sky</code>. Not started.</span></li>
