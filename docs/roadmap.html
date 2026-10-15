@@ -254,8 +254,15 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid 
   <li><b>Skyboxes</b>: can we successfully make a skybox and relay that info to modders?<br><span style="color:var(--muted)">Surveyed: the game's skies are dome meshes under <code>/Game/Sky</code>. Not started.</span></li>
   <li><b>Custom world music and ambient tracks</b> (Stone Garden has its own music, for example).<br><span style="color:var(--muted)">The game's lighting rows already carry music and ambient sound (<code>MusicTracks</code>, <code>AmbientSoundTrack</code>), so this likely builds on the lighting work.</span></li>
   <li><b>Custom exit for new worlds</b>: a specific exit coordinate in the Facility, so a world can lead somewhere other than the portal room.</li>
-  <li><b>Full tutorial</b>: after vignette, skybox and lighting are all figured out, this can begin (it grows out of the walkthrough and the annotated guide, items 2 and 9).</li>
-  <li><b>Mod packaging</b>: package the mod, the program and everything else for Nexus Mods (items 6, 7 and 8 come in here).</li>
+  <li><b>Full tutorial</b>: after vignette, skybox and lighting are all figured out, this can begin (it grows out of the walkthrough and the annotated guide, items 2 and 9).
+    <ul class="plain">
+      <li>A tutorial on writing the Lua for your own world by hand, for modders who don't want to use the GUI program.</li>
+    </ul></li>
+  <li><b>Mod packaging</b>: package the mod, the program and everything else for Nexus Mods (items 6, 7 and 8 come in here).
+    <ul class="plain">
+      <li>Add the world settings (vignette or home, Leyak safety zone, title, and more as they are found) to the GUI.</li>
+      <li>Allow editing an existing world's settings through the GUI.</li>
+    </ul></li>
 </ol>
 
 <footer>Dedicated to the public domain under CC0 1.0. Roadmap by the project author; layout written with AI assistance. Source: <code>docs/roadmap.html</code>.</footer>
