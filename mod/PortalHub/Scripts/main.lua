@@ -227,6 +227,7 @@ local function resolve_worlds()
                 killZ = tonumber(w.killZ),                   -- optional: below origin z + killZ the player is returned to the arrival pad
                 vignette = (w.vignette ~= false),            -- default on: the world counts as a vignette (no weather); vignette = false opts out
                 title = type(w.title) == "string" and w.title ~= "" and w.title or nil,   -- shown by the game on arrival; default: the portal's name
+                leyakSafe = w.leyakSafe,                     -- true / false / nil: Leyak safety zone; default on (see world_leyak_safe)
                 lightingDay = lightDay, lightingNight = lightNight,
             }
             if is_hub_id(id) then log("worlds: '" .. id .. "' starts with a reserved prefix and may be removed with the hub portals; rename it") end
@@ -303,9 +304,27 @@ local function diag_streaming(world, def)
         end
     end
 end
+-- Where a world's arrival pad sends players back to until someone walks in through a hub portal (route_return then points it at the
+-- portal they used): the first hub portal leading to this world. Without this, a save loaded inside the world has an exit that goes nowhere.
+local function default_return(def)
+    for _, e in ipairs(state.entries) do
+        if e.dest == def.id then return e.id end
+    end
+    return nil
+end
+
 local function spawn_arrival_pad(world, def)
     for _, t in ipairs(all_pads()) do
-        if pad_id(t) == def.id then return t end        -- already there
+        if pad_id(t) == def.id then                     -- already there: make sure its exit leads somewhere
+            local back = default_return(def)
+            local cur = nil
+            pcall(function() cur = t.DestinationTeleporterID:ToString() end)
+            if back and (cur == nil or cur == "None" or cur == "") then
+                pcall(function() t.DestinationTeleporterID = FName(back) end)
+                log("worlds: arrival pad " .. def.id .. " had no exit; it now returns to " .. back)
+            end
+            return t
+        end
     end
     local class = StaticFindObject(TELEPORTER_CLASS)
     if not (class and class:IsValid()) then log("worlds: teleporter class not found") return nil end
@@ -313,11 +332,11 @@ local function spawn_arrival_pad(world, def)
     local pad = world:SpawnActor(class, loc, { Pitch = 0.0, Yaw = def.arrive[4], Roll = 0.0 })
     if not (pad and pad:IsValid()) then log("worlds: could not spawn the arrival pad for " .. def.id) return nil end
     pad.MyTeleporterID = FName(def.id)
-    pad.DestinationTeleporterID = FName("None")
+    pad.DestinationTeleporterID = FName(default_return(def) or "None")
     pad.IsTeleporterActive = true
     pcall(function() pad:OnRep_IsTeleporterActive() end)
     apply_design(pad, DEFAULT_DESIGN)
-    log(string.format("worlds: arrival pad %s at %.0f, %.0f, %.0f facing %.0f", def.id, loc.X, loc.Y, loc.Z, def.arrive[4]))
+    log(string.format("worlds: arrival pad %s at %.0f, %.0f, %.0f facing %.0f, returns to %s", def.id, loc.X, loc.Y, loc.Z, def.arrive[4], default_return(def) or "nowhere yet"))
     return pad
 end
 
@@ -328,6 +347,9 @@ end
 -- Do NOT spawn Trigger_WeatherBlocker: it is a story trigger that ends the CURRENT WEATHER FOR EVERYONE (it asks the DayNightManager)
 -- when a player walks into it. Weather inside a custom world is handled per player through the level table instead.
 local VIGNETTE_ZONE = "/Game/Blueprints/Environment/Volumes/Vignette_Zone.Vignette_Zone_C"
+-- Most of the game's worlds also hold a LeyakSafetyZone (another buff zone; it gives Buff_LeyakSafetyZone, which keeps the Leyak away).
+-- A world gets one too unless its map maker switches it off (LeyakSafeZone on the loader Blueprint) or config.lua does (leyakSafe = false).
+local LEYAK_ZONE = "/Game/Blueprints/Environment/Volumes/LeyakSafetyZone.LeyakSafetyZone_C"
 
 local function zone_present(shortClass, def)
     for _, a in ipairs(FindAllOf(shortClass) or {}) do
@@ -340,10 +362,29 @@ local function zone_present(shortClass, def)
 end
 
 local function spawn_zone(world, def, path, shortClass, label)
-    if zone_present(shortClass, def) then return end
-    pcall(LoadAsset, (path:gsub("%.[^%.]*$", "")))
+    if zone_present(shortClass, def) then return true end
+    -- The class is only in memory once something loaded it (for example after visiting one of the game's vignettes), so load it here,
+    -- trying the forms UE4SS's LoadAsset may expect: the package, the Blueprint asset, the generated class.
+    local pkg = path:gsub("%.[^%.]*$", "")
+    local asset = pkg .. "." .. pkg:match("[^/]+$")
     local cls = StaticFindObject(path)
-    if not (cls and cls:IsValid()) then log("worlds: the game's " .. label .. " class was not found; " .. def.id .. " will have no " .. label) return end
+    local how = "already loaded"
+    for _, try in ipairs({ pkg, asset, path }) do
+        if cls and cls:IsValid() then break end
+        pcall(LoadAsset, try)
+        cls = StaticFindObject(path)
+        how = "loaded via " .. try
+    end
+    if not (cls and cls:IsValid()) then
+        local helpers = StaticFindObject("/Script/AssetRegistry.Default__AssetRegistryHelpers")
+        if helpers and helpers:IsValid() then
+            pcall(function() helpers:GetAsset({ PackageName = FName(pkg), AssetName = FName(pkg:match("[^/]+$")) }) end)
+            cls = StaticFindObject(path)
+            how = "loaded via the asset registry"
+        end
+    end
+    if not (cls and cls:IsValid()) then log("worlds: the game's " .. label .. " class could not be loaded; " .. def.id .. " has no " .. label .. " yet (tried again on entry)") return false end
+    log("worlds: " .. label .. " class " .. how)
     local actor
     local ok, e = pcall(function()
         actor = world:SpawnActor(cls, { X = def.origin[1], Y = def.origin[2], Z = def.origin[3] }, { Pitch = 0.0, Yaw = 0.0, Roll = 0.0 })
@@ -359,11 +400,28 @@ local function spawn_zone(world, def, path, shortClass, label)
         end
     end
     log(string.format("worlds: %s spawned over %s (radius %.0f, box resized: %s)", label, def.id, def.radius, tostring(sized)))
+    return true
+end
+
+-- a Boolean variable on the world's loader Blueprint (class defaults); nil when the world does not have it
+local function loader_flag(def, var)
+    local cdo = StaticFindObject(def.loaderAsset .. ".Default__" .. def.loaderClass)
+    if not (cdo and cdo:IsValid()) then return nil end
+    local ok, v = pcall(function() return cdo[var] end)
+    if ok and type(v) == "boolean" then return v end
+    return nil
+end
+
+local function world_leyak_safe(def)
+    local v = loader_flag(def, "LeyakSafeZone")
+    if v == nil and type(def.leyakSafe) == "boolean" then v = def.leyakSafe end
+    if v == nil then v = true end
+    return v
 end
 
 local function spawn_zones(world, def)
-    if not def.vignette then return end
-    spawn_zone(world, def, VIGNETTE_ZONE, "Vignette_Zone_C", "vignette zone")
+    if def.vignette then spawn_zone(world, def, VIGNETTE_ZONE, "Vignette_Zone_C", "vignette zone") end
+    if world_leyak_safe(def) then spawn_zone(world, def, LEYAK_ZONE, "LeyakSafetyZone_C", "Leyak safety zone") end
 end
 
 local function set_portals_active(id, on)
@@ -597,7 +655,25 @@ local function find_row(tablePath, row)
     return nil
 end
 
+-- World settings made by the map maker live on the world's own loader Blueprint, as plain variables (text, name, number, vector) on its
+-- class defaults, so a world describes itself and needs no hub configuration beyond which slot it goes in. Read-only; never soft
+-- references (see the warning above). Returns nil when the variable is missing or empty.
+local function loader_setting(def, var)
+    local cdo = StaticFindObject(def.loaderAsset .. ".Default__" .. def.loaderClass)     -- the class defaults object
+    if not (cdo and cdo:IsValid()) then
+        local cls = StaticFindObject(def.loaderAsset .. "." .. def.loaderClass)
+        if cls and cls:IsValid() then pcall(function() cdo = cls:GetCDO() end) end
+    end
+    if not (cdo and cdo:IsValid()) then return nil end
+    local ok, v = pcall(function() return cdo[var]:ToString() end)
+    if ok and type(v) == "string" and v ~= "" and v ~= "None" then return v end
+    return nil
+end
+
+-- The title shown on entry: the map maker's WorldTitle on the loader Blueprint first, then a title from config.lua, then the portal name.
 local function world_title(def)
+    local fromWorld = loader_setting(def, "WorldTitle")
+    if fromWorld then return fromWorld end
     if def.title then return def.title end
     for _, e in ipairs(state.entries) do
         if e.dest == def.id and e.name and e.name ~= e.dest then return e.name end
@@ -665,6 +741,9 @@ local function switch_lighting(pc, day, night, title)
 end
 
 local function claim_level(def, pc)
+    -- the vignette zone (Buff_InVignette) may have been missing when the world loaded; it is only spawned if not there yet
+    local world = UEHelpers.GetWorld()
+    if world and world:IsValid() then spawn_zones(world, def) end
     local day, night = world_light_rows(def)
     if not ensure_level_row(def, day, night) then return false end
     local rowName = level_row_name(def)

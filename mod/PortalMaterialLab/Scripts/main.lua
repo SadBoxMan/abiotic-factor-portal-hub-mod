@@ -793,6 +793,75 @@ local function release_test_level()
     ExecuteWithDelay(2000, function() ExecuteInGameThread(function() fx_status("  2 s later"); vignette_status("  2 s later") end) end)
 end
 
+------------------------------------------------------------------------------------------------------------------------
+-- Vignette buff survey (read-only), NUMPAD 7. Vignette worlds hold a Vignette_Zone (a BuffZone_ParentBP): it applies BuffToApply to
+-- characters inside it unless they carry one of BuffBlockingTags, and checks a world flag (PortalSicknessWorldFlag). The player's buffs
+-- live in BuffComponent.CurrentBuffs (BuffDebuffEntry: BuffRow, BuffExpireTime) and its tags in BuffComponent.BuffTagContainer.
+-- Run it in a real vignette (equipment locked), a home world (H_, not locked) and the Test World to compare.
+------------------------------------------------------------------------------------------------------------------------
+local function handle_row(h)
+    for _, k in ipairs({ "RowName", "Row", "Name" }) do
+        local ok, s = pcall(function() return h[k]:ToString() end)
+        if ok and type(s) == "string" then return s end
+    end
+    return "?"
+end
+
+local function tag_list(container)
+    local out = {}
+    pcall(function()
+        container.GameplayTags:ForEach(function(_, e)
+            local ok, s = pcall(function() return e:get().TagName:ToString() end)
+            out[#out + 1] = ok and s or "?"
+        end)
+    end)
+    return #out > 0 and table.concat(out, ", ") or "(none)"
+end
+
+local function vignette_buff_survey()
+    log("---- VIGNETTE BUFF SURVEY")
+    local pc = player_controller()
+    local pawn = pc and pc.Pawn
+    if not (pawn and pawn:IsValid()) then log("  no player pawn"); return end
+    local loc = pawn:K2_GetActorLocation()
+    log(string.format("  player at %.0f, %.0f, %.0f", loc.X, loc.Y, loc.Z))
+    vignette_status("  status")
+    local bc = nil
+    pcall(function() bc = pawn.BuffComponent end)
+    if bc and bc:IsValid() then
+        local n = 0
+        pcall(function()
+            bc.CurrentBuffs:ForEach(function(_, e)
+                local entry = e:get()
+                n = n + 1
+                local okT, t = pcall(function() return entry.BuffExpireTime end)
+                log(string.format("  buff %d: %s (expires %s)", n, handle_row(entry.BuffRow), okT and tostring(t) or "?"))
+            end)
+        end)
+        if n == 0 then log("  buffs: (none)") end
+        log("  buff tags: " .. tag_list(bc.BuffTagContainer))
+    else
+        log("  no buff component")
+    end
+    pcall(function() log("  character tags: " .. tag_list(pawn.GameplayTags)) end)
+    local zones = FindAllOf("Vignette_Zone_C") or {}
+    log("  vignette zones in the world: " .. #zones)
+    for _, z in ipairs(zones) do
+        if z:IsValid() then
+            local zl = z:K2_GetActorLocation()
+            local ext, inside = "?", "?"
+            pcall(function() local e = z.BuffVolume:GetScaledBoxExtent(); ext = string.format("%.0f x %.0f x %.0f", e.X, e.Y, e.Z) end)
+            pcall(function() inside = tostring(z.BuffVolume:IsOverlappingActor(pawn)) end)
+            log(string.format("  zone %s at %.0f, %.0f, %.0f  extent %s  player inside: %s", z:GetFullName():match("[^ ]+$") or "?", zl.X, zl.Y, zl.Z, ext, inside))
+            log("    buff to apply: " .. handle_row(z.BuffToApply) .. "   world flag: " .. handle_row(z.PortalSicknessWorldFlag))
+            pcall(function() log("    blocked by tags: " .. tag_list(z.BuffBlockingTags)) end)
+        end
+    end
+    log("---- VIGNETTE BUFF SURVEY done")
+end
+RegisterKeyBind(Key.NUM_SEVEN, function() ExecuteInGameThread(vignette_buff_survey) end)
+log("survey key: NUMPAD 7 = vignette zones, the player's buffs and tags (read-only)")
+
 -- The experiment keys (NUMPAD 0 / . / slash / *) are switched off: the Portal Hub now does the same thing itself on arrival and departure, and
 -- pressing them as well would fight it. The functions above stay as a record of how each step was found (runs 1-6, 2026-10-14).
 local EXPERIMENT_KEYS = false
