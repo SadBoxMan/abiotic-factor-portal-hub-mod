@@ -844,6 +844,23 @@ local function vignette_buff_survey()
         log("  no buff component")
     end
     pcall(function() log("  character tags: " .. tag_list(pawn.GameplayTags)) end)
+    -- where this spot is relative to the Test World's origin (for a world's exit = { x, y, z, yaw })
+    pcall(function()
+        local r = pawn:K2_GetActorRotation()
+        log(string.format("  relative to the Test World origin: exit = { %.0f, %.0f, %.0f, %.0f }", loc.X - 1100000, loc.Y - 1300000, loc.Z - 90, r.Yaw))
+    end)
+    -- the story flags set in this world save that belong to Portal Hub worlds (GetWorldFlags fills a list of names)
+    local fs = FindFirstOf("WorldFlagSubsystem")
+    if fs and fs:IsValid() then
+        local out, ours, total = {}, {}, 0
+        pcall(function() fs:GetWorldFlags(out) end)
+        for i = 1, #out do
+            total = total + 1
+            local okN, n = pcall(function() return out[i]:ToString() end)
+            if okN and n:find("PortalHub_") then ours[#ours + 1] = n end
+        end
+        log(string.format("  story flags set: %d, Portal Hub ones: %s", total, #ours > 0 and table.concat(ours, ", ") or "(none)"))
+    end
     local zones = FindAllOf("Vignette_Zone_C") or {}
     log("  vignette zones in the world: " .. #zones)
     for _, z in ipairs(zones) do
@@ -860,6 +877,34 @@ local function vignette_buff_survey()
     log("---- VIGNETTE BUFF SURVEY done")
 end
 RegisterKeyBind(Key.NUM_SEVEN, function() ExecuteInGameThread(vignette_buff_survey) end)
+
+-- NUMPAD 3 (testing): clear every Portal Hub completion flag ("PortalHub_<world>_Completed") in this world save, so a vignette world
+-- applies portal sickness again. Uses the game's own WorldFlagSubsystem:SetWorldFlag(flag, false, context); says so on screen.
+local function clear_hub_flags()
+    local pc = player_controller()
+    local pawn = pc and pc.Pawn
+    local fs = FindFirstOf("WorldFlagSubsystem")
+    if not (pc and fs and fs:IsValid()) then log("clear flags: no controller or flag subsystem") return end
+    local path = "/Game/Blueprints/DataTables/DT_WorldFlags.DT_WorldFlags"
+    for _, t in ipairs(FindAllOf("BP_Teleporter_HomeWorld_C") or {}) do
+        if t:IsValid() then pcall(function() local p = t.RequiredWorldFlag.DataTablePath:ToString(); if p ~= "" then path = p end end) end
+    end
+    local out, cleared = {}, {}
+    pcall(function() fs:GetWorldFlags(out) end)
+    for i = 1, #out do
+        local okN, n = pcall(function() return out[i]:ToString() end)
+        if okN and n:find("^PortalHub_") and n:find("_Completed$") then
+            local ok = pcall(function() fs:SetWorldFlag({ RowName = FName(n), DataTablePath = path }, false, pc) end)
+            log("clear flags: " .. n .. " -> " .. tostring(ok))
+            if ok then cleared[#cleared + 1] = n end
+        end
+    end
+    local msg = #cleared > 0 and ("Cleared " .. table.concat(cleared, ", ")) or "No Portal Hub completion flags to clear"
+    if pawn and pawn:IsValid() then pcall(function() pawn:Client_DisplayWarningMessage(FText(msg), 1, false) end) end
+    log("clear flags: " .. msg)
+end
+RegisterKeyBind(Key.NUM_THREE, function() ExecuteInGameThread(clear_hub_flags) end)
+log("test key: NUMPAD 3 = clear Portal Hub completion flags in this save (portal sickness comes back on the next entry)")
 log("survey key: NUMPAD 7 = vignette zones, the player's buffs and tags (read-only)")
 
 -- The experiment keys (NUMPAD 0 / . / slash / *) are switched off: the Portal Hub now does the same thing itself on arrival and departure, and

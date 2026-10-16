@@ -228,6 +228,9 @@ local function resolve_worlds()
                 vignette = (w.vignette ~= false),            -- default on: the world counts as a vignette (no weather); vignette = false opts out
                 title = type(w.title) == "string" and w.title ~= "" and w.title or nil,   -- shown by the game on arrival; default: the portal's name
                 leyakSafe = w.leyakSafe,                     -- true / false / nil: Leyak safety zone; default on (see world_leyak_safe)
+                type = type(w.type) == "string" and w.type or nil,  -- "home" (default) or "vignette" (see world_type)
+                exit = (type(w.exit) == "table" and #w.exit >= 3) and { tonumber(w.exit[1]) or 0, tonumber(w.exit[2]) or 0,
+                    tonumber(w.exit[3]) or 0, tonumber(w.exit[4]) or 0 } or nil,  -- a vignette's proper exit, relative to origin: x, y, z, yaw
                 lightingDay = lightDay, lightingNight = lightNight,
             }
             if is_hub_id(id) then log("worlds: '" .. id .. "' starts with a reserved prefix and may be removed with the hub portals; rename it") end
@@ -419,9 +422,113 @@ local function world_leyak_safe(def)
     return v
 end
 
+-- World settings made by the map maker live on the world's own loader Blueprint, as plain variables (text, name, number, vector) on its
+-- class defaults, so a world describes itself and needs no hub configuration beyond which slot it goes in. Read-only; never soft
+-- references. Returns nil when the variable is missing or empty.
+local function loader_setting(def, var)
+    local cdo = StaticFindObject(def.loaderAsset .. ".Default__" .. def.loaderClass)     -- the class defaults object
+    if not (cdo and cdo:IsValid()) then
+        local cls = StaticFindObject(def.loaderAsset .. "." .. def.loaderClass)
+        if cls and cls:IsValid() then pcall(function() cdo = cls:GetCDO() end) end
+    end
+    if not (cdo and cdo:IsValid()) then return nil end
+    local ok, v = pcall(function() return cdo[var]:ToString() end)
+    if ok and type(v) == "string" and v ~= "" and v ~= "None" then return v end
+    return nil
+end
+
+-- ---------------------------------------------------------------- world type: home (default) or vignette
+-- The game's home worlds (H_Garden, H_Japan, H_Cabin) and vignettes both hold a Vignette_Zone that gives Buff_InVignette. In a vignette the
+-- zone also names a story flag (PortalSicknessWorldFlag; the Train's is TrainCompletedOnce): until that flag is set the player has
+-- Debuff_PortalSickness (equipment locked). The vignette's proper exit is a teleporter whose WorldFlagToTriggerOnUse sets the flag, after
+-- which the sickness never comes back for that world. Story flags are saved with the world save as plain names.
+-- For a vignette world the hub adds a flag "PortalHub_<world id>_Completed" to the game's flag table, points the world's zone at it, and
+-- spawns the proper exit pad (exit = { x, y, z, yaw } relative to origin), which sets the flag and leads back to the world's hub portal.
+local WORLD_FLAGS_TABLE = "/Game/Blueprints/DataTables/DT_WorldFlags.DT_WorldFlags"
+
+local function world_type(def)
+    local v = (loader_setting(def, "WorldType") or def.type or "home"):lower()
+    if v ~= "vignette" then v = "home" end
+    return v
+end
+
+local function completion_flag(def) return "PortalHub_" .. def.id .. "_Completed" end
+local function exit_pad_id(def) return def.id .. "_exit" end
+
+-- the table path the game itself writes into flag handles (read from the portal room's home pads), else the table's object path
+local function flag_table_path()
+    for _, t in ipairs(FindAllOf("BP_Teleporter_HomeWorld_C") or {}) do
+        if t:IsValid() then
+            local ok, p = pcall(function() return t.RequiredWorldFlag.DataTablePath:ToString() end)
+            if ok and type(p) == "string" and p ~= "" then return p end
+        end
+    end
+    return WORLD_FLAGS_TABLE
+end
+
+local function flag_handle(name) return { RowName = FName(name), DataTablePath = flag_table_path() } end
+
+local function ensure_flag_row(def)
+    local dt = StaticFindObject(WORLD_FLAGS_TABLE)
+    if not (dt and dt:IsValid()) then pcall(LoadAsset, (WORLD_FLAGS_TABLE:gsub("%.[^%.]*$", ""))); dt = StaticFindObject(WORLD_FLAGS_TABLE) end
+    if not (dt and dt:IsValid()) then log("vignette: the game's story-flag table is not loaded; " .. def.id .. " gets no completion flag yet") return false end
+    local name = completion_flag(def)
+    local okF, row = pcall(function() return dt:FindRow(name) end)
+    if okF and row ~= nil then return true end
+    local ok, err = pcall(function() dt:AddRow(name, { ReleaseGroup = 0, DebugText = "Portal Hub: " .. def.id .. " completed" }) end)
+    local okB, back = pcall(function() return dt:FindRow(name) end)
+    if not (ok and okB and back ~= nil) then log("vignette: could not add the story flag " .. name .. ": " .. tostring(err):match("^[^\r\n]*")) return false end
+    log("vignette: story flag " .. name .. " added")
+    return true
+end
+
+local function spawn_exit_pad(world, def)
+    for _, t in ipairs(all_pads()) do
+        if pad_id(t) == exit_pad_id(def) then return t end
+    end
+    if not def.exit then log("vignette: " .. def.id .. " is a vignette but has no exit; set exit = { x, y, z, yaw } (relative to its origin)") return nil end
+    local class = StaticFindObject(TELEPORTER_CLASS)
+    if not (class and class:IsValid()) then return nil end
+    local loc = { X = def.origin[1] + def.exit[1], Y = def.origin[2] + def.exit[2], Z = def.origin[3] + def.exit[3] }
+    local pad = world:SpawnActor(class, loc, { Pitch = 0.0, Yaw = def.exit[4], Roll = 0.0 })
+    if not (pad and pad:IsValid()) then log("vignette: could not spawn the exit pad for " .. def.id) return nil end
+    pad.MyTeleporterID = FName(exit_pad_id(def))
+    pad.DestinationTeleporterID = FName(default_return(def) or "None")
+    pcall(function() pad.WorldFlagToTriggerOnUse = flag_handle(completion_flag(def)) end)
+    pad.IsTeleporterActive = true
+    pcall(function() pad:OnRep_IsTeleporterActive() end)
+    apply_design(pad, DEFAULT_DESIGN)
+    local okR, set = pcall(function() return pad.WorldFlagToTriggerOnUse.RowName:ToString() end)
+    log(string.format("vignette: exit pad %s at %.0f, %.0f, %.0f, returns to %s, sets flag %s", exit_pad_id(def), loc.X, loc.Y, loc.Z,
+        default_return(def) or "nowhere yet", okR and set or "?"))
+    return pad
+end
+
+-- point the world's vignette zone at the completion flag, so the game applies portal sickness until the proper exit is used
+local function apply_vignette_type(world, def)
+    if world_type(def) ~= "vignette" then return end
+    if not ensure_flag_row(def) then return end
+    local name = completion_flag(def)
+    for _, z in ipairs(FindAllOf("Vignette_Zone_C") or {}) do
+        if z:IsValid() then
+            local ok, dx, dy = pcall(function() local l = z:K2_GetActorLocation(); return l.X - def.origin[1], l.Y - def.origin[2] end)
+            if ok and dx * dx + dy * dy < 1000 * 1000 then
+                local okC, cur = pcall(function() return z.PortalSicknessWorldFlag.RowName:ToString() end)
+                if not (okC and cur == name) then
+                    pcall(function() z.PortalSicknessWorldFlag = flag_handle(name) end)
+                    local okB, back = pcall(function() return z.PortalSicknessWorldFlag.RowName:ToString() end)
+                    log("vignette: " .. def.id .. "'s zone now waits for " .. tostring(okB and back or "?") .. " (portal sickness until the proper exit)")
+                end
+            end
+        end
+    end
+    spawn_exit_pad(world, def)
+end
+
 local function spawn_zones(world, def)
     if def.vignette then spawn_zone(world, def, VIGNETTE_ZONE, "Vignette_Zone_C", "vignette zone") end
     if world_leyak_safe(def) then spawn_zone(world, def, LEYAK_ZONE, "LeyakSafetyZone_C", "Leyak safety zone") end
+    if def.vignette then apply_vignette_type(world, def) end
 end
 
 local function set_portals_active(id, on)
@@ -655,21 +762,6 @@ local function find_row(tablePath, row)
     return nil
 end
 
--- World settings made by the map maker live on the world's own loader Blueprint, as plain variables (text, name, number, vector) on its
--- class defaults, so a world describes itself and needs no hub configuration beyond which slot it goes in. Read-only; never soft
--- references (see the warning above). Returns nil when the variable is missing or empty.
-local function loader_setting(def, var)
-    local cdo = StaticFindObject(def.loaderAsset .. ".Default__" .. def.loaderClass)     -- the class defaults object
-    if not (cdo and cdo:IsValid()) then
-        local cls = StaticFindObject(def.loaderAsset .. "." .. def.loaderClass)
-        if cls and cls:IsValid() then pcall(function() cdo = cls:GetCDO() end) end
-    end
-    if not (cdo and cdo:IsValid()) then return nil end
-    local ok, v = pcall(function() return cdo[var]:ToString() end)
-    if ok and type(v) == "string" and v ~= "" and v ~= "None" then return v end
-    return nil
-end
-
 -- The title shown on entry: the map maker's WorldTitle on the loader Blueprint first, then a title from config.lua, then the portal name.
 local function world_title(def)
     local fromWorld = loader_setting(def, "WorldTitle")
@@ -821,6 +913,43 @@ end
 
 -- While inside: the game may set its own level entry again (for example after a respawn at the arrival pad), or switch to the weather's
 -- lighting rows. Put ours back, at most every few seconds.
+-- ---------------------------------------------------------------- on-screen messages
+-- One short line at the top of the screen through the game's own player function (Client_DisplayWarningMessage: text, colour, beep).
+-- Colours (the game's ECriticalityLevels): 0 green, 1 gray, 2 yellow, 3 red, 4 purple.
+local MSG_GREEN, MSG_GRAY, MSG_YELLOW = 0, 1, 2
+local function show(msg, colour)
+    local pawn = local_pawn()
+    if pawn then pcall(function() pawn:Client_DisplayWarningMessage(FText(msg), colour or MSG_GREEN, false) end) end
+    log("message: " .. msg)
+end
+
+-- Is a vignette world's completion flag set in this world save? nil when it cannot be asked.
+local function flag_is_set(def, pc)
+    local fs = FindFirstOf("WorldFlagSubsystem")
+    if not (fs and fs:IsValid()) then return nil end
+    local ok, v = pcall(function() return fs:HasWorldFlag(pc, flag_handle(completion_flag(def))) end)
+    if ok and type(v) == "boolean" then return v end
+    return nil
+end
+
+-- Watch the completion flags of vignette worlds (every 2 s) and say when one gets set or cleared.
+local flagSeen, flagCheckAt = {}, 0
+local function watch_flags(pc)
+    if os.clock() - flagCheckAt < 2 then return end
+    flagCheckAt = os.clock()
+    for _, def in pairs(worldDefs) do
+        if def.vignette and world_type(def) == "vignette" then
+            local now = flag_is_set(def, pc)
+            local before = flagSeen[def.id]
+            if now ~= nil and before ~= nil and now ~= before then
+                if now then show(world_title(def) .. " completed: portal sickness lifted for good", MSG_GREEN)
+                else show(world_title(def) .. "'s completion flag cleared", MSG_GRAY) end
+            end
+            if now ~= nil then flagSeen[def.id] = now end
+        end
+    end
+end
+
 local function keep_claim(def, pc)
     local c = presence.claim
     if not c or os.clock() - presence.reclaimAt < 3 then return end
@@ -932,6 +1061,7 @@ local function track_tick()
             log("lighting: automatic lighting was left off; switched back on")
         end
     end
+    watch_flags(pc)
     if not pawn then return end         -- dead, or between pawns: change nothing until there is a pawn again
     local okL, loc = pcall(function() return pawn:K2_GetActorLocation() end)
     if not okL or not loc then return end
@@ -963,6 +1093,9 @@ local function track_tick()
             -- just arrived (or the mods were restarted while inside)
             presence.inside = here.id
             if here.vignette then claim_level(here, pc) end
+            if here.vignette and world_type(here) == "vignette" and flag_is_set(here, pc) == false then
+                show("Portal sickness: find " .. world_title(here) .. "'s proper exit to lift it", MSG_YELLOW)
+            end
             -- a `lighting` block goes on top once the game has switched to the world's lighting rows (that takes about a second)
             presence.lightAt = here.lighting and (os.clock() + (presence.claim and 2.0 or 0.0)) or nil
         elseif here.vignette then
