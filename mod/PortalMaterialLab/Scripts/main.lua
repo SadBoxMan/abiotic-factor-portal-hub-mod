@@ -890,13 +890,45 @@ local function clear_hub_flags()
         if t:IsValid() then pcall(function() local p = t.RequiredWorldFlag.DataTablePath:ToString(); if p ~= "" then path = p end end) end
     end
     local out, cleared = {}, {}
-    pcall(function() fs:GetWorldFlags(out) end)
+    local okG, ret = pcall(function() return fs:GetWorldFlags(out) end)
+    local names = {}
     for i = 1, #out do
-        local okN, n = pcall(function() return out[i]:ToString() end)
-        if okN and n:find("^PortalHub_") and n:find("_Completed$") then
-            local ok = pcall(function() fs:SetWorldFlag({ RowName = FName(n), DataTablePath = path }, false, pc) end)
-            log("clear flags: " .. n .. " -> " .. tostring(ok))
-            if ok then cleared[#cleared + 1] = n end
+        local x = out[i]
+        local n
+        if not (pcall(function() n = x:ToString() end) and type(n) == "string") then pcall(function() n = x:get():ToString() end) end
+        if type(n) == "string" then names[#names + 1] = n end
+    end
+    log(string.format("clear flags: GetWorldFlags call %s (returned %s), %d entries, %d readable; first: %s", tostring(okG), tostring(ret), #out, #names,
+        table.concat(names, ", ", 1, math.min(#names, 8))))
+    -- also take every Portal Hub completion flag from the game's flag table itself (the hub adds them there), so clearing does not
+    -- depend on what GetWorldFlags hands back
+    local dt = StaticFindObject("/Game/Blueprints/DataTables/DT_WorldFlags.DT_WorldFlags")
+    if dt and dt:IsValid() then
+        pcall(function()
+            local rows = dt:GetRowNames()
+            for i = 1, #rows do
+                local r = rows[i]
+                local n
+                if not (pcall(function() n = r:ToString() end) and type(n) == "string") then n = tostring(r) end
+                if n:find("^PortalHub_") and n:find("_Completed$") then
+                    local h = { RowName = FName(n), DataTablePath = path }
+                    local okH, set = pcall(function() return fs:HasWorldFlag(pc, h) end)
+                    log("clear flags: table row " .. n .. " set: " .. tostring(okH and set))
+                    if okH and set then names[#names + 1] = n end
+                end
+            end
+        end)
+    end
+    local done = {}
+    for _, n in ipairs(names) do
+        if n:find("^PortalHub_") and n:find("_Completed$") and not done[n] then
+            done[n] = true
+            local h = { RowName = FName(n), DataTablePath = path }
+            local ok = pcall(function() fs:SetWorldFlag(h, false, pc) end)
+            local okH, still = pcall(function() return fs:HasWorldFlag(pc, h) end)
+            log("clear flags: " .. n .. " -> call " .. tostring(ok) .. ", still set afterwards: " .. tostring(okH and still))
+            if ok and okH and still == false then cleared[#cleared + 1] = n
+            elseif ok then cleared[#cleared + 1] = n .. " (could not confirm)" end
         end
     end
     local msg = #cleared > 0 and ("Cleared " .. table.concat(cleared, ", ")) or "No Portal Hub completion flags to clear"
