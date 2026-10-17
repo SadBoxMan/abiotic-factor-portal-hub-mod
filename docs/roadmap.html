@@ -74,39 +74,41 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid 
 <div class="wrap">
 <header>
   <h1>Portal Hub roadmap</h1>
-  <p>Where each goal stands, the routes to finish it, and what to watch out for. Tap a card to open it.</p>
+  <p>One list, in the order the work happens. Each step is figured out before the next one starts. Tap a card to open it.</p>
 </header>
 
 <div class="bar">
-  <span class="chip done">2 done</span><span class="chip next">1 next</span><span class="chip plan">5 planned</span>
+  <span class="chip done">4 done</span><span class="chip next">1 in progress</span><span class="chip plan">6 planned</span>
 </div>
-<div class="progress" aria-hidden="true"><i class="d" style="width:25%"></i><i class="n" style="width:12.5%"></i><i class="p" style="width:62.5%"></i></div>
+<div class="progress" aria-hidden="true"><i class="d" style="width:36.4%"></i><i class="n" style="width:9.1%"></i><i class="p" style="width:54.5%"></i></div>
 
 <nav class="pills">
-  <a href="#i1">1 Prove it</a><a href="#i2">2 Test world</a><a href="#i3">3 Baked hubs</a><a href="#i4">4 Open source</a>
-  <a href="#i5">5 Licence</a><a href="#i6">6 Presets</a><a href="#i7">7 Friendly GUI</a><a href="#i8">8 One mod</a><a href="#i9">9 Annotated guide</a><a href="#order">Plan</a>
+  <a href="#done">Done</a><a href="#s1">1 Vignettes</a><a href="#s2">2 Lighting</a><a href="#s3">3 Skyboxes</a><a href="#s4">4 Music</a>
+  <a href="#s5">5 Custom exit</a><a href="#s6">6 Tutorial</a><a href="#s7">7 Packaging</a><a href="#later">Later</a><a href="#design">How it fits</a>
 </nav>
 
 <div class="tools"><button id="open">Expand all</button><button id="close">Collapse all</button><button id="theme">Switch theme</button></div>
 
-<details class="card" id="i1">
-  <summary><span class="num">1</span><span class="title">Prove custom world hooking is doable<small>A hub portal that loads and enters a world from another pak</small></span><span class="badge done">Done</span><span class="chev">&#9656;</span></summary>
+<h2 id="done">Done</h2>
+
+<details class="card" id="d1">
+  <summary><span class="num">&#10003;</span><span class="title">Prove custom world hooking is doable<small>A hub portal that loads and enters a world from another pak</small></span><span class="badge done">Done</span><span class="chev">&#9656;</span></summary>
   <div class="body">
     <h3>Where it stands</h3>
-    <p>Proven with our own Test World: the hub spawned the world's loader, the level streamed in (found loaded and visible at once, ready after 0.2 s), the arrival pad appeared at the right spot, the hub portal switched on, and the return trip was wired back to the hub portal. The hub's <code>LoadAsset</code> lookup found the loader class.</p>
+    <p>Proven with our own Test World: the hub spawned the world's loader, the level streamed in (found loaded and visible at once, ready after 0.2 s), the arrival pad appeared at the right spot, the hub portal switched on, and the return trip was wired back to the hub portal. The hub's <code>LoadAsset</code> lookup found the loader class. On 16 Oct four more worlds (World_A to World_D) loaded side by side.</p>
     <h3>What it took</h3>
     <ul class="plain">
       <li>The loader must be a Blueprint based on Epic's <b>Level Instance</b> actor with its Desired Runtime Behavior set to <b>Standalone</b>. A BeginPlay graph that calls Load Level Instance (by Name) did not work in this game.</li>
-      <li>The pak must be IoStore, and sit directly in <code>Content\Paks</code>.</li>
+      <li>The pak must be IoStore. It loads from <code>Content\Paks\~mods</code>.</li>
     </ul>
   </div>
 </details>
 
-<details class="card" id="i2" open>
-  <summary><span class="num">2</span><span class="title">Create the test world<small>A tiny map and a loader Blueprint, packaged as a patch pak</small></span><span class="badge done">Done</span><span class="chev">&#9656;</span></summary>
+<details class="card" id="d2">
+  <summary><span class="num">&#10003;</span><span class="title">Create the test world<small>A tiny map and a loader Blueprint, packaged as a patch pak</small></span><span class="badge done">Done</span><span class="chev">&#9656;</span></summary>
   <div class="body">
     <h3>Where it stands</h3>
-    <p>The Test World is built, packaged and loads through the hub. The step-by-step walkthrough (see the walkthrough page) reflects the method that worked, including the Level Instance loader and the pitfalls hit on the way.</p>
+    <p>The Test World is built, packaged and loads through the hub. The step-by-step walkthrough (see the walkthrough page) reflects the method that worked, including the Level Instance loader and the pitfalls hit on the way. Four basic-block copies (World_A to World_D) are used for testing several worlds at once.</p>
     <h3>Watch-outs</h3>
     <ul class="plain">
       <li>Chunk label settings and the chunk id.</li>
@@ -118,42 +120,11 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid 
       <li><b>Command-line package</b> (<code>RunUAT BuildCookRun</code>) for clearer error messages.</li>
       <li><b>UnrealPak</b> on the cooked files directly, which is already in the tools folder.</li>
     </ul>
-    <div class="need"><b>Needs from you:</b> about an hour in the editor on a first attempt, plus a slow first package.</div>
   </div>
 </details>
 
-<details class="card" id="i3">
-  <summary><span class="num">3</span><span class="title">Hard-baked hub layouts for mod makers<small>Ready-to-upload hub setups that come with a world mod</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
-  <div class="body">
-    <h3>The idea</h3>
-    <p>A world modder produces a bundle that already puts their portal in the hub. (My reading of the goal; worth confirming.)</p>
-    <h3>Routes</h3>
-    <ul class="routes">
-      <li class="rec"><b>A: Preset files.</b> Each mod ships a small <code>hub_preset.lua</code> (slot, destination, look, light, world) that the hub merges. Needs a rule for two mods wanting one slot: first come, a priority number, or the player chooses.</li>
-      <li class="rec"><b>B: An Export button in the editor.</b> Writes a self-contained folder (hub, config, the modder's world entry) ready to zip. Easy to test, and it sits on top of A.</li>
-      <li><b>C: A runtime registration call</b> other UE4SS mods use to add portals. Most flexible, but load order needs care.</li>
-    </ul>
-    <h3>Watch-outs</h3>
-    <ul class="plain"><li>Slot conflicts between mods.</li><li>The DLC rule must still apply to baked layouts.</li><li>Clear naming so ids don't collide.</li></ul>
-  </div>
-</details>
-
-<details class="card" id="i4">
-  <summary><span class="num">4</span><span class="title">Open source, usable for learning<small>Other modders can read, fork and build on it</small></span><span class="badge done">Mostly done</span><span class="chev">&#9656;</span></summary>
-  <div class="body">
-    <h3>Where it stands</h3>
-    <p>The repository is public, with a README, a test-world walkthrough, and findings that cite public sources for every technique.</p>
-    <h3>Still to do</h3>
-    <ul class="plain">
-      <li>A short "how the code is organised" guide.</li>
-      <li>A contributing note.</li>
-      <li>Trim the experiments so a newcomer is not confused (the lab and logger code is a good learning resource, so it should be easy to find but clearly labelled).</li>
-    </ul>
-  </div>
-</details>
-
-<details class="card" id="i5">
-  <summary><span class="num">5</span><span class="title">A licence with no credit required<small>Completely free use</small></span><span class="badge done">Done</span><span class="chev">&#9656;</span></summary>
+<details class="card" id="d3">
+  <summary><span class="num">&#10003;</span><span class="title">A licence with no credit required<small>Completely free use</small></span><span class="badge done">Done</span><span class="chev">&#9656;</span></summary>
   <div class="body">
     <h3>Where it stands</h3>
     <p>The project is under <b>CC0 1.0 Universal</b>: public domain, no credit needed. The licence file is the official text, unmodified.</p>
@@ -165,65 +136,129 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid 
   </div>
 </details>
 
-<details class="card" id="i6">
-  <summary><span class="num">6</span><span class="title">Presets for the Nexus page<small>Ready-made hubs players can download</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+<details class="card" id="d4">
+  <summary><span class="num">&#10003;</span><span class="title">World types: home and vignette<small>Modders pick how their world behaves</small></span><span class="badge done">Done</span><span class="chev">&#9656;</span></summary>
   <div class="body">
-    <h3>What they could be</h3>
-    <p>Ready-made <code>config.lua</code> files such as &ldquo;Story worlds&rdquo;, &ldquo;All worlds&rdquo;, a colour-themed hub, or an &ldquo;Anteverse tour&rdquo;.</p>
-    <h3>Routes</h3>
-    <ul class="routes">
-      <li><b>Ship them as files</b> to copy into place. Simple.</li>
-      <li class="rec"><b>Add &ldquo;Load preset&rdquo; and &ldquo;Save as preset&rdquo;</b> to the editor. No hand-copying, and it ties in with items 7 and 8.</li>
+    <h3>Where it stands</h3>
+    <p>Done 16 Oct, tested in game. A world is a <b>home</b> (default) or a <b>vignette</b>, set by <code>WorldType</code> on the loader Blueprint or <code>type</code> in the config.</p>
+    <ul class="plain">
+      <li><b>Home</b> (<code>H_</code> in the game, like Temple of Stone, Torii and the Cabin): player homes. The in-vignette buff, an optional Leyak safety zone (on by default), no equipment lock, no separate exit.</li>
+      <li><b>Vignette</b> (<code>V_</code>): puzzle worlds and adventures. Portal sickness locks equipment until the player uses the proper exit, which sets the world's own completion flag; the lock lifts and never comes back for that world. On-screen messages say what happened, and a test key clears the flag.</li>
     </ul>
-    <h3>Watch-outs</h3>
-    <ul class="plain"><li>Test each preset in game first; only some worlds have been walked through.</li><li>Leave out the DLC areas.</li></ul>
-    <div class="need"><b>Needs from you:</b> which sets you want, and screenshots for the page.</div>
+    <h3>How the game does it</h3>
+    <p>Both kinds hold the same Vignette_Zone, which gives the player <code>Buff_InVignette</code>. The equipment lock is <code>Debuff_PortalSickness</code>, applied only when the zone names a story flag (the Train's is <code>TrainCompletedOnce</code>; homes name none). A vignette can have several exits but only one is the proper one; reaching it sets the flag. Story flags are saved with the world as plain names, so removing a world's mod leaves one harmless unused name in the save.</p>
   </div>
 </details>
 
-<details class="card" id="i7">
-  <summary><span class="num">7</span><span class="title">A friendlier GUI that antivirus leaves alone<small>Package the editor for everyday users</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+<h2 id="plan">The plan</h2>
+<p style="color:var(--muted);margin-top:0">The project author's order, set on 14 October 2026.</p>
+
+<details class="card" id="s1" open>
+  <summary><span class="num">1</span><span class="title">Vignette confirmation<small>Can we reliably set custom worlds as vignettes?</small></span><span class="badge next">Nearly done</span><span class="chev">&#9656;</span></summary>
   <div class="body">
-    <h3>Routes</h3>
+    <h3>Where it stands</h3>
+    <p>Works in game, on the Test World and four more worlds at once: the hub gives each world its own entry in the game's level table and marks the player as being in it. The vignette check, the Portal Entrance respawn, the level name, the title banner and the world's own lighting all follow, the weather's fog goes, and everything is put back when the player leaves. The exit works after loading a save made inside a world.</p>
+    <h3>Still to do</h3>
+    <ul class="plain">
+      <li>The world's own title: give one test world a <code>WorldTitle</code> on its loader Blueprint and check the banner.</li>
+      <li>The chunk id question: package two worlds with the same chunk id and see whether both still load (their container ids seem to come from the chunk number).</li>
+    </ul>
+  </div>
+</details>
+
+<details class="card" id="s2">
+  <summary><span class="num">2</span><span class="title">Lighting<small>Custom lighting for days and nights</small></span><span class="badge plan">Next</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <h3>The goal</h3>
+    <p>Dynamic lighting, like Stone Garden, and static lighting, like Albatross.</p>
+    <h3>Where it stands</h3>
+    <p>A world can already borrow another area's lighting through the game's own system (Stone Garden's is the default). Next: lighting of our own for day and night, most likely by copying one of the game's lighting rows and changing its values.</p>
+  </div>
+</details>
+
+<details class="card" id="s3">
+  <summary><span class="num">3</span><span class="title">Skyboxes<small>Can we make a skybox and relay that to modders?</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <p>Surveyed: the game's skies are dome meshes under <code>/Game/Sky</code>. Not started.</p>
+  </div>
+</details>
+
+<details class="card" id="s4">
+  <summary><span class="num">4</span><span class="title">Custom world music and ambient tracks<small>Stone Garden has its own music, for example</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <p>The game's lighting rows already carry music and ambient sound (<code>MusicTracks</code>, <code>AmbientSoundTrack</code>), so this likely builds on the lighting work.</p>
+  </div>
+</details>
+
+<details class="card" id="s5">
+  <summary><span class="num">5</span><span class="title">Custom exit for new worlds<small>A specific exit coordinate in the Facility</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <p>So a world's exit can lead somewhere other than the portal room. Today a world's exits lead back to its hub portal.</p>
+  </div>
+</details>
+
+<details class="card" id="s6">
+  <summary><span class="num">6</span><span class="title">Full tutorial<small>Starts once vignettes, lighting and skyboxes are figured out</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <h3>What it covers</h3>
+    <ul class="plain">
+      <li>Making a world from start to finish, growing out of the Test World walkthrough.</li>
+      <li>The method, annotated: every step linked to Epic&rsquo;s public Unreal Engine documentation (the API reference and the Blueprint node pages), so a modder sees not just what to do but why it works, and can check each claim at its source.
+        <ul class="plain">
+          <li>The loader Blueprint, the level it streams, and how the hub spawns it, polls for the level and places the arrival pad.</li>
+          <li>Packaging as an IoStore patch pak: chunk ids, always-cook directories, which files to install and which never to.</li>
+          <li>What was tried and why it fails (for example calling the streaming functions from Lua, or a legacy pak), so nobody repeats it.</li>
+        </ul></li>
+      <li>An <b>Advanced</b> section for the small details modders trip over: transparency (Masked, not Translucent), bulk-setting materials, tiling and sub-region UVs, scrolling textures, lighting for a custom world, and a custom skybox.</li>
+      <li>Writing the Lua for your own world by hand, for modders who don't want to use the GUI program.</li>
+      <li>For people reading the code: a short &ldquo;how the code is organised&rdquo; guide and a contributing note.</li>
+    </ul>
+    <h3>Watch-outs</h3>
+    <p>Cite only public sources, mark what is inferred from testing rather than documented, and keep it in step with the walkthrough.</p>
+  </div>
+</details>
+
+<details class="card" id="s7">
+  <summary><span class="num">7</span><span class="title">Mod packaging<small>The mod, the program and everything else, for Nexus Mods</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <h3>Condense into one mod</h3>
+    <ul class="plain">
+      <li><b>Keep, for function:</b> the hub mod and the editor.</li>
+      <li><b>Move out, for debugging:</b> the logger, the material lab and the old proof of concept. Ship them as a separate <code>dev/</code> folder, or fold the useful bits into the hub behind a <code>debug = true</code> switch. The lab is a good learning resource, so keep it easy to find but clearly labelled.</li>
+      <li><b>Release shape:</b> one <code>PortalHub</code> folder in the Mods folder, an optional <code>tools</code> folder, a version number and a changelog.</li>
+      <li>Watch-out: UE4SS loads Lua modules slightly differently from a normal setup, so test the combined layout carefully, including hot reload.</li>
+    </ul>
+    <h3>A friendlier GUI that antivirus leaves alone</h3>
     <ul class="routes">
-      <li><b>A: Keep the PowerShell script.</b> Plain text, visible console, readable by anyone. Least suspicious form of script, though never zero-risk. Add a README note that it is plain, inspectable text.</li>
+      <li><b>A: Keep the PowerShell script.</b> Plain text, visible console, readable by anyone. Least suspicious form of script, though never zero-risk.</li>
       <li class="rec"><b>B: A single-file web editor</b> (HTML) in Edge or Chrome that reads and writes <code>config.lua</code> directly. No executable, no script, no install, so almost no antivirus risk. Needs a Chromium browser and a one-time file permission each session.</li>
       <li><b>C: A compiled <code>.exe</code></b> (for example .NET). Looks polished, but unsigned executables are flagged far more often than scripts, and signing certificates cost money.</li>
       <li><b>D: No external tool.</b> Only presets and hand-editing.</li>
     </ul>
-    <h3>Recommendation</h3>
-    <p>B, keeping A as a fallback. B is a rebuild of the interface, so it is a real piece of work, but it removes the biggest worry.</p>
+    <p>Recommendation: B, keeping A as a fallback.</p>
+    <h3>World settings in the GUI</h3>
+    <ul class="plain">
+      <li><b>Find installed worlds by itself.</b> A world pak's table of contents (<code>.utoc</code>) is readable without the game: it lists the world's folder, loader and map, so the GUI can add a world in one click and pick a free position and slot.</li>
+      <li><b>Show the map maker's settings.</b> Those are inside the compressed part of the pak, so the hub reads them in game and writes a small catalog file after one launch, which the GUI shows. (Alternative: map makers ship a small settings file next to the pak.)</li>
+      <li><b>Let players change them</b> for their install, to spice up a playthrough: the Leyak safety zone, which buff the proper vignette exit gives, letting the world have weather, and more as they are found.</li>
+    </ul>
+    <h3>Hub layouts and presets</h3>
+    <ul class="plain">
+      <li><b>Presets for the Nexus page:</b> ready-made <code>config.lua</code> files such as &ldquo;Story worlds&rdquo;, &ldquo;All worlds&rdquo;, a colour-themed hub, or an &ldquo;Anteverse tour&rdquo;, with &ldquo;Load preset&rdquo; and &ldquo;Save as preset&rdquo; in the editor. Test each in game first and leave out the DLC areas.</li>
+      <li><b>World mods that put their own portal in the hub:</b> the original &ldquo;hard-baked layouts&rdquo; idea. Now largely covered by worlds describing themselves; what remains is a rule for two worlds wanting one slot (first come, a priority number, or the player chooses), and keeping ids from colliding.</li>
+    </ul>
+    <div class="need"><b>Needs from you:</b> which presets you want, and screenshots for the page.</div>
   </div>
 </details>
 
-<details class="card" id="i8">
-  <summary><span class="num">8</span><span class="title">Condense into one mod<small>Separate what is for function from what is for debugging</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+<details class="card" id="later">
+  <summary><span class="num">&#8230;</span><span class="title">Later, or on the back burner<small>Good ideas that wait until the plan above is done</small></span><span class="badge plan">Later</span><span class="chev">&#9656;</span></summary>
   <div class="body">
-    <h3>The plan</h3>
     <ul class="plain">
-      <li><b>Keep, for function:</b> the hub mod and the editor.</li>
-      <li><b>Move out, for debugging:</b> the logger, the material lab and the old proof of concept. Ship them as a separate <code>dev/</code> folder, or fold the useful bits into the hub behind a <code>debug = true</code> switch.</li>
-      <li><b>Release shape:</b> one <code>PortalHub</code> folder in the Mods folder, an optional <code>tools</code> folder, a version number and a changelog.</li>
+      <li><b>Reward buffs</b> for later uses of a vignette's proper exit.</li>
+      <li><b>Portal locations elsewhere in the Facility</b>, for worlds whose portal is not in the Portal Hub room.</li>
+      <li><b>The Unreal Editor bulk-fix scripts</b> (materials, collision): shelved in favour of fixing by hand for now.</li>
     </ul>
-    <h3>Watch-outs</h3>
-    <p>UE4SS loads Lua modules slightly differently from a normal setup, so test the combined layout carefully, including hot reload.</p>
-  </div>
-</details>
-
-<details class="card" id="i9">
-  <summary><span class="num">9</span><span class="title">Annotated methodology walkthrough<small>A detailed guide with sources from the Unreal Engine API</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
-  <div class="body">
-    <h3>What it is</h3>
-    <p>A detailed walkthrough of the method the hub uses to load a custom world, with every step annotated and linked to Epic&rsquo;s public Unreal Engine documentation (the API reference and the Blueprint node pages). A modder should be able to see not just what to do but why it works, and check each claim at its source.</p>
-    <h3>What it would cover</h3>
-    <ul class="plain">
-      <li>The loader Blueprint, the level it streams, and how the hub spawns it, polls for the level and places the arrival pad.</li>
-      <li>Packaging as an IoStore patch pak: chunk ids, always-cook directories, which files to install and which never to.</li>
-      <li>An <b>Advanced</b> section for the small details modders trip over: transparency (Masked, not Translucent), bulk-setting materials, tiling and sub-region UVs, scrolling textures, lighting for a custom world, and a custom skybox.</li>
-      <li>What was tried and why it fails (for example calling the streaming functions from Lua, or a legacy pak), so nobody repeats it.</li>
-    </ul>
-    <h3>Watch-outs</h3>
-    <p>Cite only public sources, mark what is inferred from testing rather than documented, and keep it in step with the walkthrough in item 2 once the method is settled.</p>
   </div>
 </details>
 
@@ -234,36 +269,6 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid 
   <li><b>Some Lua is expected.</b> Making a world behave like a vignette needs a small runtime script; the tutorial gives modders those tools, so a world can also be used without our hub.</li>
   <li><b>Portal locations elsewhere in the Facility come much later.</b> For now every world's portal goes in the Portal Hub room.</li>
 </ul>
-
-<h2 id="order">The plan before packaging</h2>
-<p style="color:var(--muted);margin-top:0">The project author's order, set on 14 October 2026. Each step is figured out before the next one starts. The notes in grey say where each one stands.</p>
-<ol class="order">
-  <li><b>Vignette confirmation</b>: can we reliably set custom worlds as vignettes?<br><span style="color:var(--muted)">Method found and the hub version passed in game on 14 Oct: the hub gives each world its own entry in the game's level table and marks the player as being in it (vignette check, Portal Entrance respawn, level name, title banner, fog gone). Still to do before moving on:</span>
-    <ul class="plain">
-      <li>More level-name and vignette testing, with copies of the Test World under different names.</li>
-      <li>Make a custom world act exactly like a vignette does: clearing the weather, the proper world flags, the level name, and so on.</li>
-      <li>A custom title for the world (the one shown on entry).</li>
-      <li><b>World types</b>, once the vignette tests pass on a few more worlds. The game has two, and modders pick one:
-        <ul class="plain">
-          <li><b>Vignette</b> (<code>V_</code>): puzzle worlds and adventures. Equipment can't be used until the player reaches the world's exit, which is separate from its entrance; using the exit clears that restriction.</li>
-          <li><b>Home</b> (<code>H_</code>, like Temple of Stone, Torii and the Cabin): player homes. No equipment restriction, and no separate exit.</li>
-        </ul>
-        <span style="color:var(--muted)"><b>Done 16 Oct, tested in game:</b> home worlds (in-vignette buff, optional Leyak safety zone) and vignette worlds (portal sickness locks equipment until the proper exit, which sets the world's own completion flag; the lock lifts and never returns; on-screen messages; a test key clears the flag). Found 14 Oct: both kinds hold the same Vignette_Zone, which gives the player <code>Buff_InVignette</code>. The equipment lock is <code>Debuff_PortalSickness</code>, applied only when the zone names a story flag (the Train's is <code>TrainCompletedOnce</code>; homes name none). How it works in the game: a vignette can have several exits but only one is the proper one; reaching it sets the flag, the sickness clears and never comes back for that world. Plan for custom vignettes: a completion flag per world, the zone pointed at it, and the world's proper exit setting it (<code>WorldFlagSubsystem:SetWorldFlag</code>). To check: flags are saved with the world, so what happens to a save if the world's mod is removed. The reward buff given on later uses of the proper exit is on the back burner.</span></li>
-    </ul></li>
-  <li><b>Lighting</b>: how do we give the world custom lighting for days and nights? Dynamic lighting, like Stone Garden, and static lighting, like Albatross.<br><span style="color:var(--muted)">A world can already borrow another area's lighting through the game's own system (Stone Garden's was shown in the Test World). Next: lighting of our own for day and night.</span></li>
-  <li><b>Skyboxes</b>: can we successfully make a skybox and relay that info to modders?<br><span style="color:var(--muted)">Surveyed: the game's skies are dome meshes under <code>/Game/Sky</code>. Not started.</span></li>
-  <li><b>Custom world music and ambient tracks</b> (Stone Garden has its own music, for example).<br><span style="color:var(--muted)">The game's lighting rows already carry music and ambient sound (<code>MusicTracks</code>, <code>AmbientSoundTrack</code>), so this likely builds on the lighting work.</span></li>
-  <li><b>Custom exit for new worlds</b>: a specific exit coordinate in the Facility, so a world can lead somewhere other than the portal room.</li>
-  <li><b>Full tutorial</b>: after vignette, skybox and lighting are all figured out, this can begin (it grows out of the walkthrough and the annotated guide, items 2 and 9).
-    <ul class="plain">
-      <li>A tutorial on writing the Lua for your own world by hand, for modders who don't want to use the GUI program.</li>
-    </ul></li>
-  <li><b>Mod packaging</b>: package the mod, the program and everything else for Nexus Mods (items 6, 7 and 8 come in here).
-    <ul class="plain">
-      <li>Add the world settings (vignette or home, Leyak safety zone, title, and more as they are found) to the GUI.</li>
-      <li>Allow editing an existing world's settings through the GUI, so players can change installed worlds to spice up a playthrough: for example the Leyak safety zone, which buff the proper vignette exit gives, or letting the world have weather.</li>
-    </ul></li>
-</ol>
 
 <footer>Dedicated to the public domain under CC0 1.0. Roadmap by the project author; layout written with AI assistance. Source: <code>docs/roadmap.html</code>.</footer>
 </div>
