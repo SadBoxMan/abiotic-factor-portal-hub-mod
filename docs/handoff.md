@@ -8,13 +8,19 @@ Last updated: 17 October 2026.
 
 ## 1. Work queue (the project author's order)
 
-1. **Finish step 1, vignette confirmation.** Two tests, both need the author in the editor:
-   - **Custom title:** add a Text variable `WorldTitle` to `BP_World_B_Loader` in the World_B project, repackage, install as `WorldB_P`. Expected: the entry banner shows that title instead of "World B". (The hub reads it; tested only against the mock so far.)
-   - **Chunk id:** set `PAL_World_C`'s Chunk ID to 92 (same as World_B), repackage (output becomes `pakchunk92-Windows.*`), install as `WorldC_P`. If World B and World C both still load, reusing chunk ids is harmless. Hypothesis: the IoStore container id comes from the build name (`pakchunk92-Windows`), so two worlds with the same chunk id may clash. Each installed world pak currently has a different container id (read with `tools/dev/read_utoc.py`).
-2. **Lighting** (roadmap step 2): day and night lighting of our own; dynamic like Stone Garden, static like Albatross. See section 5 for what is known.
-3. **Skyboxes**, 4. **Music and ambient tracks**, 5. **Custom exit** (a coordinate in the Facility), 6. **Full tutorial**, 7. **Mod packaging** (GUI work, one mod, Nexus presets). Details on each card in the roadmap.
+1. **Step 1, vignette confirmation: done 17 October.**
+   - **Custom title works:** `WorldTitle` ('Spell ICUP') on `BP_World_B_Loader` became World B's level entry title and banner.
+   - **Shared chunk id is harmless so far:** World C rebuilt on chunk 92 has the same container id as World B (`2990919af0b18c3a`); both mounted with no warning, both streamed in, entered and left without a crash. World C is still installed on chunk 92 (its project's `PAL_World_C` says 92). Not checked: whether anything goes wrong when two such worlds hold files of the *same* path (they can't in practice: each world has its own folder).
+   - **Fixed after the test:** on every save load the hub showed "Test World completed: portal sickness lifted for good" and the game logged `HasWorldFlag ... ran before world flags were loaded` every 2 s. The hub asked for the flag before the save's flags were loaded (answer: false), then saw it turn true. It now waits for `WorldFlagSubsystem:HasWorldFlagsLoaded()` (first use of that function; installed, mock-tested, not yet confirmed in game).
+2. **Settings in the world's Blueprint** (author's direction, see section 2): list them, build the reading, document each variable for map makers.
+3. **Lighting** (roadmap step 2): day and night lighting of our own; dynamic like Stone Garden, static like Albatross. See section 5 for what is known.
+4. **Skyboxes**, 5. **Music and ambient tracks**, 6. **Custom exit** (a coordinate in the Facility), 7. **Full tutorial**, 8. **Mod packaging** (GUI work, one mod, Nexus presets). Details on each card in the roadmap.
 
 ## 2. Unfinished threads
+
+- **Design direction (author, 17 October):** the hub is a connection hub, not a driving dependency. Map makers bake every setting they can into their world's loader Blueprint (plain value variables only: Text, Name, Boolean, Float, Integer, Vector; never asset references), and `config.lua` keeps only what belongs to the hub (slot, position in hub space). Worlds *may* depend on the hub, but they shouldn't have to. Next, after the item 1 tests: list which settings can move into the Blueprint, build the reading, and document each variable for map makers. Read today: `WorldTitle`, `WorldType`, `LeyakSafeZone`. Candidates: `NoWeather`, `LightingDay`/`LightingNight`, `KillZ`, arrival and exit spots (a marker actor in the map is probably friendlier than coordinates).
+- **GUI: edit any world directly** (author's wish, 17 October): part of roadmap step 7.
+- **Waypoint / position tool for the dev lab (not shipped):** save the player's spot by name, teleport back to it, print the spot relative to the current world's origin in `config.lua` format. Written from the game's own functions (`K2_GetActorLocation`, `K2_TeleportTo`, the character's `TeleportPlayer`, all in our object dump), not copied from any other mod. The lab's numpad keys are almost all used, so this probably needs UE4SS console commands (not tried in our mods yet: give it its own test). A trimmed hub debugger for release comes later.
 
 - **World settings to the GUI (designed, not built):** the GUI reads a world pak's `.utoc` file list (folder, loader, map: readable without the game) to add a world in one click and pick a free position and slot; the hub reads the map maker's Blueprint settings in game and writes a small catalog file the GUI shows after one launch; players' overrides are saved by the GUI and applied by the hub. Part of roadmap step 7.
 - **Loading a save made inside a world** puts the player on the arrival pad rather than where they saved (they fall during the loading screen, before the hub can hold them; the fall rescue catches it). The author has not said whether keeping the exact spot matters.
@@ -50,11 +56,11 @@ Last updated: 17 October 2026.
 - **Read a world pak's file list:** `python tools\dev\read_utoc.py <...>\WorldA_P.utoc`.
 - **Headless Unreal editor:** `UnrealEditor-Cmd.exe <project>.uproject -run=PythonScript -Script=<file.py> -unattended -nosplash -nullrhi -nosound -NoSourceControl -stdout`. Passing `None` into the material-editing library crashes the editor; check every value first.
 - **Crash dumps:** `cdb.exe` is at `C:\Program Files (x86)\Windows Kits\10\Debuggers\x64`. Run it locally on `UEMinidump.dmp` with `-y`/`-i` pointing at the ue4ss folder (no symbol downloads); `.ecxr; kn` shows where it died.
-- **Save backup:** the author's test save is `stahp` (`%LOCALAPPDATA%\AbioticFactor\Saved\SaveGames\<steam id>\Worlds\stahp`). Back it up before risky tests.
+- **Saves:** the mod testing save is **`CordonaCorp`** (`%LOCALAPPDATA%\AbioticFactor\Saved\SaveGames\<steam id>\Worlds\CordonaCorp`); it is fine if a test breaks it, so no backup is needed. **`stahp` is the author's personal playthrough: never use it for tests or change it.**
 
 ## 5. Findings that are not written down elsewhere yet
 
-These came out of in-game tests on 13-16 October 2026. They belong in `findings/` and the tutorial eventually.
+These came out of in-game tests on 13-16 October 2026 (and an offline check on 17 October). They belong in `findings/` and the tutorial eventually.
 
 **How the game decides where the player is**
 - The Facility map holds about 224 `AbioticLevelStreamingVolume`s; the `LevelManagerSubsystem` tracks which level the player is in, and the controller's `Attempt Level FXChange` looks that level up in **`DT_Levels`** (`/Game/Blueprints/DataTables/Environment/DT_Levels`, rows of `LevelMetadata_Struct`: `LevelFileName`, `IsVignette`, `EntranceTeleporter`, `LevelFXRow_Day/Night`, `SectorName`, `ResettablePortalWorld`, `HasFacilityShakes`, `ReleaseGroup`). Custom worlds are never reported by the level manager.
@@ -76,6 +82,7 @@ These came out of in-game tests on 13-16 October 2026. They belong in `findings/
 - `ok and v or nil` turns `false` into `nil` in Lua; use explicit `if`s for booleans.
 
 **World paks**
+- **Container id = CityHash64 of the build name**, lower-cased, as UTF-16LE bytes (`pakchunk92-windows` → `2990919af0b18c3a`); it matches all five installed paks (Test_P = chunk 90, World A-D = 91-94). It is baked into the `.utoc`, so renaming the files does not change it: two worlds built with the same chunk id always share a container id. The game itself only uses chunk 0 (`pakchunk0`, `pakchunk0optional`). The GUI can warn about a clash by reading the id from each `.utoc`.
 - A world pak's `.utoc` is Oodle-compressed but neither encrypted nor signed, and it lists every file, so the folder, loader and map can be read without the game. Blueprint values are inside the Oodle-compressed `.ucas`; the game builds Oodle into its program (no DLL to borrow, and none could be shipped in a CC0 project).
 
 ## 6. Questions waiting on the author

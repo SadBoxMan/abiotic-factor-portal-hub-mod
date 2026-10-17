@@ -39,7 +39,9 @@ WORLD.SpawnActor = function(self, cls, loc, rot)
     return a
 end
 SET_FLAGS, SHOWN = {}, {}
-FS = obj({ HasWorldFlag = function(self, ctx, h) return SET_FLAGS[h.RowName.s] == true end })
+FLAGS_LOADED = true
+FS = obj({ HasWorldFlag = function(self, ctx, h) return FLAGS_LOADED and SET_FLAGS[h.RowName.s] == true end,
+           HasWorldFlagsLoaded = function(self) return FLAGS_LOADED end })
 local baseFirst = FindFirstOf
 function FindFirstOf(n) if n == 'WorldFlagSubsystem' then return FS end return baseFirst(n) end
 PAWN.Client_DisplayWarningMessage = function(self, text, colour, beep) SHOWN[#SHOWN + 1] = text.s .. ' [' .. colour .. ']' end
@@ -86,6 +88,12 @@ L.execute("SET_FLAGS['%s'] = nil" % flag); tick(5)
 shown = [lua('SHOWN[%d]' % i) for i in range(1, lua('#SHOWN') + 1)]
 check('cleared message when the flag is cleared', any('cleared' in m for m in shown), shown)
 print('    all shown:', shown)
+# loading a save where the flag is already set: before the flags are loaded the game answers false; that must not read as "just completed"
+L.execute("SET_FLAGS['%s'] = true; FLAGS_LOADED = false" % flag); tick(5)
+before = lua('#SHOWN')
+L.execute("FLAGS_LOADED = true"); tick(5)
+shown = [lua('SHOWN[%d]' % i) for i in range(before + 1, lua('#SHOWN') + 1)]
+check('no completed message when the save\'s flags finish loading', not any('completed' in m for m in shown), shown)
 allLogs = [g.LOGS[i] for i in range(1, len(g.LOGS) + 1)]
 check("no tracker errors", not any("tracker error" in l for l in allLogs), [l for l in allLogs if "tracker error" in l])
 print("\n%d checks, %d passed, %d failed" % (len(res), sum(res), len(res) - sum(res)))

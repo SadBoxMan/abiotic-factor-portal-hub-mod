@@ -923,10 +923,16 @@ local function show(msg, colour)
     log("message: " .. msg)
 end
 
--- Is a vignette world's completion flag set in this world save? nil when it cannot be asked.
+-- Is a vignette world's completion flag set in this world save? nil when it cannot be asked, including before the save's flags are loaded
+-- (asking then answers false, which looked like the flag being set later, and the game logs an error for each early ask).
+local function flags_loaded(fs)
+    local ok, loaded = pcall(function() return fs:HasWorldFlagsLoaded() end)
+    return not (ok and loaded == false)                       -- if the game cannot be asked, carry on as before
+end
+
 local function flag_is_set(def, pc)
     local fs = FindFirstOf("WorldFlagSubsystem")
-    if not (fs and fs:IsValid()) then return nil end
+    if not (fs and fs:IsValid()) or not flags_loaded(fs) then return nil end
     local ok, v = pcall(function() return fs:HasWorldFlag(pc, flag_handle(completion_flag(def))) end)
     if ok and type(v) == "boolean" then return v end
     return nil
@@ -937,6 +943,8 @@ local flagSeen, flagCheckAt = {}, 0
 local function watch_flags(pc)
     if os.clock() - flagCheckAt < 2 then return end
     flagCheckAt = os.clock()
+    local fs = FindFirstOf("WorldFlagSubsystem")
+    if fs and fs:IsValid() and not flags_loaded(fs) then flagSeen = {} return end   -- a save is loading: its flags are new, not changes
     for _, def in pairs(worldDefs) do
         if def.vignette and world_type(def) == "vignette" then
             local now = flag_is_set(def, pc)
