@@ -62,7 +62,7 @@ check("row entrance = world id", lua("LEVEL_ROWS.PortalHub_cordonatest_start[F('
 check("row title = WorldTitle from the loader Blueprint", lua("LEVEL_ROWS.PortalHub_cordonatest_start[F('SectorName')].s") == "Made By The Map Maker")
 check("claimed: ActiveLevelFXName", lua("PC.ActiveLevelFXName.s") == "PortalHub_cordonatest_start")
 check("claimed: level name", lua("PC.ActiveLevelName.s") == "PortalHub_cordonatest_start", lua("PC.ActiveLevelName.s"))
-check("lighting switched to HGarden with title", lua("TRANSITIONS[1]") == "HGarden / HGarden / 'Made By The Map Maker'", lua("TRANSITIONS[1]"))
+check("no lighting set: lit with Intro, title shown", lua("TRANSITIONS[1]") == "Intro / Intro / 'Made By The Map Maker'", lua("TRANSITIONS[1]"))
 check("automatic lighting on for the switch", lua("PC.DisableAutomaticFX") is False)
 
 tick(2)   # 1 s: manual lighting not yet

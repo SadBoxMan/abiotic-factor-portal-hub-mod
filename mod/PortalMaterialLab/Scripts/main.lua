@@ -5,7 +5,12 @@
 --   NUMPAD 5        hazards: water / pain-causing volumes, hazard-style classes, underwater and damage data tables
 --   NUMPAD 6        NPCs: NPC, creature and spawner classes, plus the settings of one spawner and one NPC
 --   CTRL + NUMPAD + the player's lighting state: the controller's FX rows, the real light values, and the DT_LevelFX row names
--- Free keys: NUMPAD 0 1 2 3 7 8 9, NUMPAD . * / - and +  (NUMPAD 1 and 2 belong to PortalHub). Note: Shift + a numpad digit does not work,
+--   NUMPAD 0        lighting rows: every row of DT_LevelFX with its main values;  NUMPAD * / NUMPAD / step through them in game,
+--                   NUMPAD . gives the lighting back (the only keys besides NUMPAD 3 that change anything, and only the lighting)
+--   NUMPAD -        Leyak director: required story flag, CanSpawn, cooldown, active Leyak, each Leyak's distance (read-only); CTRL + NUMPAD - forces a spawn
+--   F1              no-clip on / off (changes the player: collision off, flying)
+--   F2              save the player's position (world and world-relative, for ArriveSpot / ExitSpot) to the log and saved_positions.txt
+-- Free keys: NUMPAD + without a modifier (NUMPAD 1 and 2 belong to PortalHub). Note: Shift + a numpad digit does not work,
 -- because with Num Lock on Shift turns the digit into Home / arrow keys.
 -- Rule: every object is checked with IsValid() before anything is called on it (a call on an invalid object crashes the game).
 
@@ -794,7 +799,7 @@ local function release_test_level()
 end
 
 ------------------------------------------------------------------------------------------------------------------------
--- Vignette buff survey (read-only), NUMPAD 7. Vignette worlds hold a Vignette_Zone (a BuffZone_ParentBP): it applies BuffToApply to
+-- Vignette buff survey (read-only), NUMPAD 7 (also the Leyak safety zones and their sizes). Vignette worlds hold a Vignette_Zone (a BuffZone_ParentBP): it applies BuffToApply to
 -- characters inside it unless they carry one of BuffBlockingTags, and checks a world flag (PortalSicknessWorldFlag). The player's buffs
 -- live in BuffComponent.CurrentBuffs (BuffDebuffEntry: BuffRow, BuffExpireTime) and its tags in BuffComponent.BuffTagContainer.
 -- Run it in a real vignette (equipment locked), a home world (H_, not locked) and the Test World to compare.
@@ -874,6 +879,25 @@ local function vignette_buff_survey()
             pcall(function() log("    blocked by tags: " .. tag_list(z.BuffBlockingTags)) end)
         end
     end
+    -- the Leyak safety zones too (same kind of buff zone; the box component's name is not known, so the likely ones are tried)
+    local lzones = FindAllOf("LeyakSafetyZone_C") or {}
+    log("  Leyak safety zones in the world: " .. #lzones)
+    for _, z in ipairs(lzones) do
+        if z:IsValid() and not z:GetFullName():find("Default__") then
+            local zl = z:K2_GetActorLocation()
+            local ext, inside, via = "?", "?", "?"
+            for _, prop in ipairs({ "BuffVolume", "TriggerVolume", "CollisionComponent", "BoxComponent", "Box", "TriggerBox" }) do
+                local okC, comp = pcall(function() return z[prop] end)
+                if okC and comp and comp:IsValid() and pcall(function() local e = comp:GetScaledBoxExtent(); ext = string.format("%.0f x %.0f x %.0f", e.X, e.Y, e.Z) end) then
+                    via = prop
+                    pcall(function() inside = tostring(comp:IsOverlappingActor(pawn)) end)
+                    break
+                end
+            end
+            log(string.format("  Leyak zone %s at %.0f, %.0f, %.0f  half-size %s (%s)  player inside: %s", z:GetFullName():match("[^ ]+$") or "?",
+                zl.X, zl.Y, zl.Z, ext, via, inside))
+        end
+    end
     log("---- VIGNETTE BUFF SURVEY done")
 end
 RegisterKeyBind(Key.NUM_SEVEN, function() ExecuteInGameThread(vignette_buff_survey) end)
@@ -939,6 +963,96 @@ RegisterKeyBind(Key.NUM_THREE, function() ExecuteInGameThread(clear_hub_flags) e
 log("test key: NUMPAD 3 = clear Portal Hub completion flags in this save (portal sickness comes back on the next entry)")
 log("survey key: NUMPAD 7 = vignette zones, the player's buffs and tags (read-only)")
 
+------------------------------------------------------------------------------------------------------------------------
+-- Lighting browser, NUMPAD 0 / * / slash / . (17 October 2026). Every row of the game's lighting table (DT_LevelFX) is a possible
+-- LightingDay / LightingNight value for a world. NUMPAD 0 lists them all with their main values; NUMPAD * and NUMPAD / step forward and
+-- back through them, each applied for day and night through the game's own TransitionToNewEnvironmentFX (row handles only, the call
+-- already proven safe; the banner shows the row's name); NUMPAD . hands the lighting back to the rows that were there before.
+-- Use it in the Facility or in a world with NoWeather off (World D): inside a no-weather world the Portal Hub puts the world's own
+-- lighting back every few seconds.
+------------------------------------------------------------------------------------------------------------------------
+local browse = { rows = nil, i = 0, before = nil }
+
+local function lighting_rows()
+    if browse.rows then return browse.rows end
+    local dt = StaticFindObject(FX_TABLE_PATH)
+    if not (dt and dt:IsValid()) then log("  DT_LevelFX is not loaded"); return nil end
+    local rows = {}
+    local ok, names = pcall(function() return dt:GetRowNames() end)
+    if ok and type(names) == "table" then
+        for _, n in ipairs(names) do
+            local s = type(n) == "string" and n or nil
+            if not s then pcall(function() s = n:ToString() end) end
+            if not s then pcall(function() s = n:get():ToString() end) end
+            if type(s) == "string" and s ~= "" then rows[#rows + 1] = s end
+        end
+    end
+    log(string.format("  GetRowNames: %s, %d row(s)", tostring(ok), #rows))
+    if #rows == 0 then rows = level_fx_rows() or {} end
+    table.sort(rows, function(a, b) return a:lower() < b:lower() end)
+    if #rows > 0 then browse.rows = rows end
+    return rows
+end
+
+-- the plain values of one lighting row (numbers, booleans, names), short field names; `only` limits it to fields matching a pattern
+local function fx_row_values(name, only)
+    local dt = StaticFindObject(FX_TABLE_PATH)
+    if not (dt and dt:IsValid()) then return "?" end
+    local okR, row = pcall(function() return dt:FindRow(name) end)
+    if not (okR and type(row) == "table") then return "(row not readable: " .. type(row) .. ")" end
+    local parts = {}
+    for k, v in pairs(row) do
+        local key = short_field(tostring(k))
+        if not only or key:find(only) then
+            local t, txt = type(v), nil
+            if t == "number" then txt = string.format("%.3g", v)
+            elseif t == "boolean" then txt = tostring(v)
+            elseif t == "string" then txt = v
+            else pcall(function() local s = v:ToString(); if type(s) == "string" then txt = s end end) end
+            if txt then parts[#parts + 1] = key .. "=" .. txt end
+        end
+    end
+    table.sort(parts)
+    return table.concat(parts, "  ")
+end
+
+local function list_lighting()
+    log("---- LIGHTING ROWS (DT_LevelFX)")
+    local rows = lighting_rows()
+    if not rows or #rows == 0 then log("  no row names could be read") return end
+    for i, r in ipairs(rows) do
+        log(string.format("  %3d  %-28s %s", i, r, fx_row_values(r, "[SsFfTtDd][uokei][nygmn]")))   -- Sun / Sky / Fog / Temp / Dynamic ...
+    end
+    log(string.format("  %d rows. NUMPAD * / NUMPAD / = next / previous, NUMPAD . = back to the game's lighting", #rows))
+end
+
+local function step_lighting(delta)
+    local pc = player_controller()
+    if not pc then log("lighting browser: no controller") return end
+    local rows = lighting_rows()
+    if not rows or #rows == 0 then log("lighting browser: no row names could be read") return end
+    if not browse.before then
+        local function s(prop) local ok, v = pcall(function() return pc[prop]:ToString() end); return ok and v or nil end
+        browse.before = { day = s("Day_FX_Row"), night = s("Night_FX_Row") }
+    end
+    browse.i = ((browse.i - 1 + delta) % #rows) + 1
+    local r = rows[browse.i]
+    log(string.format("---- LIGHTING %d/%d: %s", browse.i, #rows, r))
+    if transition_to(pc, r, r, string.format("%s (%d/%d)", r, browse.i, #rows)) then
+        log("  " .. fx_row_values(r))
+        ExecuteWithDelay(2000, function() ExecuteInGameThread(function() fx_status("  2 s later") end) end)
+    end
+end
+
+local function restore_browse()
+    local pc = player_controller()
+    local b = browse.before
+    if not (pc and b and b.day and b.night) then log("lighting browser: nothing to put back") return end
+    browse.before = nil
+    transition_to(pc, b.day, b.night, "")
+    log("lighting browser: back to " .. b.day .. " / " .. b.night)
+end
+
 -- The experiment keys (NUMPAD 0 / . / slash / *) are switched off: the Portal Hub now does the same thing itself on arrival and departure, and
 -- pressing them as well would fight it. The functions above stay as a record of how each step was found (runs 1-6, 2026-10-14).
 local EXPERIMENT_KEYS = false
@@ -949,3 +1063,194 @@ if EXPERIMENT_KEYS then
     if not pcall(function() RegisterKeyBind(Key.DIVIDE, function() ExecuteInGameThread(borrow_lighting) end) end) then log("NUMPAD / could not be bound") end
     log("experiment keys: NUMPAD 0 = add Test World level row, NUMPAD . = claim it in the Test World, NUMPAD / = borrow Stone Garden lighting, NUMPAD * = put everything back (memory only)")
 end
+if not EXPERIMENT_KEYS then
+    RegisterKeyBind(Key.NUM_ZERO, function() ExecuteInGameThread(list_lighting) end)
+    RegisterKeyBind(Key.MULTIPLY, function() ExecuteInGameThread(function() step_lighting(1) end) end)
+    if not pcall(function() RegisterKeyBind(Key.DIVIDE, function() ExecuteInGameThread(function() step_lighting(-1) end) end) end) then log("NUMPAD / could not be bound") end
+    RegisterKeyBind(Key.DECIMAL, function() ExecuteInGameThread(restore_browse) end)
+    log("lighting keys: NUMPAD 0 = list every lighting row, NUMPAD * / NUMPAD / = next / previous row, NUMPAD . = back to the game's lighting")
+end
+
+------------------------------------------------------------------------------------------------------------------------
+-- Leyak, NUMPAD - (read-only survey) and CTRL + NUMPAD - (force a spawn) (17 October 2026). The Leyak is spawned by the AI director's
+-- LeyakDirectorComponent (Abiotic_AIDirector_C_1 in the Facility map; its parent StalkingNpcDirector_ParentBP). From the object dump: it
+-- has a RequiredWorldFlag (a story flag that must be set before she can appear), a StalkingTag, LeyakCooldown / TimeLastLeyakSpawn,
+-- CanSpawn(), ActiveStalkingNPC, CurrentStalkingNpcTarget, DirectorDebugOn (the game's own on-screen debug messages) and
+-- Server_ForceSpawn() (no parameters). CTRL + NUMPAD - is the only key here that changes anything: it switches the director's debug messages
+-- on and calls Server_ForceSpawn (untried: kept on its own key). Compare World B (Leyak safety zone) with World D (none).
+------------------------------------------------------------------------------------------------------------------------
+local function leyak_director()
+    for _, d in ipairs(FindAllOf("LeyakDirectorComponent_C") or {}) do
+        if d:IsValid() and not d:GetFullName():find("Default__") and not d:GetFullName():find("_GEN_VARIABLE") then return d end
+    end
+    return nil
+end
+
+local function leyak_survey(tag)
+    log("---- LEYAK " .. (tag or "SURVEY"))
+    local d = leyak_director()
+    if not d then log("  no LeyakDirectorComponent in this world") return nil end
+    log("  director: " .. d:GetFullName())
+    local function get(prop) local ok, v = pcall(function() return d[prop] end); return ok and v or nil end
+    local function name_of(v, field) local ok, s = pcall(function() return v[field]:ToString() end); return ok and s or "?" end
+    local flag = get("RequiredWorldFlag")
+    local flagRow = flag and name_of(flag, "RowName") or "?"
+    local flagSet = "?"
+    local fs, pc = FindFirstOf("WorldFlagSubsystem"), player_controller()
+    if flag and flagRow ~= "?" and flagRow ~= "None" and fs and fs:IsValid() and pc then
+        local okH, v = pcall(function() return fs:HasWorldFlag(pc, { RowName = FName(flagRow), DataTablePath = flag.DataTablePath:ToString() }) end)
+        flagSet = okH and tostring(v) or "?"
+    end
+    log(string.format("  required story flag: %s (set in this save: %s)", flagRow, flagSet))
+    local st = get("StalkingTag")
+    log("  stalking tag: " .. (st and name_of(st, "TagName") or "?"))
+    local okC, can = pcall(function() return d:CanSpawn() end)
+    log("  CanSpawn(): " .. (okC and tostring(can) or "call failed"))
+    for _, p in ipairs({ "LeyakCooldown", "TimeLastLeyakSpawn", "LeyakViewCounter", "SuperTauntActive", "DirectorDebugOn", "ActiveLeyakContainmentID" }) do
+        local v = get(p)
+        local txt = type(v) == "number" and string.format("%.1f", v) or tostring(v)
+        if type(v) ~= "number" and type(v) ~= "boolean" and v ~= nil then pcall(function() txt = v:ToString() end) end
+        log(string.format("  %-24s %s", p, txt))
+    end
+    for _, p in ipairs({ "ActiveStalkingNPC", "CurrentStalkingNpcTarget" }) do
+        local v = get(p)
+        local okV, valid = pcall(function() return v and v:IsValid() end)
+        log(string.format("  %-24s %s", p, (okV and valid) and v:GetFullName() or "none"))
+    end
+    local pawn = pc and pc.Pawn
+    local me = nil
+    if pawn and pawn:IsValid() then
+        local okL, l = pcall(function() return pawn:K2_GetActorLocation() end)
+        if okL then me = l; log(string.format("  player at %.0f, %.0f, %.0f", l.X, l.Y, l.Z)) end
+    end
+    -- every Leyak in the world and how far she is from the player (100 units = 1 m)
+    local n = 0
+    for _, a in ipairs(FindAllOf("NPC_Leyak_C") or {}) do
+        if a:IsValid() and not a:GetFullName():find("Default__") then
+            n = n + 1
+            local okA, l = pcall(function() return a:K2_GetActorLocation() end)
+            if okA and me then
+                local dx, dy, dz = l.X - me.X, l.Y - me.Y, l.Z - me.Z
+                local dist, flat = math.sqrt(dx * dx + dy * dy + dz * dz), math.sqrt(dx * dx + dy * dy)
+                log(string.format("  Leyak %d at %.0f, %.0f, %.0f: %.1f m away (%.1f m sideways, %.1f m %s)", n, l.X, l.Y, l.Z,
+                    dist / 100, flat / 100, math.abs(dz) / 100, dz >= 0 and "above" or "below"))
+            else
+                log(string.format("  Leyak %d: %s (location unknown)", n, a:GetFullName()))
+            end
+        end
+    end
+    if n == 0 then log("  no Leyak in the world right now") end
+    return d
+end
+
+local function leyak_force()
+    local d = leyak_survey("FORCE SPAWN (before)")
+    if not d then return end
+    pcall(function() d.DirectorDebugOn = true end)
+    local ok, err = pcall(function() d:Server_ForceSpawn() end)
+    log("  DirectorDebugOn set; Server_ForceSpawn(): " .. tostring(ok) .. (ok and "" or (" (" .. one_line(err) .. ")")))
+    ExecuteWithDelay(3000, function() ExecuteInGameThread(function() leyak_survey("3 s after the force spawn") end) end)
+end
+
+RegisterKeyBind(Key.SUBTRACT, function() ExecuteInGameThread(function() leyak_survey() end) end)
+if not pcall(function() RegisterKeyBind(Key.SUBTRACT, { ModifierKey.CONTROL }, function() ExecuteInGameThread(leyak_force) end) end) then log("CTRL + NUMPAD - could not be bound") end
+log("Leyak keys: NUMPAD - = Leyak director survey (read-only), CTRL + NUMPAD - = force a Leyak spawn (and the game's director debug messages)")
+
+------------------------------------------------------------------------------------------------------------------------
+-- No-clip, F1 (18 October 2026), so the cheat-command mod is not needed for testing. Written from the engine's own character
+-- functions: the player's collision off (SetActorEnableCollision), movement mode Flying (CharacterMovement:SetMovementMode 5) with the
+-- engine's cheat-flying switch (bCheatFlying) and a faster fly speed. Pressing it again puts everything back and drops the player
+-- (Falling, mode 3), and logs where they are. A new pawn (after dying) starts with collision on, so the next press switches no-clip on
+-- for it. Changes only the local player.
+------------------------------------------------------------------------------------------------------------------------
+local noclip = nil      -- { key = pawn name, fly = previous MaxFlySpeed } while on
+
+-- one line at the top of the screen (the game's own player message: text, colour 0 green / 1 gray / 2 yellow / 3 red / 4 purple, beep)
+local function say(msg, colour)
+    local pc = player_controller()
+    local pawn = pc and pc.Pawn
+    if pawn and pawn:IsValid() then pcall(function() pawn:Client_DisplayWarningMessage(FText(msg), colour or 0, false) end) end
+end
+
+local function toggle_noclip()
+    local pc = player_controller()
+    local pawn = pc and pc.Pawn
+    if not (pawn and pawn:IsValid()) then log("no-clip: no player pawn") return end
+    local mv = pawn.CharacterMovement
+    if not (mv and mv:IsValid()) then log("no-clip: the player has no movement component") return end
+    local key = pawn:GetFName():ToString()
+    local okL, l = pcall(function() return pawn:K2_GetActorLocation() end)
+    local where = okL and string.format("%.0f, %.0f, %.0f", l.X, l.Y, l.Z) or "?"
+    if not noclip or noclip.key ~= key then
+        local okF, fly = pcall(function() return mv.MaxFlySpeed end)
+        noclip = { key = key, fly = okF and fly or nil }
+        local okC = pcall(function() pawn:SetActorEnableCollision(false) end)
+        pcall(function() mv.bCheatFlying = true end)
+        local okM = pcall(function() mv:SetMovementMode(5, 0) end)                -- MOVE_Flying
+        pcall(function() mv.MaxFlySpeed = 2000.0 end)
+        log(string.format("no-clip ON at %s (collision off: %s, flying: %s, fly speed was %s)", where, tostring(okC), tostring(okM), tostring(noclip.fly)))
+        say("No-clip ON", 2)
+    else
+        pcall(function() pawn:SetActorEnableCollision(true) end)
+        pcall(function() mv.bCheatFlying = false end)
+        if noclip.fly then pcall(function() mv.MaxFlySpeed = noclip.fly end) end
+        pcall(function() mv:SetMovementMode(3, 0) end)                            -- MOVE_Falling: lands and walks again
+        noclip = nil
+        log("no-clip OFF at " .. where)
+        say("No-clip OFF", 1)
+    end
+end
+
+
+------------------------------------------------------------------------------------------------------------------------
+-- Save position, F2 (18 October 2026): where the player's feet are and which way they face, for typing into a world's loader Blueprint
+-- (ArriveSpot / ArriveYaw, ExitSpot / ExitYaw) or config.lua. The spot is given in world coordinates and, when it lies inside one of the
+-- hub's custom worlds (read from the hub's config.lua), also relative to that world's origin, which is what the Blueprint wants. Each
+-- spot is logged, shown on screen and appended to Mods\PortalMaterialLab\saved_positions.txt.
+------------------------------------------------------------------------------------------------------------------------
+local HUB_CONFIG = "ue4ss/Mods/PortalHub/Scripts/config.lua"            -- relative to the game's Win64 folder (UE4SS's working folder)
+local POSITIONS_FILE = "ue4ss/Mods/PortalMaterialLab/saved_positions.txt"
+local savedCount = 0
+
+local function hub_worlds()
+    local ok, cfg = pcall(dofile, HUB_CONFIG)
+    if ok and type(cfg) == "table" and type(cfg.worlds) == "table" then return cfg.worlds end
+    return {}
+end
+
+local function save_position()
+    local pc = player_controller()
+    local pawn = pc and pc.Pawn
+    if not (pawn and pawn:IsValid()) then log("save position: no player pawn") return end
+    local okL, l = pcall(function() return pawn:K2_GetActorLocation() end)
+    if not okL then log("save position: location not readable") return end
+    local half = 0
+    pcall(function() half = pawn.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+    local yaw = 0
+    pcall(function() yaw = pc:GetControlRotation().Yaw end)
+    yaw = math.floor(((yaw % 360) + 360) % 360 + 0.5)
+    local x, y, z = math.floor(l.X + 0.5), math.floor(l.Y + 0.5), math.floor(l.Z - half + 0.5)      -- z = the feet (the floor)
+    savedCount = savedCount + 1
+    local line = string.format("%d  world %d, %d, %d  yaw %d", savedCount, x, y, z, yaw)
+    local short = string.format("%d, %d, %d facing %d", x, y, z, yaw)
+    for id, w in pairs(hub_worlds()) do
+        local o = type(w) == "table" and w.origin
+        local r = type(w) == "table" and tonumber(w.radius) or 100000
+        if type(o) == "table" and tonumber(o[1]) and tonumber(o[2]) then
+            local dx, dy, dz = x - o[1], y - o[2], z - (tonumber(o[3]) or 0)
+            if dx * dx + dy * dy < r * r then
+                line = line .. string.format("  |  in %s: %d, %d, %d  yaw %d  (ArriveSpot / ExitSpot = %d, %d, %d; Yaw = %d)", id, dx, dy, dz, yaw, dx, dy, dz, yaw)
+                short = string.format("%s: %d, %d, %d facing %d", id, dx, dy, dz, yaw)
+                break
+            end
+        end
+    end
+    log("position " .. line)
+    local f = io.open(POSITIONS_FILE, "a")
+    if f then f:write(os.date("%Y-%m-%d %H:%M:%S") .. "  " .. line .. "\n"); f:close() else log("save position: could not write " .. POSITIONS_FILE) end
+    say(string.format("Position %d saved: %s", savedCount, short), 0)
+end
+
+if not pcall(function() RegisterKeyBind(Key.F1, function() ExecuteInGameThread(toggle_noclip) end) end) then log("F1 could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.F2, function() ExecuteInGameThread(save_position) end) end) then log("F2 could not be bound") end
+log("player keys: F1 = no-clip on / off, F2 = save this position (log, screen, saved_positions.txt)")

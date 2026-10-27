@@ -182,7 +182,8 @@ local function apply_light(actor, e)
     log(ok and ("  pad light: " .. table.concat(what, ", ")) or ("  could not set the pad light: " .. tostring(err)))
 end
 -- Custom worlds ---------------------------------------------------------------------------------------------------------
--- config.worlds[<arrival pad id>] = { loaderAsset, loaderClass, level, origin = { x, y, z }, arrive = { x, y, z, yaw } }
+-- config.worlds[<arrival pad id>] = { loaderAsset, loaderClass, level, origin = { x, y, z }, arrive = { x, y, z, yaw } (optional) }
+-- The world's own settings (title, type, arrival spot, ...) are best set on its loader Blueprint; see apply_world_settings.
 -- A custom world is loaded by spawning a "loader" actor Blueprint that ships in the world's own pak; the actor streams the level in
 -- itself, so no text argument ever has to be passed from Lua. Once the level is visible the hub spawns the arrival pad at
 -- origin + arrive and switches on the hub portals that lead to it. Until then those portals stay off.
@@ -194,7 +195,8 @@ local function resolve_worlds()
     for id, w in pairs(Config.worlds or {}) do
         local ok = type(id) == "string" and id ~= "" and type(w) == "table"
         ok = ok and type(w.loaderAsset) == "string" and type(w.loaderClass) == "string" and type(w.level) == "string"
-        ok = ok and type(w.origin) == "table" and #w.origin >= 3 and type(w.arrive) == "table" and #w.arrive >= 3
+        ok = ok and type(w.origin) == "table" and #w.origin >= 3
+        ok = ok and (w.arrive == nil or (type(w.arrive) == "table" and #w.arrive >= 3))     -- optional: ArriveSpot on the loader Blueprint
         if ok then
             -- optional: lighting = { sun = n, sunColor = { r, g, b }, sunPitch = deg, sky = n, fog = n }  (only the keys you give are changed)
             local lighting = nil
@@ -211,17 +213,19 @@ local function resolve_worlds()
             end
             -- optional: lightingFrom = "HGarden" or { day = "...", night = "..." }: rows of the game's lighting table (DT_LevelFX) the game
             -- lights the world with while the player is inside (day/night, fog, colour grading). Checked when the world is entered.
-            local lightDay, lightNight = nil, nil
+            local lightDay, lightNight, nightOwn = nil, nil, false
             if type(w.lightingFrom) == "string" and w.lightingFrom ~= "" then
                 lightDay, lightNight = w.lightingFrom, w.lightingFrom
             elseif type(w.lightingFrom) == "table" then
                 lightDay = type(w.lightingFrom.day) == "string" and w.lightingFrom.day or nil
-                lightNight = type(w.lightingFrom.night) == "string" and w.lightingFrom.night or lightDay
+                nightOwn = type(w.lightingFrom.night) == "string"
+                lightNight = nightOwn and w.lightingFrom.night or lightDay
             end
             worldDefs[id] = {
                 id = id, loaderAsset = w.loaderAsset, loaderClass = w.loaderClass, level = w.level,
                 origin = { tonumber(w.origin[1]) or 0, tonumber(w.origin[2]) or 0, tonumber(w.origin[3]) or 0 },
-                arrive = { tonumber(w.arrive[1]) or 0, tonumber(w.arrive[2]) or 0, tonumber(w.arrive[3]) or 0, tonumber(w.arrive[4]) or 0 },
+                arrive = w.arrive and { tonumber(w.arrive[1]) or 0, tonumber(w.arrive[2]) or 0, tonumber(w.arrive[3]) or 0, tonumber(w.arrive[4]) or 0 }
+                    or { 0, 0, 0, 0 },                       -- default: the arrival pad at origin, facing +X
                 lighting = lighting,
                 radius = tonumber(w.radius) or 100000,       -- how far (sideways) from origin counts as "inside this world"
                 killZ = tonumber(w.killZ),                   -- optional: below origin z + killZ the player is returned to the arrival pad
@@ -231,11 +235,12 @@ local function resolve_worlds()
                 type = type(w.type) == "string" and w.type or nil,  -- "home" (default) or "vignette" (see world_type)
                 exit = (type(w.exit) == "table" and #w.exit >= 3) and { tonumber(w.exit[1]) or 0, tonumber(w.exit[2]) or 0,
                     tonumber(w.exit[3]) or 0, tonumber(w.exit[4]) or 0 } or nil,  -- a vignette's proper exit, relative to origin: x, y, z, yaw
-                lightingDay = lightDay, lightingNight = lightNight,
+                lightingDay = lightDay, lightingNight = lightNight, cfgNightOwn = nightOwn,
             }
+            -- Every setting above except origin can also come from the world's loader Blueprint, which wins (apply_world_settings).
             if is_hub_id(id) then log("worlds: '" .. id .. "' starts with a reserved prefix and may be removed with the hub portals; rename it") end
         else
-            log("worlds: entry '" .. tostring(id) .. "' is incomplete (needs loaderAsset, loaderClass, level, origin = {x,y,z}, arrive = {x,y,z,yaw}), ignored")
+            log("worlds: entry '" .. tostring(id) .. "' is incomplete (needs loaderAsset, loaderClass, level, origin = {x,y,z}; arrive, if given, = {x,y,z,yaw}), ignored")
         end
     end
 end
@@ -406,35 +411,95 @@ local function spawn_zone(world, def, path, shortClass, label)
     return true
 end
 
--- a Boolean variable on the world's loader Blueprint (class defaults); nil when the world does not have it
-local function loader_flag(def, var)
-    local cdo = StaticFindObject(def.loaderAsset .. ".Default__" .. def.loaderClass)
-    if not (cdo and cdo:IsValid()) then return nil end
-    local ok, v = pcall(function() return cdo[var] end)
-    if ok and type(v) == "boolean" then return v end
-    return nil
-end
-
-local function world_leyak_safe(def)
-    local v = loader_flag(def, "LeyakSafeZone")
-    if v == nil and type(def.leyakSafe) == "boolean" then v = def.leyakSafe end
-    if v == nil then v = true end
-    return v
-end
-
--- World settings made by the map maker live on the world's own loader Blueprint, as plain variables (text, name, number, vector) on its
--- class defaults, so a world describes itself and needs no hub configuration beyond which slot it goes in. Read-only; never soft
--- references. Returns nil when the variable is missing or empty.
-local function loader_setting(def, var)
+-- World settings made by the map maker live on the world's own loader Blueprint, as plain variables (text, name, boolean, float,
+-- vector) on its class defaults, so a world describes itself and needs no hub configuration beyond its slot and its place in hub space.
+-- Read-only; never soft or asset references (see the crash rule in docs/handoff.md). Each reader returns nil when the variable is
+-- missing (or, for text, empty). The full list is in docs/world-settings.md.
+local function loader_cdo(def)
     local cdo = StaticFindObject(def.loaderAsset .. ".Default__" .. def.loaderClass)     -- the class defaults object
     if not (cdo and cdo:IsValid()) then
         local cls = StaticFindObject(def.loaderAsset .. "." .. def.loaderClass)
         if cls and cls:IsValid() then pcall(function() cdo = cls:GetCDO() end) end
     end
-    if not (cdo and cdo:IsValid()) then return nil end
+    if cdo and cdo:IsValid() then return cdo end
+    return nil
+end
+
+-- a Text, Name or String variable
+local function loader_setting(def, var)
+    local cdo = loader_cdo(def)
+    if not cdo then return nil end
     local ok, v = pcall(function() return cdo[var]:ToString() end)
     if ok and type(v) == "string" and v ~= "" and v ~= "None" then return v end
     return nil
+end
+
+-- a Boolean variable
+local function loader_flag(def, var)
+    local cdo = loader_cdo(def)
+    if not cdo then return nil end
+    local ok, v = pcall(function() return cdo[var] end)
+    if ok and type(v) == "boolean" then return v end
+    return nil
+end
+
+-- a Float (or Integer) variable
+local function loader_number(def, var)
+    local cdo = loader_cdo(def)
+    if not cdo then return nil end
+    local ok, v = pcall(function() return cdo[var] end)
+    if ok and type(v) == "number" and v == v then return v end      -- v == v: not NaN
+    return nil
+end
+
+-- a Vector variable, as { x, y, z }
+local function loader_vector(def, var)
+    local cdo = loader_cdo(def)
+    if not cdo then return nil end
+    local ok, x, y, z = pcall(function() local v = cdo[var]; return v.X, v.Y, v.Z end)
+    if ok and type(x) == "number" and type(y) == "number" and type(z) == "number" then return { x, y, z } end
+    return nil
+end
+
+-- Lay the loader Blueprint's values over the ones resolve_worlds took from config.lua (or the defaults): the Blueprint wins. Done once the
+-- loader's class is in memory (it is loaded with the world); until then config.lua and the defaults apply. Returns true once done.
+local function apply_world_settings(def)
+    if def.settled then return true end
+    if not loader_cdo(def) then return false end
+    def.settled = true
+    local got = {}
+    local function take(var, key, v)
+        if v == nil then return end
+        def[key] = v
+        got[#got + 1] = var .. "=" .. (type(v) == "table" and ("{" .. table.concat(v, ", ") .. "}") or (type(v) == "string" and ("'" .. v .. "'") or tostring(v)))
+    end
+    take("WorldTitle", "title", loader_setting(def, "WorldTitle"))
+    take("WorldType", "type", loader_setting(def, "WorldType"))
+    take("LeyakSafeZone", "leyakSafe", loader_flag(def, "LeyakSafeZone"))
+    take("NoWeather", "vignette", loader_flag(def, "NoWeather"))
+    local day, night = loader_setting(def, "LightingDay"), loader_setting(def, "LightingNight")
+    take("LightingDay", "lightingDay", day)
+    take("LightingNight", "lightingNight", night)
+    if day and not night and not def.cfgNightOwn then def.lightingNight = day end     -- a day row alone lights the night too
+    local killZ = loader_number(def, "KillZ")
+    if killZ == 0 then def.killZ = nil; got[#got + 1] = "KillZ=0 (off)" else take("KillZ", "killZ", killZ) end
+    local radius = loader_number(def, "Radius")
+    if radius and radius > 0 then take("Radius", "radius", radius) end
+    local spot, yaw = loader_vector(def, "ArriveSpot"), loader_number(def, "ArriveYaw")
+    if spot or yaw then
+        local a = def.arrive
+        take("ArriveSpot/ArriveYaw", "arrive", { spot and spot[1] or a[1], spot and spot[2] or a[2], spot and spot[3] or a[3], yaw or a[4] })
+    end
+    spot, yaw = loader_vector(def, "ExitSpot"), loader_number(def, "ExitYaw")
+    if spot then take("ExitSpot/ExitYaw", "exit", { spot[1], spot[2], spot[3], yaw or (def.exit and def.exit[4]) or 0 }) end
+    log("worlds: " .. def.id .. " settings from its loader Blueprint: " .. (#got > 0 and table.concat(got, ", ") or "none (config.lua and defaults)"))
+    return true
+end
+
+local function world_leyak_safe(def)
+    apply_world_settings(def)
+    if def.leyakSafe == false then return false end
+    return true
 end
 
 -- ---------------------------------------------------------------- world type: home (default) or vignette
@@ -447,7 +512,8 @@ end
 local WORLD_FLAGS_TABLE = "/Game/Blueprints/DataTables/DT_WorldFlags.DT_WorldFlags"
 
 local function world_type(def)
-    local v = (loader_setting(def, "WorldType") or def.type or "home"):lower()
+    apply_world_settings(def)
+    local v = (def.type or "home"):lower()
     if v ~= "vignette" then v = "home" end
     return v
 end
@@ -539,8 +605,10 @@ local function set_portals_active(id, on)
     end
 end
 
+local STALE_S = 10      -- a loading check or the tracker that has not run for this long (os.clock seconds) was dropped; NUMPAD 1 restarts it
+
 local function start_world(world, def)
-    local st = { status = "loading", tries = 0 }
+    local st = { status = "loading", tries = 0, lastPoll = os.clock() }
     worldState[def.id] = st
     if loader_present(def) then log("worlds: a loader for " .. def.id .. " already exists, not spawning another") end
     if not loader_present(def) then
@@ -552,9 +620,11 @@ local function start_world(world, def)
         if not ok then st.status = "failed"; log("worlds: " .. def.id .. " loader spawn failed: " .. tostring(e)) return end
         log("worlds: loader spawned for " .. def.id .. ", waiting for the level to stream in")
     end
+    apply_world_settings(def)
     local function poll()
         if st.status ~= "loading" then return end
         st.tries = st.tries + 1
+        st.lastPoll = os.clock()
         if not world:IsValid() then st.status = "failed"; log("worlds: " .. def.id .. ": the game world changed while loading") return end
         local ls = find_streaming(world, def.level)
         if st.tries == 1 or st.tries % 20 == 0 then
@@ -596,7 +666,12 @@ local function ensure_worlds(world)
             local st = worldState[def.id]
             log("worlds: checking " .. def.id .. " (status " .. (st and st.status or "none") .. ", loader present " .. tostring(loader_present(def)) .. ")")
             if st and st.status ~= "failed" and not loader_present(def) then st = nil end    -- a new game world: start over
-            if not st or st.status == "failed" then
+            if st and st.status == "loading" and os.clock() - (st.lastPoll or 0) > STALE_S then
+                -- its timer was dropped (UE4SS can lose queued timers when mods are restarted): check again from the start
+                log("worlds: the loading check for " .. def.id .. " stopped running; starting it again")
+                st.status = "restarted"           -- stops the old check, should it still be alive
+                start_world(world, def)
+            elseif not st or st.status == "failed" then
                 start_world(world, def)
             elseif st.status == "ready" then
                 spawn_arrival_pad(world, def)
@@ -742,7 +817,7 @@ end
 local LEVELS_TABLE = "/Game/Blueprints/DataTables/Environment/DT_Levels.DT_Levels"
 local LEVEL_STRUCT = "/Game/Blueprints/Data/LevelMetadata_Struct.LevelMetadata_Struct"
 local FX_TABLE = "/Game/Blueprints/DataTables/Environment/DT_LevelFX.DT_LevelFX"
-local DEFAULT_LIGHTING_ROW = "HGarden"     -- Temple of Stone's lighting; used when a world names none (or one that does not exist)
+local DEFAULT_LIGHTING_ROW = "Intro"       -- the game's intro lighting (bright sun and sky, no fog); used when a world names none (or one that does not exist)
 local FALLBACK_LEVEL_ROW = "office1"       -- the portal room's level; used only when the previous row is unknown (mods restarted)
 local ROW_PREFIX = "PortalHub_"
 
@@ -764,8 +839,7 @@ end
 
 -- The title shown on entry: the map maker's WorldTitle on the loader Blueprint first, then a title from config.lua, then the portal name.
 local function world_title(def)
-    local fromWorld = loader_setting(def, "WorldTitle")
-    if fromWorld then return fromWorld end
+    apply_world_settings(def)
     if def.title then return def.title end
     for _, e in ipairs(state.entries) do
         if e.dest == def.id and e.name and e.name ~= e.dest then return e.name end
@@ -773,12 +847,17 @@ local function world_title(def)
     return def.id
 end
 
--- the world's lighting rows, checked against the game's lighting table
+-- The world's lighting rows, checked against the game's lighting table. A world that names none (or a row that does not exist) is lit with
+-- DEFAULT_LIGHTING_ROW, a bright fallback, and the log says so.
 local function world_light_rows(def)
-    local day, night = def.lightingDay or DEFAULT_LIGHTING_ROW, def.lightingNight or def.lightingDay or DEFAULT_LIGHTING_ROW
-    if find_row(FX_TABLE, day) == nil then
+    local day, night = def.lightingDay, def.lightingNight or def.lightingDay
+    if day and find_row(FX_TABLE, day) == nil then
         log("vignette: lighting row '" .. day .. "' of " .. def.id .. " is not in the game's lighting table; using " .. DEFAULT_LIGHTING_ROW)
-        day = DEFAULT_LIGHTING_ROW
+        day, night = nil, nil
+    end
+    if not day then
+        log("vignette: " .. def.id .. " has no lighting set (LightingDay on its loader Blueprint); using " .. DEFAULT_LIGHTING_ROW)
+        day, night = DEFAULT_LIGHTING_ROW, DEFAULT_LIGHTING_ROW
     end
     if find_row(FX_TABLE, night) == nil then night = day end
     return day, night
@@ -946,7 +1025,7 @@ local function watch_flags(pc)
     local fs = FindFirstOf("WorldFlagSubsystem")
     if fs and fs:IsValid() and not flags_loaded(fs) then flagSeen = {} return end   -- a save is loading: its flags are new, not changes
     for _, def in pairs(worldDefs) do
-        if def.vignette and world_type(def) == "vignette" then
+        if world_type(def) == "vignette" and def.vignette then
             local now = flag_is_set(def, pc)
             local before = flagSeen[def.id]
             if now ~= nil and before ~= nil and now ~= before then
@@ -963,13 +1042,14 @@ local function keep_claim(def, pc)
     if not c or os.clock() - presence.reclaimAt < 3 then return end
     local now = name_prop(pc, "ActiveLevelFXName")
     local day = name_prop(pc, "Day_FX_Row")
-    if now == c.row and (def.lighting or day == c.day) then return end
+    local lightOk = def.lighting or day == c.day
+    if now == c.row and lightOk then return end
     presence.reclaimAt = os.clock()
     if now ~= c.row then
         pcall(function() pc.ActiveLevelFXName = FName(c.row) end)
         pcall(function() pc.ActiveLevelName = c.row end)
     end
-    if not def.lighting and day ~= c.day then switch_lighting(pc, c.day, c.night, "") end
+    if not lightOk then switch_lighting(pc, c.day, c.night, "") end
     log(string.format("vignette: the game changed %s inside %s; put back", now ~= c.row and ("the level entry to " .. tostring(now)) or ("the lighting to " .. tostring(day)), def.id))
 end
 
@@ -1027,6 +1107,7 @@ local function world_is_ready(def)
         if ls then pcall(function() visible = ls:IsLevelVisible() end) end
         if visible then
             worldState[def.id] = { status = "ready", tries = 0 }
+            apply_world_settings(def)
             spawn_arrival_pad(world, def)
             spawn_zones(world, def)
             set_portals_active(def.id, true)
@@ -1152,7 +1233,11 @@ local function start_tracker()
     if Config.tracker == false then log("tracker: switched off in config.lua (tracker = false)") return end
     if presence.running or next(worldDefs) == nil then return end
     presence.running = true
+    local gen = (presence.gen or 0) + 1        -- only the newest loop keeps going (see spawn_all)
+    presence.gen, presence.lastTick = gen, os.clock()
     local function loop()
+        if presence.gen ~= gen then return end
+        presence.lastTick = os.clock()
         local ok, err = pcall(track_tick)
         if not ok then note("tracker error: " .. tostring(err):match("^[^\r\n]*")) end
         ExecuteWithDelay(TRACK_MS, function() ExecuteInGameThread(loop) end)
@@ -1175,6 +1260,11 @@ local function spawn_all()
     if not class or not class:IsValid() then log("teleporter class not found") return end
     destroy_hub_pads()
     install_hook()
+    if presence.running and os.clock() - (presence.lastTick or 0) > STALE_S then
+        log("tracker: it stopped running (a dropped timer); starting it again")
+        presence.running = false
+        start_tracker()
+    end
     local added = 0
     for _, e in ipairs(state.entries) do
         if spawn_entry(world, class, e) then added = added + 1 end
@@ -1216,19 +1306,3 @@ RegisterKeyBind(Key.NUM_TWO, function()
     end)
 end)
 log("loaded - NUMPAD 1 respawn portals, NUMPAD 2 remove them")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

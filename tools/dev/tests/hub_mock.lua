@@ -31,7 +31,7 @@ local dtLevels = obj({
     FindRow = function(self, name) return LEVEL_ROWS[name] end,
     AddRow = function(self, name, row) LEVEL_ROWS[name] = row; ADDED[#ADDED + 1] = name end,
 })
-FX_ROWS = { HGarden = {}, office1 = {}, Office1_Night = {}, Weather_Fog = {}, Weather_Fog_Night = {}, SouthIsland = {} }
+FX_ROWS = { Intro = {}, HGarden = {}, office1 = {}, Office1_Night = {}, Weather_Fog = {}, Weather_Fog_Night = {}, SouthIsland = {} }
 local dtFX = obj({ FindRow = function(self, name) return FX_ROWS[name] end })
 
 TRANSITIONS, UPDATES = {}, 0

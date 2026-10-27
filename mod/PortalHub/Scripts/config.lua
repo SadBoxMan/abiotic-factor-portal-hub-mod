@@ -41,6 +41,8 @@ return {
     --     level = "/Game/Mods/MyWorld/Maps/MyWorld_L0", origin = { 1000000, 1200000, 0 }, arrive = { 700, -350, 30, -27 } },
     -- loaderAsset / loaderClass: the loader actor in the pak.  level: the map it streams (used to see when it is ready).
     -- origin: where the loader is spawned (far from the Facility).  arrive: the arrival pad, relative to origin: x, y, z (floor) and yaw.
+    -- The world's own settings (title, home or vignette, arrival and exit spots, lighting rows, ...) are best set by its map maker on the
+    -- loader Blueprint, which wins over this file; see docs/world-settings.md. arrive may then be left out.
     worlds = {
     },
 

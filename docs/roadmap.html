@@ -180,6 +180,10 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid 
   <summary><span class="num">3</span><span class="title">Skyboxes<small>Can we make a skybox and relay that to modders?</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
   <div class="body">
     <p>Surveyed: the game's skies are dome meshes under <code>/Game/Sky</code>. Not started.</p>
+    <ol>
+      <li>Find out how to make a custom skybox for a world.</li>
+      <li>Then test the game's <b>dynamic skybox</b>: some lighting rows (<code>HGarden</code>, for one) have <code>HasDynamicSkybox</code> set. Does a world lit with such a row get the moving sky, and is that why the home worlds look well lit while a basic-block world with the same row looks unlit? (See <code>docs/lighting-rows.md</code>.)</li>
+    </ol>
   </div>
 </details>
 
