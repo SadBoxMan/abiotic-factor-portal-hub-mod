@@ -147,3 +147,88 @@ From the dump and the exe's `LogRowRegistry` messages:
 - Local: `AbioticFactor-Win64-Shipping.exe` (3 Nov) strings; `ue4ss\UE4SS_ObjectDump.txt` (27 Oct); `Saved\Logs\AbioticFactor.log`
   and `Modio.log` (27 Oct); `C:\Users\Public\mod.io\13105\` (game id 13105; only browser thumbnails cached, no mods installed);
   `mod/PortalHub/Scripts/main.lua` (`ensure_flag_row`, `ensure_level_row`).
+
+## Addendum: the Mod Editor, inspected (CRD-007, 3 November 2026)
+
+Read-only look at the installed editor (`C:\Users\lukea\Games\Mods\SCIENCE\MOD EDITOR\AbioticFactorModEditkx2ug`, 9.4 GB,
+installed 3 Nov 22:48 through the Epic launcher's `.egstore` manifest). The editor was not started: everything below comes from
+its files, its install manifests (`Manifest_UFSFiles_Win64.txt` lists every file inside its paks), its config inside the
+unencrypted pak, the template assets, and the strings of its exe. Items marked **(GUI)** need the editor opened to confirm.
+
+**What it is:** not a full Unreal editor but an Unreal **cooked editor** (UE 5.4's `EditorCooked` target): one exe,
+`AbioticFactor\Binaries\Win64\AbioticFactorEditorCooked-Win64-Test.exe`, with the whole game's content already **cooked**
+into `AbioticFactor\Content\Paks\AbioticFactor-WindowsCookedEditor.*` (8.9 GB of IoStore containers plus a pak). There is no
+game source and no uncooked game content, and no separate UnrealPak, UAT or UnrealBuildTool: cooking and packaging run inside the
+exe. The `.uproject` inside the pak declares the module types `Runtime`, `Editor`, `UncookedOnly` and `EditorCooked`.
+
+### Answers to section 6
+
+1. **Engine build: identical to the game.** `Engine\Build\Build.version`: 5.4.4, `Changelist` and `CompatibleChangelist`
+   **1050002**, `BranchName` `++DF+ABF`, licensee build. The config inside the pak says `PlayerVersionString=1.5.0.31876`, today's
+   hotfix, so the editor and the game ship together. `ModioUGCSettings` has `bPerformUGCCheckVersionComponentChangelist=True`:
+   mods are checked down to the changelist. Template assets are saved as `5.4.4-1050000+++DF+ABF`. Our plain UE 5.4.4 (Epic's
+   build, not the licensee one) can never produce a matching changelist; that only matters for official UGC mods, not `~mods` paks.
+2. **Game content: all of it, cooked.** Present (paths as in the game): `DT_Levels`, `DT_LevelFX` (both under
+   `Blueprints/DataTables/Environment/`), `DT_WorldFlags`, the teleporters `BP_Teleporter_ParentBP`, `_HomeWorld`, `_PlayerPortal`,
+   `_ShadowBoss`, and the volumes `Vignette_Zone`, `BuffZone_ParentBP` and `LeyakSafetyZone`. **74 game maps**: `Facility` and its
+   34 `Facility_*` sublevels, every vignette (`V_Alps` ... `V_Winter`, `V_Train`, `V_ISLAND`, the three `V_Anteverse_*`,
+   `Vignette_FurnitureWarehouse`, `Vignette_MirrorWorld`), `H_Cabin`, the 16 main-menu scenes, `ServerEntry` and `Empty`. Not
+   listed: the other home worlds (`H_Garden`, `H_Japan`, ...), perhaps stripped by release group (the exe logs "Not including %s
+   ... release group '%s' is stripped"). `DT_Levels` uses the native `LevelMetadata` struct (the exe calls it the native
+   replacement for `LevelMetadata_Struct`). Cooked assets can normally be opened, placed and referenced but not saved
+   **(GUI: open `DT_Levels` and a `V_` map; can a `Vignette_Zone` or a teleporter be placed in a new level?)**.
+3. **Templates: 35, all for items and creatures, none for levels.** `ModTemplates\TP_*`: baked, cookable, food and soup items;
+   four chemistry; nine deployables (bed, bridge, chair, container, crafting bench, moveable chair, rug, wall, "full feature");
+   enemy NPC, entity director, pet, fish, two farmable plants; hitscan, projectile, laser-liquid and melee weapons; item upgrade,
+   set bonus, trinket, new item; PhD, trait; travelling trader; player voice. The category file has a single category, "Items".
+   **No map or level template, no mutator template, no `LevelFX` or `WorldFlag` row sample.** Each template is a plugin skeleton:
+   `PLUGIN_NAME.abfmod` (an empty marker file), `TemplateDefs.ini`, `Media\` icons, and `Content\` with `NAME_PREFIX` assets in
+   folders named after the base tables they add rows to (`DataTables/DT_Recipes/recipe_NAME_PREFIX`, ...).
+4. **`AbioticModConfig`:** an asset at `/<Plugin>/AbioticModConfig` of class `/Script/AbioticFactor.AbioticModConfiguration` (a
+   primary data asset). The templates set one field, **`ModPrefix`** (a Name, `PLUGIN_PREFIX` in the template), the row prefix the
+   registry needs ("Mod plugin '%s' has no AbioticModConfig - no data rows registered"; a Data Table context menu "Copy with mod
+   prefix" uses it). The exe's reflection data lists `DataOverrideMapping`, `LoadAfter` and `bLocalOnly` right next to
+   `ModPrefix`, so those are probably its other fields (asset overrides, load order, cosmetic local-only); not provable from
+   strings. **Nothing about levels.** Beside it sits `UUGC_Metadata` (`/Script/ModioUGC.UGC_Metadata`: `ChunkId`,
+   `bIoStoreEnabled`, `PrimaryAssetRules` with cook rules, `UnrealVersion`), which drives the mod's own cook.
+5. **Bundled docs: none.** The only text files are the engine's third-party ones (Python, MaterialX, ...). mod.io's
+   getting-started panel is switched off (`bShowGettingStartedOnStartup=false`, `bDisplayToolsMenuItem=false`). The promised
+   advanced guide is not in the install; look for it online when needed.
+6. **Cooking: a UGC plugin, not a plain `pakchunkNN`.** Packaging is Unreal's **DLC cook** against the shipped base release
+   `AbioticFactor\Releases\UGCRelease\Windows\Metadata\DevelopmentAssetRegistry.bin` (exe strings `-DLCName=`,
+   `-BasedOnReleaseVersion=`, `UGCRelease`). Since the base game is already cooked, a project-wide cook into `pakchunkNN` with
+   `/Game/...` paths (what our UE 5.4 world projects do) is not possible here. The output is a plugin (`.uplugin` plus
+   `Content\Paks\Windows\`), its content mounted under **`/<PluginName>/`**, uploaded from the editor ("Upload Mod File").
+   One special rule: "DT_Levels: cooking DLC, no maps added to the cook" (the base cook adds every `DT_Levels` map; a mod cook
+   adds none). A plugin's own maps are normally still cooked with the rest of its content, but that is **untested**. Whether
+   such a plugin pak still loads when dropped into `Content\Paks\~mods` (where nothing registers the `/<PluginName>/` mount
+   root) is also **untested**; IoStore finds packages by id, so it may work.
+
+### Other things relevant to the hub
+
+- **Blueprint filter:** the editor downloads a Blueprint allow and deny list (`cdn.abfmods.com/blueprint-filter`, console
+  commands `ABF.BlueprintFilter.Update` and `.DumpClass`, launch option `-BlueprintFilter=`), so mod Blueprints may be limited
+  to approved classes and nodes. A world loader Blueprint holding only plain variables should pass; untested **(GUI)**.
+- **Real game assets in a world:** the real upside. A world built here could place the game's own `Vignette_Zone`,
+  `LeyakSafetyZone`, teleporters, materials and meshes instead of the stand-ins our UE 5.4 projects need, and the hub's zone
+  loading (`LoadAsset` of the zone classes) and part of `config.lua` might become unnecessary. It only helps if the cooked plugin
+  works from `~mods` (above), or if Deep Field ever allows levels in official mods.
+- **Row registry:** the editor confirms section 4: there is no `LevelMetadata` row asset type (the exe holds the same row-asset
+  families as before, including `LevelFXModRowAsset` and `WorldFlagModRowAsset`). The hub's `DT_Levels` approach
+  (`ensure_level_row` with `AddRow`) stays the only way to register a world's level; the editor changes nothing there.
+- **Game updates:** a mod cooked against `UGCRelease` depends on that exact base release. After each game update the editor
+  updates too and a world must be recooked (official UGC is refused anyway on a changelist mismatch). Our plain UE 5.4 world paks
+  survived v1.5.0 untouched, so this route would mean more upkeep for map makers, not less.
+- **Template project licensing:** Deep Field's cooked content cannot be shipped in a CC0 template; a template made in the Mod
+  Editor could only reference it (which is all a world needs, if the plugin route works).
+
+### Decision for roadmap step 7
+
+**Keep the plain UE 5.4 editor as the documented route for now** (the tutorial, the template project and the hub's loader
+paths): the Mod Editor can only cook UGC plugins mounted at `/<PluginName>/`, and nobody has tested whether those load from
+`~mods`. **Run one small experiment before writing the tutorial**: in the Mod Editor, make a plugin holding one tiny level with
+a real `Vignette_Zone` and a loader Blueprint, package it, put its paks in `~mods`, point a hub entry at `/<PluginName>/...`,
+and see whether it streams in. If it does, the Mod Editor becomes the recommended editor (real game assets, the game's exact
+engine build): the tutorial gets a Mod Editor chapter, the template project becomes a Mod Editor plugin skeleton (no Deep Field
+content inside), the docs and helpers learn the `/<PluginName>/` paths, and map makers must recook after game updates. If it
+does not, the plain UE 5.4 route stays and this note closes the question.
