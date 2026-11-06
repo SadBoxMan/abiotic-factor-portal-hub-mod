@@ -801,8 +801,11 @@ local function restore_lighting(pc, why, refresh)
 end
 
 -- ---------------------------------------------------------------- vignette status through the game's own level table
--- Where the game thinks a player is comes from its level table, DT_Levels (rows of LevelMetadata_Struct: LevelFileName, IsVignette,
--- EntranceTeleporter, LevelFXRow_Day / LevelFXRow_Night, SectorName, ...). The player controller keeps the name of the current row in
+-- Where the game thinks a player is comes from its level table, DT_Levels (rows of LevelMetadata: IsVignette, EntranceTeleporter,
+-- LevelFXRow_Day / LevelFXRow_Night, SectorName, ...). Game update v1.5.0 (27 October 2026) made that row struct native
+-- (/Script/AbioticFactor.LevelMetadata, plain field names) and swapped the old LevelFileName (a name) for Level, a soft-object field the
+-- hub never writes (crash rule below; UE4SS's AddRow leaves fields missing from the Lua table at their defaults). The hub reads the
+-- struct from the table itself (DT_Levels.RowStruct) so it survives another move. The player controller keeps the name of the current row in
 -- ActiveLevelFXName; the game's vignette check (AbioticFunctionLibrary PlayerIsInVignette) and the respawn menu's Portal Entrance read that
 -- row. A custom world has no row and the game's level tracking never reports it, so for each vignette world the hub:
 --   * adds a row "PortalHub_<world id>" (in memory only, through UE4SS's data-table API) with IsVignette on, EntranceTeleporter = the world
@@ -815,10 +818,12 @@ end
 -- Never pass nil or made-up values to a soft-object parameter from Lua with this UE4SS build: it crashed the game inside UE4SS
 -- (push_softobjectproperty) during the tests that found all this.
 local LEVELS_TABLE = "/Game/Blueprints/DataTables/Environment/DT_Levels.DT_Levels"
-local LEVEL_STRUCT = "/Game/Blueprints/Data/LevelMetadata_Struct.LevelMetadata_Struct"
+-- the level row struct's known homes, used only when DT_Levels.RowStruct cannot be read: native since v1.5.0, a Blueprint struct before
+local LEVEL_STRUCTS = { "/Script/AbioticFactor.LevelMetadata", "/Game/Blueprints/Data/LevelMetadata_Struct.LevelMetadata_Struct" }
 local FX_TABLE = "/Game/Blueprints/DataTables/Environment/DT_LevelFX.DT_LevelFX"
 local DEFAULT_LIGHTING_ROW = "Intro"       -- the game's intro lighting (bright sun and sky, no fog); used when a world names none (or one that does not exist)
 local FALLBACK_LEVEL_ROW = "office1"       -- the portal room's level; used only when the previous row is unknown (mods restarted)
+local FALLBACK_LEVEL_NAME = "Facility_Office1"   -- its level name (ActiveLevelName), for rows that no longer carry LevelFileName
 local ROW_PREFIX = "PortalHub_"
 
 local function level_row_name(def) return ROW_PREFIX .. def.id end
@@ -827,6 +832,13 @@ local function name_prop(obj, prop)
     local ok, v = pcall(function() return obj[prop]:ToString() end)
     if ok and type(v) == "string" then return v end
     return nil
+end
+
+-- A row handle property such as the controller's Day_FX_Row (a LevelFXRowHandle struct since v1.5.0): the row name inside it.
+local function row_handle_name(obj, prop)
+    local ok, v = pcall(function() return obj[prop].RowName:ToString() end)
+    if ok and type(v) == "string" then return v end
+    return name_prop(obj, prop)
 end
 
 local function find_row(tablePath, row)
@@ -863,10 +875,43 @@ local function world_light_rows(def)
     return day, night
 end
 
+local function valid(o)
+    local ok, v = pcall(function() return o ~= nil and o:IsValid() end)
+    return ok and v == true
+end
+
+-- The level table's row struct: DT_Levels.RowStruct first, then the known paths. Logged once (and again if the answer changes).
+local level_struct_seen = nil
+local function level_struct()
+    local st, from = nil, nil
+    local dt = StaticFindObject(LEVELS_TABLE)
+    if valid(dt) then
+        local ok, s = pcall(function() return dt.RowStruct end)
+        if ok and valid(s) then st, from = s, "DT_Levels.RowStruct" end
+    end
+    if not st then
+        for _, p in ipairs(LEVEL_STRUCTS) do
+            local s = StaticFindObject(p)
+            if valid(s) then st, from = s, p break end
+        end
+    end
+    local name = "none"
+    if st then
+        local okN, n = pcall(function() return st:GetFullName() end)
+        name = (okN and type(n) == "string") and n or from
+    end
+    if name ~= level_struct_seen then
+        level_struct_seen = name
+        log("vignette: the level table's row struct is " .. name .. (st and (" (from " .. from .. ")") or ""))
+    end
+    return st
+end
+
+-- short field name -> the struct's own name (a Blueprint struct adds _<n>_<GUID>; native fields are plain)
 local function level_fields()
     local names = {}
-    local st = StaticFindObject(LEVEL_STRUCT)
-    if st and st:IsValid() then
+    local st = level_struct()
+    if st then
         pcall(function() st:ForEachProperty(function(p) local n = p:GetFName():ToString(); names[(n:gsub("_%d+_%x+$", ""))] = n end) end)
     end
     return names
@@ -878,14 +923,16 @@ local function ensure_level_row(def, day, night)
     local rowName = level_row_name(def)
     if find_row(LEVELS_TABLE, rowName) ~= nil then return true end
     local f = level_fields()
-    for _, k in ipairs({ "ReleaseGroup", "LevelFileName", "LevelFXRow_Day", "LevelFXRow_Night", "SectorName", "ResettablePortalWorld",
+    for _, k in ipairs({ "ReleaseGroup", "LevelFXRow_Day", "LevelFXRow_Night", "SectorName", "ResettablePortalWorld",
                          "HasFacilityShakes", "IsVignette", "EntranceTeleporter" }) do
         if not f[k] then log("vignette: the game's level table has no field " .. k .. " (game update?); " .. def.id .. " stays a Facility area") return false end
     end
     local fx = StaticFindObject(FX_TABLE)
     local row = {}
     row[f.ReleaseGroup] = 0
-    row[f.LevelFileName] = FName(rowName)
+    -- before v1.5.0 only (a name); its successor Level is a soft object and stays unset
+    if f.LevelFileName then row[f.LevelFileName] = FName(rowName) end
+    if f.bIsSublevel then row[f.bIsSublevel] = false end
     row[f.LevelFXRow_Day] = { DataTable = fx, RowName = FName(day) }
     row[f.LevelFXRow_Night] = { DataTable = fx, RowName = FName(night) }
     pcall(function() row[f.SectorName] = FText(world_title(def)) end)
@@ -924,7 +971,7 @@ local function claim_level(def, pc)
     if not okW then log("vignette: could not mark the player as being in " .. def.id) return false end
     local okT, err = switch_lighting(pc, day, night, world_title(def))
     -- the level's name as the game reports it (ActiveLevelName, a STRING property: write a Lua string, never an FName). In the game's own
-    -- vignettes it holds the row's LevelFileName (V_ISLAND, H_Garden, ...), so ours holds the row name (also its LevelFileName).
+    -- vignettes it holds the level's file name (V_ISLAND, H_Garden, ...), so ours holds the row name.
     local prevName = name_prop(pc, "ActiveLevelName")
     if prevName and prevName:sub(1, #ROW_PREFIX) == ROW_PREFIX then prevName = nil end
     pcall(function() pc.ActiveLevelName = rowName end)
@@ -980,6 +1027,7 @@ local function release_level(pc, why)
         if not backName then
             local row, f = find_row(LEVELS_TABLE, back), level_fields()
             if row and f.LevelFileName then pcall(function() backName = row[f.LevelFileName]:ToString() end) end
+            if not backName and back == FALLBACK_LEVEL_ROW then backName = FALLBACK_LEVEL_NAME end
         end
         if backName then pcall(function() pc.ActiveLevelName = backName end) end
     end
@@ -1041,7 +1089,7 @@ local function keep_claim(def, pc)
     local c = presence.claim
     if not c or os.clock() - presence.reclaimAt < 3 then return end
     local now = name_prop(pc, "ActiveLevelFXName")
-    local day = name_prop(pc, "Day_FX_Row")
+    local day = row_handle_name(pc, "Day_FX_Row")
     local lightOk = def.lighting or day == c.day
     if now == c.row and lightOk then return end
     presence.reclaimAt = os.clock()

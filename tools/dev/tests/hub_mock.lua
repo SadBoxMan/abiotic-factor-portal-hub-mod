@@ -10,17 +10,32 @@ function FText(s) return setmetatable({ s = s }, NameMT) end
 
 local function obj(t) t.IsValid = function() return true end; return t end
 
-LEVEL_FIELDS = { "ReleaseGroup_20_111881DD49BCE06B31F20780CAC09223", "LevelFileName_4_4189631446EDDBE4B5EAE69952F1577C",
+-- The level row struct. By default as the game has it since update v1.5.0 (27 October 2026): native LevelMetadata, plain field names, a
+-- soft-object Level in place of LevelFileName, found through DT_Levels.RowStruct (and /Script/AbioticFactor.LevelMetadata). Set before
+-- loading this file: LEGACY_LEVEL_STRUCT = true for the old Blueprint struct (suffixed names, LevelFileName, found by its path only);
+-- NO_ROW_STRUCT = true for a table whose RowStruct cannot be read (the hub must fall back to the paths).
+local NATIVE_FIELDS = { "ReleaseGroup", "Level", "LevelFXRow_Day", "LevelFXRow_Night", "SectorName", "bIsSublevel", "ResettablePortalWorld",
+    "HasFacilityShakes", "IsVignette", "EntranceTeleporter" }
+local LEGACY_FIELDS = { "ReleaseGroup_20_111881DD49BCE06B31F20780CAC09223", "LevelFileName_4_4189631446EDDBE4B5EAE69952F1577C",
     "LevelFXRow_Day_9_730F761F48B9E958F8502BB10C47C998", "LevelFXRow_Night_8_0062E3FB47C3AD2FA814B988D9F37B33",
     "SectorName_13_6D7367C44F16A1C849E2EA9A512F6777", "ResettablePortalWorld_17_A659D3914286BC7EF9F48A91F94DF901",
     "HasFacilityShakes_22_502FB08F4709B6E77A4C38888B81C87C", "IsVignette_24_2C59FABF4FD2F51E062A6796CCE089E7",
     "EntranceTeleporter_27_F0895895499D0F0E1F0BDBB347641DB8" }
-function F(short) for _, n in ipairs(LEVEL_FIELDS) do if n:sub(1, #short + 1) == short .. "_" and n:sub(#short + 2, #short + 2):match("%d") then return n end end end
-local levelStruct = obj({ ForEachProperty = function(self, cb) for _, n in ipairs(LEVEL_FIELDS) do cb({ GetFName = function() return FName(n) end }) end end })
+LEVEL_FIELDS = LEGACY_LEVEL_STRUCT and LEGACY_FIELDS or NATIVE_FIELDS
+SOFT_FIELDS = { Level = true }          -- soft-object fields: writing one from Lua crashes the game, so AddRow must never get one
+LEVEL_STRUCT_PATH = LEGACY_LEVEL_STRUCT and "/Game/Blueprints/Data/LevelMetadata_Struct.LevelMetadata_Struct" or "/Script/AbioticFactor.LevelMetadata"
+function F(short)
+    for _, n in ipairs(LEVEL_FIELDS) do
+        if n == short or (n:sub(1, #short + 1) == short .. "_" and n:sub(#short + 2, #short + 2):match("%d")) then return n end
+    end
+end
+local levelStruct = obj({ ForEachProperty = function(self, cb) for _, n in ipairs(LEVEL_FIELDS) do cb({ GetFName = function() return FName(n) end }) end end,
+    GetFullName = function() return "ScriptStruct " .. LEVEL_STRUCT_PATH end })
 
 local function levelRow(file, day, night, sector, vig, entrance)
     local r = {}
-    r[F("ReleaseGroup")] = 0; r[F("LevelFileName")] = FName(file)
+    r[F("ReleaseGroup")] = 0
+    if F("LevelFileName") then r[F("LevelFileName")] = FName(file) end
     r[F("LevelFXRow_Day")] = { RowName = FName(day) }; r[F("LevelFXRow_Night")] = { RowName = FName(night) }
     r[F("SectorName")] = FText(sector); r[F("IsVignette")] = vig; r[F("EntranceTeleporter")] = FName(entrance or "None")
     return r
@@ -29,19 +44,28 @@ LEVEL_ROWS = { office1 = levelRow("Facility_Office1", "office1", "Office1_Night"
 ADDED = {}
 local dtLevels = obj({
     FindRow = function(self, name) return LEVEL_ROWS[name] end,
-    AddRow = function(self, name, row) LEVEL_ROWS[name] = row; ADDED[#ADDED + 1] = name end,
+    AddRow = function(self, name, row)
+        local known = {}
+        for _, n in ipairs(LEVEL_FIELDS) do known[n] = true end
+        for k, v in pairs(row) do
+            assert(known[k], "AddRow: no field " .. tostring(k) .. " in the row struct")
+            assert(not SOFT_FIELDS[k], "AddRow: a value for soft-object field " .. k .. " (would crash the game)")
+        end
+        LEVEL_ROWS[name] = row; ADDED[#ADDED + 1] = name
+    end,
 })
+if not NO_ROW_STRUCT and not LEGACY_LEVEL_STRUCT then dtLevels.RowStruct = levelStruct end
 FX_ROWS = { Intro = {}, HGarden = {}, office1 = {}, Office1_Night = {}, Weather_Fog = {}, Weather_Fog_Night = {}, SouthIsland = {} }
 local dtFX = obj({ FindRow = function(self, name) return FX_ROWS[name] end })
 
 TRANSITIONS, UPDATES = {}, 0
 PC = obj({
-    ActiveLevelFXName = FName("office1"), Day_FX_Row = FName("Weather_Fog"), Night_FX_Row = FName("Weather_Fog_Night"),
+    ActiveLevelFXName = FName("office1"), Day_FX_Row = { RowName = FName("Weather_Fog") }, Night_FX_Row = { RowName = FName("Weather_Fog_Night") },   -- LevelFXRowHandle structs
     ActiveWeatherFXName = FName("Weather_Fog"), DisableAutomaticFX = false,
     TransitionToNewEnvironmentFX = function(self, use, d, n, speed, title)
         assert(type(use) == "boolean" and d.DataTable ~= nil and n.DataTable ~= nil and type(speed) == "number" and getmetatable(title) == NameMT, "bad transition args")
         TRANSITIONS[#TRANSITIONS + 1] = d.RowName.s .. " / " .. n.RowName.s .. " / '" .. title.s .. "'"
-        self.Day_FX_Row = FName(d.RowName.s); self.Night_FX_Row = FName(n.RowName.s)
+        self.Day_FX_Row = { RowName = FName(d.RowName.s) }; self.Night_FX_Row = { RowName = FName(n.RowName.s) }
     end,
     UpdateToNewEnvironmentFX = function(self) UPDATES = UPDATES + 1 end,
 })
@@ -80,7 +104,7 @@ function FindAllOf(name)
 end
 function StaticFindObject(path)
     if path == "/Game/Blueprints/DataTables/Environment/DT_Levels.DT_Levels" then return dtLevels end
-    if path == "/Game/Blueprints/Data/LevelMetadata_Struct.LevelMetadata_Struct" then return levelStruct end
+    if path == LEVEL_STRUCT_PATH then return levelStruct end
     if path == "/Game/Blueprints/DataTables/Environment/DT_LevelFX.DT_LevelFX" then return dtFX end
     if path == "/Game/Mods/CordonaTest/BP_CordonaTestLoader.Default__BP_CordonaTestLoader_C" and LOADER_TITLE then return obj({ WorldTitle = FText(LOADER_TITLE) }) end
     return nil

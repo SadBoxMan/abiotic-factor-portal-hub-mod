@@ -4,13 +4,13 @@
 --   NUMPAD 4        sky domes: dome meshes, their materials and parameters, and the sky Blueprint actors
 --   NUMPAD 5        hazards: water / pain-causing volumes, hazard-style classes, underwater and damage data tables
 --   NUMPAD 6        NPCs: NPC, creature and spawner classes, plus the settings of one spawner and one NPC
---   CTRL + NUMPAD + the player's lighting state: the controller's FX rows, the real light values, and the DT_LevelFX row names
+--   HOME            the player's lighting state: the controller's FX rows, the real light values, and the DT_LevelFX row names
 --   NUMPAD 0        lighting rows: every row of DT_LevelFX with its main values;  NUMPAD * / NUMPAD / step through them in game,
 --                   NUMPAD . gives the lighting back (the only keys besides NUMPAD 3 that change anything, and only the lighting)
---   NUMPAD -        Leyak director: required story flag, CanSpawn, cooldown, active Leyak, each Leyak's distance (read-only); CTRL + NUMPAD - forces a spawn
---   F1              no-clip on / off (changes the player: collision off, flying)
+--   NUMPAD -        Leyak director: required story flag, CanSpawn, cooldown, active Leyak, each Leyak's distance (read-only); F4 forces a spawn
+--   F5              no-clip on / off (changes the player: collision off, flying)
 --   F2              save the player's position (world and world-relative, for ArriveSpot / ExitSpot) to the log and saved_positions.txt
--- Free keys: NUMPAD + without a modifier (NUMPAD 1 and 2 belong to PortalHub). Note: Shift + a numpad digit does not work,
+-- Keys stay clear of the game's own bindings: F1 is its player list, F10 its HUD toggle, + its pager (NUMPAD 1 and 2 belong to PortalHub, F6-F10 to PortalLogger). Note: Shift + a numpad digit does not work,
 -- because with Num Lock on Shift turns the digit into Home / arrow keys.
 -- Rule: every object is checked with IsValid() before anything is called on it (a call on an invalid object crashes the game).
 
@@ -74,37 +74,46 @@ local function dump_settings(obj, label, limit)
     if n == 0 then log("      (no readable simple settings)") end
 end
 
-local FX_STRUCT = "/Game/Blueprints/Data/LevelFXData_Struct.LevelFXData_Struct"
 local FX_TABLE = "/Game/Blueprints/DataTables/Environment/DT_LevelFX.DT_LevelFX"
+-- the lighting row struct's known homes, used only when DT_LevelFX.RowStruct cannot be read: native since game update v1.5.0
+-- (27 October 2026), a Blueprint struct before it
+local FX_STRUCTS = { "/Script/AbioticFactor.LevelFXData", "/Game/Blueprints/Data/LevelFXData_Struct.LevelFXData_Struct" }
 
-local function value_text(v)
-    local t = type(v)
-    if t == "number" or t == "boolean" or t == "string" then return tostring(v) end
-    if t == "nil" then return "nil" end
-    local out
-    pcall(function()
-        if v.R ~= nil and v.G ~= nil and v.B ~= nil then out = string.format("(%.3f, %.3f, %.3f, %.3f)", v.R, v.G, v.B, v.A or 1)
-        elseif v.Pitch ~= nil then out = string.format("(pitch %.1f, yaw %.1f, roll %.1f)", v.Pitch, v.Yaw, v.Roll) end
-    end)
-    if out then return out end
-    pcall(function() if not v.GetFullName then out = v:ToString() end end)
-    return out or "<object>"
+local function valid(o)
+    local ok, v = pcall(function() return o ~= nil and o:IsValid() end)
+    return ok and v == true
 end
 
-local FX_TABLE = "/Game/Blueprints/DataTables/Environment/DT_LevelFX.DT_LevelFX"
+-- A data table's row struct: the table's own RowStruct first (survives the struct moving again), then the known paths.
+-- Returns the struct and where it came from.
+local function row_struct(tablePath, knownPaths)
+    local dt = StaticFindObject(tablePath)
+    if valid(dt) then
+        local ok, s = pcall(function() return dt.RowStruct end)
+        if ok and valid(s) then return s, "RowStruct" end
+    end
+    for _, p in ipairs(knownPaths) do
+        local s = StaticFindObject(p)
+        if valid(s) then return s, p end
+    end
+    return nil, "not found"
+end
 
-local function value_text(v)
-    local t = type(v)
-    if t == "number" or t == "boolean" or t == "string" then return tostring(v) end
-    if t == "nil" then return "nil" end
-    local out
-    pcall(function()
-        if v.R ~= nil and v.G ~= nil and v.B ~= nil then out = string.format("(%.3f, %.3f, %.3f, %.3f)", v.R, v.G, v.B, v.A or 1)
-        elseif v.Pitch ~= nil then out = string.format("(pitch %.1f, yaw %.1f, roll %.1f)", v.Pitch, v.Yaw, v.Roll) end
-    end)
-    if out then return out end
-    pcall(function() if not v.GetFullName then out = v:ToString() end end)
-    return out or "<object>"
+local function struct_text(st, from)
+    if not st then return "none (" .. from .. ")" end
+    local ok, n = pcall(function() return st:GetFullName() end)
+    return ((ok and type(n) == "string") and n or "?") .. " (from " .. from .. ")"
+end
+
+local function fx_struct() return row_struct(FX_TABLE, FX_STRUCTS) end
+
+-- A row handle property such as the controller's Day_FX_Row (a LevelFXRowHandle struct since v1.5.0): the row name inside it.
+local function handle_name(obj, prop)
+    local ok, v = pcall(function() return obj[prop].RowName:ToString() end)
+    if ok and type(v) == "string" then return v end
+    ok, v = pcall(function() return obj[prop]:ToString() end)
+    if ok and type(v) == "string" then return v end
+    return nil
 end
 
 local function value_text(v)
@@ -126,24 +135,9 @@ local function short_field(n) return (n:gsub("_%d+_%x+$", "")) end
 local function dump_fx_struct(pc, prop, label)
     local ok, val = pcall(function() return pc[prop] end)
     if not ok or val == nil then log("    " .. label .. ": unreadable"); return end
-    local def = StaticFindObject(FX_STRUCT)
-    if not (def and def:IsValid()) then log("    " .. label .. ": struct definition not found"); return end
-    log("    " .. label .. ":")
-    pcall(function()
-        def:ForEachProperty(function(p)
-            local n = p:GetFName():ToString()
-            local okv, v = pcall(function() return val[n] end)
-            if okv then log(string.format("      %-28s %s", short_field(n), value_text(v))) end
-        end)
-    end)
-end
-
-local function dump_fx_struct(pc, prop, label)
-    local ok, val = pcall(function() return pc[prop] end)
-    if not ok or val == nil then log("    " .. label .. ": unreadable"); return end
-    local def = StaticFindObject(FX_STRUCT)
-    if not (def and def:IsValid()) then log("    " .. label .. ": struct definition not found"); return end
-    log("    " .. label .. ":")
+    local def, from = fx_struct()
+    if not def then log("    " .. label .. ": struct definition not found"); return end
+    log("    " .. label .. ": (" .. struct_text(def, from) .. ")")
     pcall(function()
         def:ForEachProperty(function(p)
             local n = p:GetFName():ToString()
@@ -511,8 +505,8 @@ end
 RegisterKeyBind(Key.NUM_FOUR, function() ExecuteInGameThread(sky_dome_survey) end)
 RegisterKeyBind(Key.NUM_FIVE, function() ExecuteInGameThread(hazard_survey) end)
 RegisterKeyBind(Key.NUM_SIX, function() ExecuteInGameThread(npc_survey) end)
-pcall(function() RegisterKeyBind(Key.ADD, { ModifierKey.CONTROL }, function() ExecuteInGameThread(fx_player_survey) end) end)
-log("keys: NUMPAD 4 = sky domes, NUMPAD 5 = hazards, NUMPAD 6 = NPCs, CTRL+NUMPAD+ = player lighting (all read-only)")
+pcall(function() RegisterKeyBind(Key.HOME, function() ExecuteInGameThread(fx_player_survey) end) end)
+log("keys: NUMPAD 4 = sky domes, NUMPAD 5 = hazards, NUMPAD 6 = NPCs, HOME = player lighting (all read-only)")
 
 ------------------------------------------------------------------------------------------------------------------------
 -- Status (read-only): NUMPAD 9 logs the controller's ActiveLevelName, PlayerIsInVignette, the weather FX name and the weather event.
@@ -539,12 +533,14 @@ log("status key: NUMPAD 9 = level name, vignette and weather status (read-only)"
 
 ------------------------------------------------------------------------------------------------------------------------
 -- Level table survey (read-only), NUMPAD 8. The game finds the level the player is in through its level manager, then looks that level
--- up in DT_Levels (rows of LevelMetadata_Struct: LevelFileName, IsVignette, EntranceTeleporter, ...). The row it lands on becomes the
+-- up in DT_Levels (rows of LevelMetadata: Level, IsVignette, EntranceTeleporter, ...; a Blueprint struct with LevelFileName instead of
+-- Level before game update v1.5.0). The row it lands on becomes the
 -- controller's ActiveLevelName, which PlayerIsInVignette, the respawn menu and the weather read. A custom world has no row, so the game
 -- keeps the last one (Facility). This logs every row and what the level manager reports where the player stands.
 ------------------------------------------------------------------------------------------------------------------------
 local LEVELS_TABLE = "/Game/Blueprints/DataTables/Environment/DT_Levels.DT_Levels"
-local LEVEL_STRUCT = "/Game/Blueprints/Data/LevelMetadata_Struct.LevelMetadata_Struct"
+local LEVEL_STRUCTS = { "/Script/AbioticFactor.LevelMetadata", "/Game/Blueprints/Data/LevelMetadata_Struct.LevelMetadata_Struct" }
+local function level_struct() return row_struct(LEVELS_TABLE, LEVEL_STRUCTS) end
 
 local function text_of(v)
     if v == nil then return "nil" end
@@ -558,9 +554,9 @@ local function text_of(v)
 end
 
 local function row_fields(data)
-    local def = StaticFindObject(LEVEL_STRUCT)
+    local def = level_struct()
     local parts = {}
-    if not (def and def:IsValid()) then return "(struct definition not found)" end
+    if not def then return "(struct definition not found)" end
     pcall(function()
         def:ForEachProperty(function(p)
             local n = p:GetFName():ToString()
@@ -576,6 +572,7 @@ local function level_table_survey()
     local dt = StaticFindObject(LEVELS_TABLE)
     if not (dt and dt:IsValid()) then log("  DT_Levels is not loaded"); return end
     log("  table: " .. dt:GetFullName())
+    log("  row struct: " .. struct_text(level_struct()))
     -- rows, through UE4SS's own data-table API
     local names = {}
     local okN, err = pcall(function()
@@ -632,8 +629,8 @@ local FX_TABLE_PATH = "/Game/Blueprints/DataTables/Environment/DT_LevelFX.DT_Lev
 
 local function struct_field_names()
     local names = {}
-    local def = StaticFindObject(LEVEL_STRUCT)
-    if def and def:IsValid() then
+    local def = level_struct()
+    if def then
         def:ForEachProperty(function(p) local n = p:GetFName():ToString(); names[short_field(n)] = n end)
     end
     return names
@@ -646,14 +643,14 @@ local function add_test_row()
     local okE, existing = pcall(function() return dt:FindRow(TEST_ROW) end)
     if okE and existing ~= nil then log("  row already there: " .. row_fields(existing)); return end
     local f = struct_field_names()
-    for _, k in ipairs({ "ReleaseGroup", "LevelFileName", "LevelFXRow_Day", "LevelFXRow_Night", "SectorName",
+    for _, k in ipairs({ "ReleaseGroup", "LevelFXRow_Day", "LevelFXRow_Night", "SectorName",
                          "ResettablePortalWorld", "HasFacilityShakes", "IsVignette", "EntranceTeleporter" }) do
         if not f[k] then log("  field not found in the struct: " .. k .. " (stopping)"); return end
     end
     local fx = StaticFindObject(FX_TABLE_PATH)
     local row = {}
     row[f.ReleaseGroup] = 0
-    row[f.LevelFileName] = FName(TEST_ROW)
+    if f.LevelFileName then row[f.LevelFileName] = FName(TEST_ROW) end   -- before v1.5.0; never write its successor Level (a soft object)
     row[f.LevelFXRow_Day] = { DataTable = fx, RowName = FName("HGarden") }
     row[f.LevelFXRow_Night] = { DataTable = fx, RowName = FName("HGarden") }
     pcall(function() row[f.SectorName] = FText("Test World") end)
@@ -717,7 +714,7 @@ local function fx_status(tag)
     local function name_of(prop) local ok, v = pcall(function() return pc[prop]:ToString() end); return ok and v or "?" end
     local okA, auto = pcall(function() return pc.DisableAutomaticFX end)
     log(string.format("%s: ActiveLevelFXName=%s  Day_FX_Row=%s  Night_FX_Row=%s  ActiveWeatherFXName=%s  PlayerIsInVignette=%s  DisableAutomaticFX=%s  %s",
-        tag, name_of("ActiveLevelFXName"), name_of("Day_FX_Row"), name_of("Night_FX_Row"), name_of("ActiveWeatherFXName"), tostring(in_vignette(pc)),
+        tag, name_of("ActiveLevelFXName"), handle_name(pc, "Day_FX_Row") or "?", handle_name(pc, "Night_FX_Row") or "?", name_of("ActiveWeatherFXName"), tostring(in_vignette(pc)),
         okA and tostring(auto) or "?", light_values()))
 end
 
@@ -734,7 +731,7 @@ local function one_line(err) return (tostring(err):gsub("[\r\n]+%s*", " | ")):su
 local function remember(pc)
     if saved then return end
     local function s(prop) local ok, v = pcall(function() return pc[prop]:ToString() end); return ok and v or nil end
-    saved = { levelName = s("ActiveLevelName"), fxName = s("ActiveLevelFXName"), day = s("Day_FX_Row"), night = s("Night_FX_Row") }
+    saved = { levelName = s("ActiveLevelName"), fxName = s("ActiveLevelFXName"), day = handle_name(pc, "Day_FX_Row"), night = handle_name(pc, "Night_FX_Row") }
     log(string.format("  kept for NUMPAD *: level %s, level row %s, lighting rows %s / %s",
         tostring(saved.levelName), tostring(saved.fxName), tostring(saved.day), tostring(saved.night)))
 end
@@ -999,11 +996,32 @@ local function fx_row_values(name, only)
     local dt = StaticFindObject(FX_TABLE_PATH)
     if not (dt and dt:IsValid()) then return "?" end
     local okR, row = pcall(function() return dt:FindRow(name) end)
-    if not (okR and type(row) == "table") then return "(row not readable: " .. type(row) .. ")" end
+    if not okR or row == nil then return "(row not found)" end
+    -- FindRow hands back the row as a struct (userdata), not a Lua table: read it field by field through the row struct's properties.
+    -- Read-only: soft-object fields (music, cubemap, particles) are read but never written, and only plain values are shown.
+    local fields = {}
+    if type(row) == "table" then
+        for k, v in pairs(row) do fields[#fields + 1] = { tostring(k), v } end
+    else
+        local def = fx_struct()
+        if not def then return "(lighting row struct not found)" end
+        pcall(function()
+            def:ForEachProperty(function(p)
+                local n = p:GetFName():ToString()
+                local okv, v = pcall(function() return row[n] end)
+                if okv then fields[#fields + 1] = { n, v } end
+            end)
+        end)
+        if #fields == 0 then return "(row not readable: no fields)" end
+    end
     local parts = {}
-    for k, v in pairs(row) do
-        local key = short_field(tostring(k))
-        if not only or key:find(only) then
+    for _, kv in ipairs(fields) do
+        local k, v = kv[1], kv[2]
+        local key = short_field(k)
+        local wanted = not only
+        if type(only) == "table" then for _, pat in ipairs(only) do if key:find(pat) then wanted = true end end
+        elseif only then wanted = key:find(only) ~= nil end
+        if wanted then
             local t, txt = type(v), nil
             if t == "number" then txt = string.format("%.3g", v)
             elseif t == "boolean" then txt = tostring(v)
@@ -1016,12 +1034,15 @@ local function fx_row_values(name, only)
     return table.concat(parts, "  ")
 end
 
+-- the fields the row list shows: sun, sky, fog, temperature, dynamic sky (field names of the native LevelFXData since v1.5.0)
+local LIST_FIELDS = { "^DirLight_Intensity$", "^SkyLight_Intensity$", "^Fog_Density$", "^Fog_MaxOpacity$", "Temperature", "Dynamic" }
+
 local function list_lighting()
     log("---- LIGHTING ROWS (DT_LevelFX)")
     local rows = lighting_rows()
     if not rows or #rows == 0 then log("  no row names could be read") return end
     for i, r in ipairs(rows) do
-        log(string.format("  %3d  %-28s %s", i, r, fx_row_values(r, "[SsFfTtDd][uokei][nygmn]")))   -- Sun / Sky / Fog / Temp / Dynamic ...
+        log(string.format("  %3d  %-28s %s", i, r, fx_row_values(r, LIST_FIELDS)))
     end
     log(string.format("  %d rows. NUMPAD * / NUMPAD / = next / previous, NUMPAD . = back to the game's lighting", #rows))
 end
@@ -1033,11 +1054,13 @@ local function step_lighting(delta)
     if not rows or #rows == 0 then log("lighting browser: no row names could be read") return end
     if not browse.before then
         local function s(prop) local ok, v = pcall(function() return pc[prop]:ToString() end); return ok and v or nil end
-        browse.before = { day = s("Day_FX_Row"), night = s("Night_FX_Row") }
+        browse.before = { day = handle_name(pc, "Day_FX_Row"), night = handle_name(pc, "Night_FX_Row") }
     end
     browse.i = ((browse.i - 1 + delta) % #rows) + 1
     local r = rows[browse.i]
     log(string.format("---- LIGHTING %d/%d: %s", browse.i, #rows, r))
+    -- the row name on screen: the sector name passed below stopped showing as a banner here in v1.5.0 (seen 6 November 2026)
+    pcall(function() pc.Pawn:Client_DisplayWarningMessage(FText(string.format("Lighting %d/%d: %s", browse.i, #rows, r)), 1, false) end)
     if transition_to(pc, r, r, string.format("%s (%d/%d)", r, browse.i, #rows)) then
         log("  " .. fx_row_values(r))
         ExecuteWithDelay(2000, function() ExecuteInGameThread(function() fx_status("  2 s later") end) end)
@@ -1072,11 +1095,11 @@ if not EXPERIMENT_KEYS then
 end
 
 ------------------------------------------------------------------------------------------------------------------------
--- Leyak, NUMPAD - (read-only survey) and CTRL + NUMPAD - (force a spawn) (17 October 2026). The Leyak is spawned by the AI director's
+-- Leyak, NUMPAD - (read-only survey) and F4 (force a spawn) (17 October 2026). The Leyak is spawned by the AI director's
 -- LeyakDirectorComponent (Abiotic_AIDirector_C_1 in the Facility map; its parent StalkingNpcDirector_ParentBP). From the object dump: it
 -- has a RequiredWorldFlag (a story flag that must be set before she can appear), a StalkingTag, LeyakCooldown / TimeLastLeyakSpawn,
 -- CanSpawn(), ActiveStalkingNPC, CurrentStalkingNpcTarget, DirectorDebugOn (the game's own on-screen debug messages) and
--- Server_ForceSpawn() (no parameters). CTRL + NUMPAD - is the only key here that changes anything: it switches the director's debug messages
+-- Server_ForceSpawn() (no parameters). F4 is the only key here that changes anything: it switches the director's debug messages
 -- on and calls Server_ForceSpawn (untried: kept on its own key). Compare World B (Leyak safety zone) with World D (none).
 ------------------------------------------------------------------------------------------------------------------------
 local function leyak_director()
@@ -1153,11 +1176,11 @@ local function leyak_force()
 end
 
 RegisterKeyBind(Key.SUBTRACT, function() ExecuteInGameThread(function() leyak_survey() end) end)
-if not pcall(function() RegisterKeyBind(Key.SUBTRACT, { ModifierKey.CONTROL }, function() ExecuteInGameThread(leyak_force) end) end) then log("CTRL + NUMPAD - could not be bound") end
-log("Leyak keys: NUMPAD - = Leyak director survey (read-only), CTRL + NUMPAD - = force a Leyak spawn (and the game's director debug messages)")
+if not pcall(function() RegisterKeyBind(Key.F4, function() ExecuteInGameThread(leyak_force) end) end) then log("F4 could not be bound") end
+log("Leyak keys: NUMPAD - = Leyak director survey (read-only), F4 = force a Leyak spawn (and the game's director debug messages)")
 
 ------------------------------------------------------------------------------------------------------------------------
--- No-clip, F1 (18 October 2026), so the cheat-command mod is not needed for testing. Written from the engine's own character
+-- No-clip, F5 (18 October 2026), so the cheat-command mod is not needed for testing. Written from the engine's own character
 -- functions: the player's collision off (SetActorEnableCollision), movement mode Flying (CharacterMovement:SetMovementMode 5) with the
 -- engine's cheat-flying switch (bCheatFlying) and a faster fly speed. Pressing it again puts everything back and drops the player
 -- (Falling, mode 3), and logs where they are. A new pawn (after dying) starts with collision on, so the next press switches no-clip on
@@ -1251,6 +1274,53 @@ local function save_position()
     say(string.format("Position %d saved: %s", savedCount, short), 0)
 end
 
-if not pcall(function() RegisterKeyBind(Key.F1, function() ExecuteInGameThread(toggle_noclip) end) end) then log("F1 could not be bound") end
+-- F3: kill the player, for testing the respawn menu. The character only reacts to point and radial damage (it has no any-damage event) and
+-- takes nothing from the engine's plain DamageType (6 November 2026: the hit went through, no damage), so this is a point hit of the game's
+-- own DeathPit damage type, with no instigator to keep friendly-fire rules out of it. If the player is still alive a second later, the
+-- character's IsDead is set and its OnRep_IsDead runs (Server_PerformDeathSequence alone did nothing on 6 November). The log shows the health.
+local KILL_DAMAGE = 1000000.0
+local KILL_TYPE = "/Game/Blueprints/DamageTypes/DamageType_DeathPit.DamageType_DeathPit_C"
+local function is_dead(pawn)
+    local ok, v = pcall(function() return pawn.IsDead end)
+    return ok and v == true
+end
+
+local function total_health(pawn)
+    local ok, v = pcall(function() return pawn:GetTotalHealth() end)
+    return ok and tostring(v) or "?"
+end
+
+local function kill_type()
+    local cls = StaticFindObject(KILL_TYPE)
+    if valid(cls) then return cls end
+    pcall(function() LoadAsset("/Game/Blueprints/DamageTypes/DamageType_DeathPit.DamageType_DeathPit") end)
+    cls = StaticFindObject(KILL_TYPE)
+    return valid(cls) and cls or nil
+end
+
+local function kill_player()
+    local pc = player_controller()
+    local pawn = pc and pc.Pawn
+    if not valid(pawn) then log("kill: no player pawn (already dead?)") return end
+    if is_dead(pawn) then log("kill: already dead") return end
+    local lib, cls = StaticFindObject("/Script/Engine.Default__GameplayStatics"), kill_type()
+    log("kill: health " .. total_health(pawn) .. ", damage type " .. (cls and "DeathPit" or "not found"))
+    local steps = {
+        { "point damage, no instigator", function() lib:ApplyPointDamage(pawn, KILL_DAMAGE, { X = 0, Y = 0, Z = 1 }, {}, nil, pawn, cls) end },
+        { "IsDead and OnRep_IsDead", function() pawn.IsDead = true; pawn:OnRep_IsDead() end },
+    }
+    if not (valid(lib) and cls) then table.remove(steps, 1) end
+    local function step(i)
+        if i > 1 and (not valid(pawn) or is_dead(pawn)) then log("kill: dead") return end
+        if i > #steps then log("kill: still alive after every step, health " .. total_health(pawn)) return end
+        local ok, err = pcall(steps[i][2])
+        log(string.format("kill: %s: %s, health %s%s", steps[i][1], tostring(ok), total_health(pawn), ok and "" or (" (" .. one_line(err) .. ")")))
+        ExecuteWithDelay(1000, function() ExecuteInGameThread(function() step(i + 1) end) end)
+    end
+    step(1)
+end
+
+if not pcall(function() RegisterKeyBind(Key.F5, function() ExecuteInGameThread(toggle_noclip) end) end) then log("F5 could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.F2, function() ExecuteInGameThread(save_position) end) end) then log("F2 could not be bound") end
-log("player keys: F1 = no-clip on / off, F2 = save this position (log, screen, saved_positions.txt)")
+if not pcall(function() RegisterKeyBind(Key.F3, function() ExecuteInGameThread(kill_player) end) end) then log("F3 could not be bound") end
+log("player keys: F5 = no-clip on / off, F2 = save this position (log, screen, saved_positions.txt), F3 = kill the player")

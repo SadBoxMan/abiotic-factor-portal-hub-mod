@@ -161,8 +161,8 @@ enter(ex, tick)
 check("pad at origin by default", lua("pad('cordonatest_start').loc.X") == ORIGIN[0] and lua("pad('cordonatest_start').loc.Y") == ORIGIN[1])
 check("no lighting set: lit with Intro, title = the portal name", lua("TRANSITIONS[1]") == "Intro / Intro / 'Test World'", lua("TRANSITIONS[1]"))
 check("no lighting set is logged", any("has no lighting set" in l for l in logs()))
-ex("PC.Day_FX_Row = FName('office1')"); n = lua("#TRANSITIONS"); tick(8)
-check("no lighting set: Intro is put back if the game changes it", lua("PC.Day_FX_Row.s") == "Intro", lua("PC.Day_FX_Row.s"))
+ex("PC.Day_FX_Row = { RowName = FName('office1') }"); n = lua("#TRANSITIONS"); tick(8)
+check("no lighting set: Intro is put back if the game changes it", lua("PC.Day_FX_Row.RowName.s") == "Intro", lua("PC.Day_FX_Row.RowName.s"))
 
 # 5) A lighting row that does not exist falls back to Intro.
 lua, ex, tick, logs = run("unknown lighting row", r'''
