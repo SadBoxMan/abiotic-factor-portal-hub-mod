@@ -20,7 +20,7 @@ Answers to the risks below: UE4SS and all mods run on the new exe. The hub's lev
 but the row registry is not cleared: see the table below. CordonaCorp and the Mod Testing save both loaded. **Portal Entrance works again in
 vignette worlds ("Nearest Location").**
 
-### Open after CRD-004 (for CRD-006)
+### Open after CRD-004 (for CRD-006; all answered in the next section)
 
 | What | Seen 6 November | Next |
 |---|---|---|
@@ -29,6 +29,126 @@ vignette worlds ("Nearest Location").**
 | **Leyak in custom worlds** | Required flag now `Residence_Entered`; forced spawn in World B landed at 0, 0, 0, about 19 km away | Compare with World D; check the zone and the nav mesh separately |
 | **Location banner** | World B's title banner shows on entry. The lab's lighting browser, which calls the same `TransitionToNewEnvironmentFX` outside a claimed world, no longer shows its sector name (the lab now shows the row name itself) | Low priority: only matters if a world needs a banner without a level entry |
 | **Hook removal on a save switch** | Once with third-party mods installed, not in two switches without them | Bring parked mods back one at a time only if one is needed |
+
+## Full assessment, 6 November 2026 (CRD-006, v1.5.0.31876, Steam build 26373201)
+
+**Verdict: the hub works on the current build.** Everything CRD-004 left open turned out to be fine or a false alarm. Two real faults remain, both
+about loading a save inside a custom world, and neither was caused by the update's data changes. UE4SS stayed on the July build (c838a8ac).
+
+Tested in game on Mod Testing and CordonaCorp, 16 world loads across four runs, keys and logs as listed below.
+
+### What each open item turned out to be
+
+- **Portal sickness: false alarm.** `Debuff_PortalSickness` is applied on v1.5.0 (seen in Test World with the flag cleared, gone in the Facility). It
+  was missing on 6 November because `PortalHub_cordonatest_start_Completed` and `PortalHub_world_b_start_Completed` were already in CordonaCorp's
+  save, and World B's in Mod Testing's, all from before the update (both are in the 27 October backups). Neither the hotfix nor the claim is involved.
+- **Completion: false alarm, same cause.** A flag that is already set cannot change, so no message shows. Also, NUMPAD 7 read the save's flag list without
+  `:get()`, so it printed `(none)` whatever was set; fixed in the lab. With the flag cleared, the exit pad sets it within 1.5 s and the message shows, in
+  both Test World and World B. Leaving by the arrival pad does not set it.
+- **Leyak: works, and the safety zone works.** In World D (nav mesh, no zone) she spawned 30 m away and came towards the player. In World B (nav mesh and
+  zone) she spawned 34 m away, stopped at 27 m, then was moved to 0, 0, 0. That is the "19 km away" spawn CRD-004 saw: the game putting her away, not
+  a failed spawn. In World A (zone, no nav mesh) nothing spawned, as on 17 October. The director's required flag changes between runs of the same save
+  (`LABS_EnteredLabs`, then `Residence_Entered`); both are set in Mod Testing, so it did not matter. CordonaCorp has neither, so she cannot appear there.
+- **Hook removal: not the parked mods.** It happened again with only our mods installed (fault 2 below).
+- **Location banner:** not retested. World B's banner shows on entry; the lab's browser passes a sector name without a claimed level and shows none.
+  Matters only if a world needs a banner without a level entry.
+
+### Pass / fail / unknown
+
+| Feature | For | Result | Evidence |
+|---|---|---|---|
+| All five world paks mount | 2.0 | Pass | `LogPakFile` mounts `Test_P`, `WorldA_P` to `WorldD_P`; object dump of 6 Nov present |
+| Hub portals: NUMPAD 1 respawn, NUMPAD 2 remove | 1.0 | Pass | 6 pads removed and spawned; hum applied |
+| Portal to a base-game world | 1.0 | Pass | `hub_A4 -> train_start` |
+| Way back from a base-game world | 1.0 | **Decision needed** | The Train's way out is its own `train_earlyexit -> train_earlyreturn`, not `train_start`, so `route_return` has no effect. See the list for Portal Hub 1.0 |
+| Base-game world's own flags | 1.0 | Pass | `train_end` set `TrainCompletedOnce` |
+| Other base-game destinations | 1.0 | Unknown | Pad ids in the GUI match `DT_Levels`; only the Train was walked |
+| Entry and exit, home-type custom world | 2.0 | Pass | World A, World D, arrival pad back to the same portal |
+| Entry and exit, vignette custom world | 2.0 | Pass | Test World, World B |
+| Arrival pad | 2.0 | Pass | Spawned at its spot, returns to the portal used |
+| Fall rescue | 2.0 | Pass | World A below -3000, World B below -1000, on arrival pad each time while the tracker runs |
+| Vignette claim, banner, lighting, Portal Entrance | 2.0 | Pass | CRD-004, repeated in these runs |
+| Portal sickness, completion, exit pad | 2.0 | Pass | See above |
+| Leyak safety zone and nav mesh | 2.0 | Pass | See above |
+| Weather inside and outside worlds | 2.0 | Unknown | `ActiveWeatherFXName` was `None` in every run; no way to force weather with the cheat mods parked. Needs a weather day |
+| Save and reload in the Facility | 1.0 | Pass | CordonaCorp, flags kept |
+| Save and reload inside a custom world, first load after launch | 2.0 | Pass | Hold, then back on the ground |
+| Save and reload inside a custom world, later loads | 2.0 | **Fail** | Fault 1: falls every time, rescued unless fault 2 hits |
+| Completion flags kept across reloads and the update | 2.0 | Pass | Both still set on CordonaCorp |
+| Save switch | 1.0 | Pass | Mod Testing to CordonaCorp and back, several times |
+| CordonaCorp's mod list | 1.0 | Pass | Whiteboard mod enabled for that save; loads and saves normally |
+| Row registry | 1.0 | Pass | See below |
+| Delayed callbacks staying alive | 1.0 | **Fail, rare** | Fault 2 |
+| Lab: NUMPAD 3, 4, 5, 6, 7, 8, 9, 0, `*`, `/`, `.`, `-`, HOME, F2, F3, F4, F5, PAGE UP, PAGE DOWN | Dev | Pass | PAGE UP and PAGE DOWN are new |
+| PortalLogger F6 to F10 | Dev | Unknown | Not pressed; only used for the old proof of concept |
+| `PortalHubConfig.ps1` | 2.0 | Pass | `-RoundTrip` on the live config: same lines, `check_config.py` passes; live file untouched |
+
+### Faults
+
+**Fault 1: falling through a world on reload (2.0; not from the update).** `mod/PortalHub/Scripts/main.lua`, `world_is_ready` (line 1148). `worldState` survives a
+map load, so after quitting to the menu and reloading (no relaunch) a world still reads "ready" though its level is gone. The tracker skips the hold, the player
+falls, and the state only resets when `ensure_worlds` runs about 4 s later. After a relaunch the state is empty, the hold starts within 1 s and the player
+lands on the floor. Seen on every in-session reload inside a world, and it is what the author has seen as "sometimes I fall through". **Restore:** in
+`world_is_ready`, count "ready" only when `loader_present(def)` is true; otherwise clear the entry so the normal load and hold run. Check `presence.inside`
+too: it also survives, so a reload may not claim the world again until the tracker sees the player leave.
+
+**Fault 2: UE4SS drops all delayed callbacks (both, rare).** `Hook threw exception: [Lua::Registry::get_function_ref] Ref was not function ... removing hook!`
+from `UE4SS.EngineTick.LuaModImpl`, 1 load in 16, at 21:32:38 on a reload inside World B, 0.6 s after `spawn_all`. The world checks stopped (World D never finished) and
+the tracker with them, so the hold never released and the rescue never ran: the player was left stuck under the world until a game restart. Only
+our mods were installed, and the lab's own timers were not due yet. **What is known:** it fired while the five world checks and the tracker were all polling. Earlier
+sightings were also moments of many queued callbacks. **What is not known:** whether UE4SS or the burst is at fault. **Restore, in order:** run the
+world checks in `start_world` (line 610) as one shared loop instead of five chains; then, if it comes back, the controlled UE4SS update (back up the `ue4ss`
+folder, keep `Mods\`, latest experimental build, same tests). A one-in-16 fault needs many reloads to judge either way. With no custom worlds there
+is no tracker or world check, so 1.0 is far less exposed.
+
+**Not a fault:** a crash in `UE4SS!RC::LuaMadeSimple::handle_error` at 21:40 from stepping lighting rows about five a second (NUMPAD `*`), each queuing a
+2 s timer. Dev key only; the author does not count it, and no player can reach it. It is one more sign that bursts of callbacks are what this UE4SS build handles badly.
+
+**Cleanup, harmless:** flag handles have no `DataTablePath` since v1.5.0 (below), but UE4SS ignores the extra field: `HasWorldFlag` and `SetWorldFlag` work
+with the hub's table. `flag_table_path` and `flag_handle` in the hub (lines 525-535) and the lab's NUMPAD 3 (lines 932, 956, 968) can drop it.
+
+### Row registry (the CRD-005 question)
+
+- **`BaseTables` holds 113 tables, including `DT_WorldFlags`, `DT_LevelFX` and `DT_Levels`.** The CRD-005 note said `DT_Levels` was not managed; that is corrected there.
+- **Rows added with `AddRow` survive.** With hub rows already in both tables, the Whiteboard mod registered, unregistered and registered again (`LogRowRegistry`, prefix
+  `NZJKQ`; `RootedModObjects` 5; load order 1). `DT_WorldFlags` stayed at 273 rows and `DT_Levels` at 61, both with their hub rows, and the hub logged no "added"
+  line afterwards, which it does when a row is missing.
+- **Limit of the test:** one mod that adds no flag or level rows. A mod that adds to those two tables might behave differently. The hub re-adds both rows when
+  needed (`ensure_flag_row`, `ensure_level_row`), so the risk stays small.
+- `LogRowRegistry` is silent with no mods enabled, so its absence proves nothing.
+
+### For Portal Hub 1.0 (base-game worlds)
+
+- Everything 1.0 needs passed: spawn and removal, entering a base-game world, saves, save switching, official mods side by side.
+- **Decide:** a world with its own exits sends players to the game's return point, not the hub portal. The hub's `route_return` only rewrites the arrival pad, and the
+  Train does not leave through that. Either accept it (players walk back) or find each world's exit pad and rewrite its `DestinationTeleporterID` too.
+  Check a second world before deciding.
+- `Divarication` (`V_BOTANICAL`, entrance `botanical_future_01`) is in `DT_Levels` but not in the GUI's destination list.
+
+### Where things moved (for the step-2 docs task)
+
+| What | Before | Now |
+|---|---|---|
+| Level row struct | Blueprint `LevelMetadata_Struct` | Native `/Script/AbioticFactor.LevelMetadata`; find it through `DT_Levels.RowStruct` |
+| Lighting row struct | Blueprint `LevelFXData_Struct` | Native `/Script/AbioticFactor.LevelFXData` |
+| Level file field | `LevelFileName` (a name) | `Level` (a soft object: never write it) |
+| New level fields | | `bIsSublevel` |
+| Flag handle | `{RowName, DataTablePath}` | Native `WorldFlagRowHandle` (base `RowHandle`): `RowName` at offset 8, a hidden field at 0. Library: `/Script/AbioticFactor.WorldFlagHandleFunctionLibrary` (`DoesWorldFlagRowExist`, `Conv_NameToWorldFlag`, `GetAllWorldFlagRowNames`) |
+| New flag table type | | `WorldFlagTrigger` (`RequiredWorldFlags`, `WorldFlagToGrant`); teleporters still use a plain `WorldFlagRowHandle` |
+| Controller's FX rows | Names | `LevelFXRowHandle` structs: read `.RowName` |
+| `DT_Levels` | 60 rows | 60 rows, 61+ with hub rows; 24 portal worlds with `ResettablePortalWorld` |
+| `DT_LevelFX` | 153 rows | 153 rows |
+| `DT_WorldFlags` | | 271 rows, 273 with two hub flags |
+| Buffs table | | `/Game/Blueprints/DataTables/BuffsDebuffs/DT_BuffsDebuffs` (545 rows; `Debuff_PortalSickness` unchanged) |
+| Leyak's required flag | `LABS_EnteredLabs` | Varies between runs, also `Residence_Entered` |
+
+**Portal worlds in `DT_Levels` (row, title, entrance pad):** AnteverseA, Far Garden, `anteverse_a_start`; AnteverseB, The Mycofields, `anteverse_b_start`; AnteverseC, Village Den
+da'ko Yeer, `anteverse_c_start`; Flathill, `fog_start`; Warehouse, Furniture Store, `warehouse_start`; MirrorWorld, The World in the Mirror, `mirrorworld_start`; Alps, Voussoir,
+`alps_start`; Suomi, Shadowgate, `shadowgate_start`; Train, `train_start`; Wall, GATE Arch Defense Facility (N.S.Z.), `wall_start`; HCabin, Unknown Location, `H_Cabin_Start`;
+HGarden, Temple of Stone, `H_Garden_Start`; HJapan, Torii, `H_Japan_Start`; Rise, `rise_start`; NightRealm, `nightrealm_start_A`; ArcadeWinter, IS-0083, `VWinter_Start`; Salem, Canaan,
+`salem_begin`; V_Inq, The Praetorium, `INQ_Entrance`; V_BOTANICAL, Divarication, `botanical_future_01`; V_ISLAND, Albatross, `island_start`; V_SnowGlobe, North Pole, `V_Snowglobe_Start`;
+V_Signal, Dunkeltaler Forest, `signal_start`. All are vignettes (`IsVignette` true). DistantShore (Some Distant Shore) has no entrance listed. Tile is resettable but **not** a vignette, and has no
+entrance listed (the GUI's `tile_entrance` is a real pad).
 
 ## Verdict on 27 October: needs fixes (one known break, rest unknown until a launch)
 

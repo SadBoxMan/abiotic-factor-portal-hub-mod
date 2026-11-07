@@ -10,6 +10,9 @@
 --   NUMPAD -        Leyak director: required story flag, CanSpawn, cooldown, active Leyak, each Leyak's distance (read-only); F4 forces a spawn
 --   F5              no-clip on / off (changes the player: collision off, flying)
 --   F2              save the player's position (world and world-relative, for ArriveSpot / ExitSpot) to the log and saved_positions.txt
+--   PAGE UP         flags and row registry: flags in this save, hub rows in DT_WorldFlags and DT_Levels, BaseTables, zones, pads (read-only)
+--   PAGE DOWN       the same questions asked through native calls not used elsewhere (flag library, HasWorldFlag handle forms; on their own key)
+--   (no key)        every pad use is logged by a passive hook on AttemptTeleport: which pad, where it leads, which flag it sets
 -- Keys stay clear of the game's own bindings: F1 is its player list, F10 its HUD toggle, + its pager (NUMPAD 1 and 2 belong to PortalHub, F6-F10 to PortalLogger). Note: Shift + a numpad digit does not work,
 -- because with Num Lock on Shift turns the digit into Home / arrow keys.
 -- Rule: every object is checked with IsValid() before anything is called on it (a call on an invalid object crashes the game).
@@ -820,6 +823,27 @@ local function tag_list(container)
     return #out > 0 and table.concat(out, ", ") or "(none)"
 end
 
+-- one entry of an out-parameter name array: a plain FName, or wrapped (then it needs :get() first)
+local function array_name(x)
+    local s
+    if pcall(function() s = x:ToString() end) and type(s) == "string" then return s end
+    if pcall(function() s = x:get():ToString() end) and type(s) == "string" then return s end
+    return nil
+end
+
+-- the story flags set in this world save: the readable names, and how many entries the game handed back
+local function saved_flags()
+    local fs = FindFirstOf("WorldFlagSubsystem")
+    if not valid(fs) then return nil, 0 end
+    local out, names = {}, {}
+    pcall(function() fs:GetWorldFlags(out) end)
+    for i = 1, #out do
+        local n = array_name(out[i])
+        if n then names[#names + 1] = n end
+    end
+    return names, #out
+end
+
 local function vignette_buff_survey()
     log("---- VIGNETTE BUFF SURVEY")
     local pc = player_controller()
@@ -852,16 +876,13 @@ local function vignette_buff_survey()
         log(string.format("  relative to the Test World origin: exit = { %.0f, %.0f, %.0f, %.0f }", loc.X - 1100000, loc.Y - 1300000, loc.Z - 90, r.Yaw))
     end)
     -- the story flags set in this world save that belong to Portal Hub worlds (GetWorldFlags fills a list of names)
-    local fs = FindFirstOf("WorldFlagSubsystem")
-    if fs and fs:IsValid() then
-        local out, ours, total = {}, {}, 0
-        pcall(function() fs:GetWorldFlags(out) end)
-        for i = 1, #out do
-            total = total + 1
-            local okN, n = pcall(function() return out[i]:ToString() end)
-            if okN and n:find("PortalHub_") then ours[#ours + 1] = n end
+    local names, total = saved_flags()
+    if names then
+        local ours = {}
+        for _, n in ipairs(names) do
+            if n:find("PortalHub_") then ours[#ours + 1] = n end
         end
-        log(string.format("  story flags set: %d, Portal Hub ones: %s", total, #ours > 0 and table.concat(ours, ", ") or "(none)"))
+        log(string.format("  story flags set: %d (%d readable), Portal Hub ones: %s", total, #names, #ours > 0 and table.concat(ours, ", ") or "(none)"))
     end
     local zones = FindAllOf("Vignette_Zone_C") or {}
     log("  vignette zones in the world: " .. #zones)
@@ -1119,10 +1140,13 @@ local function leyak_survey(tag)
     local flag = get("RequiredWorldFlag")
     local flagRow = flag and name_of(flag, "RowName") or "?"
     local flagSet = "?"
-    local fs, pc = FindFirstOf("WorldFlagSubsystem"), player_controller()
-    if flag and flagRow ~= "?" and flagRow ~= "None" and fs and fs:IsValid() and pc then
-        local okH, v = pcall(function() return fs:HasWorldFlag(pc, { RowName = FName(flagRow), DataTablePath = flag.DataTablePath:ToString() }) end)
-        flagSet = okH and tostring(v) or "?"
+    local pc = player_controller()
+    local names = saved_flags()          -- the save's own list: flag handles have no DataTablePath since v1.5.0
+    if names and #names > 0 then
+        flagSet = "false"
+        for _, n in ipairs(names) do
+            if n == flagRow then flagSet = "true" end
+        end
     end
     log(string.format("  required story flag: %s (set in this save: %s)", flagRow, flagSet))
     local st = get("StalkingTag")
@@ -1163,6 +1187,15 @@ local function leyak_survey(tag)
         end
     end
     if n == 0 then log("  no Leyak in the world right now") end
+    -- her spawn is an EQS query over the nav mesh: list what nav data is loaded, so the zone and the nav mesh can be told apart
+    for _, class in ipairs({ "RecastNavMesh", "NavMeshBoundsVolume" }) do
+        local list = FindAllOf(class) or {}
+        log(string.format("  %s objects: %d", class, #list))
+        for i, a in ipairs(list) do
+            if i > 12 then log("    ...") break end
+            if valid(a) then log("    " .. a:GetFullName() .. " at " .. loc_text(a)) end
+        end
+    end
     return d
 end
 
@@ -1319,6 +1352,230 @@ local function kill_player()
     end
     step(1)
 end
+
+------------------------------------------------------------------------------------------------------------------------
+-- CRD-006, the assessment after game update v1.5.0 (6 November 2026). Nothing here changes the game or the save.
+-- Since v1.5.0 a flag handle is the native RowHandle: something at offset 0 that is not a property, then RowName. There is no
+-- DataTablePath any more, and the hub and lab still pass one (see findings/game-update-2026-10.md).
+--   PAGE UP    only reads of the kinds already used in this file: flags in this save, hub rows in the two tables the hub adds to,
+--              ABFRowRegistrySubsystem.BaseTables (which tables the row registry manages), zones and pads with their flags.
+--   PAGE DOWN  native calls not used before, on their own key: the flag library, the forms of a handle, and the registry's load order.
+--              Each is logged before it runs, so a crash shows which one it was.
+--   Pad use    a passive hook on AttemptTeleport logs which pad was used and whether its flag was set just after.
+------------------------------------------------------------------------------------------------------------------------
+local WORLD_FLAGS_PATH = "/Game/Blueprints/DataTables/DT_WorldFlags.DT_WorldFlags"
+local BUFFS_PATH = "/Game/Blueprints/DataTables/BuffsDebuffs/DT_BuffsDebuffs.DT_BuffsDebuffs"
+local FLAG_LIBRARY = "/Script/AbioticFactor.Default__WorldFlagHandleFunctionLibrary"
+local TELEPORT_FN = "/Game/Blueprints/Environment/Teleporters/BP_Teleporter_ParentBP.BP_Teleporter_ParentBP_C:AttemptTeleport"
+local HOMEWORLD_PAD = "/Game/Blueprints/Environment/Teleporters/BP_Teleporter_HomeWorld.BP_Teleporter_HomeWorld_C"
+local GAME_FLAG = "TrainCompletedOnce"          -- a flag of the game's own, to compare with
+
+local function row_names(dt)
+    local names = {}
+    pcall(function()
+        local r = dt:GetRowNames()
+        for i = 1, #r do names[#names + 1] = text_of(r[i]) end
+    end)
+    return names
+end
+
+local function has_row(dt, name)
+    local ok, row = pcall(function() return dt:FindRow(name) end)
+    return ok and row ~= nil
+end
+
+local function contains(list, value)
+    for _, v in ipairs(list or {}) do
+        if v == value then return true end
+    end
+    return false
+end
+
+-- rows of a table whose name matches, and the row count
+local function table_report(label, path, pattern)
+    local dt = StaticFindObject(path)
+    if not valid(dt) then log("  " .. label .. ": not loaded") return nil end
+    local names, ours = row_names(dt), {}
+    for _, n in ipairs(names) do
+        if n:find(pattern) then ours[#ours + 1] = n end
+    end
+    log(string.format("  %s: %d rows, matching %s: %s", label, #names, pattern, #ours > 0 and table.concat(ours, ", ") or "(none)"))
+    return dt
+end
+
+-- the flag rows the hub uses, from the table, the zones and the save, so a row missing from the table still shows up
+local function hub_flag_names()
+    local names, seen = {}, {}
+    local function add(n) if n and n:find("^PortalHub_") and not seen[n] then seen[n] = true; names[#names + 1] = n end end
+    local dt = StaticFindObject(WORLD_FLAGS_PATH)
+    if valid(dt) then
+        for _, n in ipairs(row_names(dt)) do add(n) end
+    end
+    for _, z in ipairs(FindAllOf("Vignette_Zone_C") or {}) do
+        if valid(z) then add(handle_row(z.PortalSicknessWorldFlag)) end
+    end
+    for _, n in ipairs(saved_flags() or {}) do add(n) end
+    return names
+end
+
+local function flag_registry_survey()
+    log("---- FLAG AND REGISTRY SURVEY")
+    local fs = FindFirstOf("WorldFlagSubsystem")
+    local loaded = "?"
+    if valid(fs) then pcall(function() loaded = tostring(fs:HasWorldFlagsLoaded()) end) end
+    local flags, total = saved_flags()
+    log(string.format("  flags loaded: %s; set in this save: %d (%d readable)", loaded, total or 0, flags and #flags or 0))
+    log(string.format("  %s set in this save: %s", GAME_FLAG, tostring(contains(flags, GAME_FLAG))))
+    local flagTable = table_report("DT_WorldFlags", WORLD_FLAGS_PATH, "^PortalHub_")
+    table_report("DT_Levels", LEVELS_TABLE, "^PortalHub_")
+    for _, n in ipairs(hub_flag_names()) do
+        log(string.format("  %s: row in DT_WorldFlags %s, set in this save %s", n, tostring(valid(flagTable) and has_row(flagTable, n)), tostring(contains(flags, n))))
+    end
+    local buffs = StaticFindObject(BUFFS_PATH)
+    if valid(buffs) then
+        log("  Debuff_PortalSickness row in DT_BuffsDebuffs: " .. tostring(has_row(buffs, "Debuff_PortalSickness")))
+        table_report("DT_BuffsDebuffs", BUFFS_PATH, "[Ss]ick")
+    else
+        log("  DT_BuffsDebuffs: not loaded")
+    end
+    local reg = FindFirstOf("ABFRowRegistrySubsystem")
+    if valid(reg) then
+        local n, tables = 0, {}
+        local ok = pcall(function()
+            reg.BaseTables:ForEach(function(_, e)
+                local dt = e:get()
+                n = n + 1
+                if valid(dt) then tables[#tables + 1] = dt:GetFName():ToString() end
+            end)
+        end)
+        table.sort(tables)
+        log(string.format("  row registry BaseTables: readable %s, %d table(s): %s", tostring(ok), n, table.concat(tables, ", ")))
+        log(string.format("  DT_WorldFlags in BaseTables: %s, DT_LevelFX: %s, DT_Levels: %s", tostring(contains(tables, "DT_WorldFlags")),
+            tostring(contains(tables, "DT_LevelFX")), tostring(contains(tables, "DT_Levels"))))
+        local mods = 0
+        pcall(function() reg.RootedModObjects:ForEach(function() mods = mods + 1 end) end)
+        log("  row registry RootedModObjects: " .. mods)
+    else
+        log("  ABFRowRegistrySubsystem not found")
+    end
+    local pc = player_controller()
+    local pawn = pc and pc.Pawn
+    for _, z in ipairs(FindAllOf("Vignette_Zone_C") or {}) do
+        if valid(z) and not z:GetFullName():find("Default__") then
+            local row, inside = handle_row(z.PortalSicknessWorldFlag), "?"
+            if valid(pawn) then pcall(function() inside = tostring(z.BuffVolume:IsOverlappingActor(pawn)) end) end
+            log(string.format("  zone at %s: flag %s, set in this save %s, player inside %s", loc_text(z), row, tostring(contains(flags, row)), inside))
+        end
+    end
+    for _, t in ipairs(FindAllOf("BP_Teleporter_HomeWorld_C") or {}) do
+        if valid(t) then
+            log("  a game pad's RequiredWorldFlag: row " .. handle_row(t.RequiredWorldFlag))
+            local okP, path = pcall(function() return t.RequiredWorldFlag.DataTablePath:ToString() end)
+            log("    its DataTablePath: " .. (okP and tostring(path) or ("not readable (" .. one_line(path) .. ")")))
+            break
+        end
+    end
+    local shown = 0
+    for _, t in ipairs(FindAllOf("BP_Teleporter_ParentBP_C") or {}) do
+        if valid(t) then
+            local row, dest = "?", "?"
+            pcall(function() row = handle_row(t.WorldFlagToTriggerOnUse) end)
+            pcall(function() dest = t.DestinationTeleporterID:ToString() end)
+            if row ~= "None" and row ~= "?" then
+                shown = shown + 1
+                log(string.format("  pad %s -> %s at %s sets %s (in this save %s)", tostring(pad_id(t)), dest, loc_text(t), row, tostring(contains(flags, row))))
+            end
+        end
+    end
+    log(string.format("  pads that set a flag: %d", shown))
+    log("---- FLAG AND REGISTRY SURVEY done")
+end
+
+-- Runs one native call, logging it first (the log line survives a crash) and its result after.
+local function probe(label, fn)
+    log("  calling: " .. label)
+    local ok, v = pcall(fn)
+    if ok then log("    -> " .. value_text(v)) else log("    -> failed: " .. one_line(v)) end
+    return ok, v
+end
+
+local function flag_native_probe()
+    log("---- FLAG NATIVE PROBE (calls not used before)")
+    local pc = player_controller()
+    local fs = FindFirstOf("WorldFlagSubsystem")
+    local lib = StaticFindObject(FLAG_LIBRARY)
+    if not (pc and valid(fs) and valid(lib)) then log("  no controller, flag subsystem or flag library") return end
+    probe("DoesWorldFlagRowExist " .. GAME_FLAG, function() return lib:DoesWorldFlagRowExist(FName(GAME_FLAG)) end)
+    local names = hub_flag_names()
+    for _, n in ipairs(names) do
+        probe("DoesWorldFlagRowExist " .. n, function() return lib:DoesWorldFlagRowExist(FName(n)) end)
+    end
+    local all = {}
+    local okA = probe("GetAllWorldFlagRowNames", function() return lib:GetAllWorldFlagRowNames(all) end)
+    if okA then
+        local ours = {}
+        for i = 1, #all do
+            local n = array_name(all[i])
+            if n and n:find("^PortalHub_") then ours[#ours + 1] = n end
+        end
+        log(string.format("    %d names, Portal Hub ones: %s", #all, #ours > 0 and table.concat(ours, ", ") or "(none)"))
+    end
+    local n = names[1]
+    if n then
+        local okH, h = probe("Conv_NameToWorldFlag " .. n, function() return lib:Conv_NameToWorldFlag(FName(n)) end)
+        if okH and h ~= nil then
+            log("    handle row: " .. handle_row(h))
+            probe("HasWorldFlag with the game's own handle", function() return fs:HasWorldFlag(pc, h) end)
+        end
+        -- the form the hub passes every 2 s, then (only if that one is refused) the same without the field that no longer exists
+        local okT = probe("HasWorldFlag with the hub's table", function()
+            return fs:HasWorldFlag(pc, { RowName = FName(n), DataTablePath = WORLD_FLAGS_PATH })
+        end)
+        if not okT then probe("HasWorldFlag with RowName only", function() return fs:HasWorldFlag(pc, { RowName = FName(n) }) end) end
+    else
+        log("  no Portal Hub flag known yet: walk near the portal room first")
+    end
+    local reg = FindFirstOf("ABFRowRegistrySubsystem")
+    if valid(reg) then
+        probe("IsSessionLoadOrderActive", function() return reg:IsSessionLoadOrderActive() end)
+        probe("K2_GetResolvedLoadOrder (count)", function() return #reg:K2_GetResolvedLoadOrder() end)
+    end
+    log("---- FLAG NATIVE PROBE done")
+end
+
+-- Which pad was used, and what the save says just after. Only reads; the game's own teleport runs as usual.
+local padUse = { hooked = false, at = {} }
+local function pad_used(pad)
+    if not valid(pad) then return end
+    local id = tostring(pad_id(pad))
+    local now = os.clock()
+    if padUse.at[id] and now - padUse.at[id] < 1 then return end    -- the overlap can fire more than once per crossing
+    padUse.at[id] = now
+    local dest, row, active = "?", "?", "?"
+    pcall(function() dest = pad.DestinationTeleporterID:ToString() end)
+    pcall(function() row = handle_row(pad.WorldFlagToTriggerOnUse) end)
+    pcall(function() active = tostring(pad.IsTeleporterActive) end)
+    log(string.format("pad use: %s -> %s, active %s, sets flag %s", id, dest, active, row))
+    if row == "None" or row == "?" then return end
+    ExecuteWithDelay(1500, function() ExecuteInGameThread(function()
+        log(string.format("pad use: 1.5 s after %s, flag %s set in this save: %s", id, row, tostring(contains(saved_flags(), row))))
+    end) end)
+end
+
+local function hook_pads()
+    if padUse.hooked then return end
+    local ok, err = pcall(function() RegisterHook(TELEPORT_FN, function(self) pad_used(self:get()) end) end)
+    padUse.hooked = ok
+    log(ok and "pad use: logging every pad use" or ("pad use: hook failed: " .. one_line(err)))
+end
+
+local function hook_pads_soon() ExecuteWithDelay(5000, function() ExecuteInGameThread(hook_pads) end) end
+NotifyOnNewObject(HOMEWORLD_PAD, hook_pads_soon)
+if valid(FindFirstOf("BP_Teleporter_HomeWorld_C")) then hook_pads_soon() end
+
+if not pcall(function() RegisterKeyBind(Key.PAGE_UP, function() ExecuteInGameThread(flag_registry_survey) end) end) then log("PAGE UP could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.PAGE_DOWN, function() ExecuteInGameThread(flag_native_probe) end) end) then log("PAGE DOWN could not be bound") end
+log("assessment keys: PAGE UP = flags and row registry (read-only), PAGE DOWN = flag calls not used before (read-only, its own key)")
 
 if not pcall(function() RegisterKeyBind(Key.F5, function() ExecuteInGameThread(toggle_noclip) end) end) then log("F5 could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.F2, function() ExecuteInGameThread(save_position) end) end) then log("F2 could not be bound") end

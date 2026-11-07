@@ -81,7 +81,9 @@ From the dump and the exe's `LogRowRegistry` messages:
   does not support UGC is skipped. Rows are tagged with their origin (`UGCRowInfo`: `bIsUGC`, `ModId`, `ModName`, `Author`), which
   is where the "modded" tooltip comes from.
 - **Which tables it manages:** the ones that have a row-asset type. That includes **`DT_WorldFlags`** (the hub's completion flags)
-  and **`DT_LevelFX`** (lighting), but **not `DT_Levels`** (the hub's level rows).
+  and **`DT_LevelFX`** (lighting), but **not `DT_Levels`** (the hub's level rows). **Corrected by CRD-006:** read in game, `BaseTables` holds
+  113 tables and `DT_Levels` is one of them, and rows added with `AddRow` survived a mod registering and unregistering
+  (`findings/game-update-2026-10.md`). This section's other guesses about rebuilding are answered there too.
 - **Does it rebuild tables?** Not provable from strings alone. `BaseTables` plus "registered dormant" suggest it keeps a copy of
   the base rows and rebuilds the managed tables when the set of mounted mods changes (mods enabled per save, joining a server,
   `InvalidateLoadOrder`). If so, a `PortalHub_<id>_Completed` row added with `AddRow` would be **dropped at the next rebuild**,
