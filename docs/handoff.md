@@ -4,7 +4,7 @@ Read this at the start of every session, and update it before the session ends w
 The order of work lives in [`docs/roadmap.html`](roadmap.html); this note holds what a new session needs on top of that:
 the queue, unfinished threads, findings that are not written down anywhere else, open questions, and how to build and test.
 
-Last updated: 6 November 2026 (CRD-006).
+Last updated: 6 November 2026 (CRD-013).
 
 ## 1. Work queue (the project author's order)
 
@@ -29,6 +29,7 @@ worlds = any world not in the base game).
 - CRD-007 done 3 Nov: Mod Editor = cooked editor, same 5.4.4 CL 1050002 as the game, all game content cooked in, no level templates or docs; it cooks only UGC plugins at /<PluginName>/, untested from ~mods; step 7 stays on plain UE 5.4 until the world-plugin experiment (CRD-009) says otherwise (findings/official-modding-2026-11.md, addendum).
 - CRD-008 retired: its roadmap edits are folded into the step-2 docs task after CRD-006.
 - CRD-009 Mod Editor world-plugin experiment: queued.
+- CRD-013 config GUI rebuilt in Tkinter: done 6 November, the author signed off on the look. `tools/PortalHubConfig/PortalHubConfig.py` (window title "Cordona Corporations Portal Hub Assistant Tool"), dark purple, slot board plus side panel, Custom Worlds tab. Parity with the `.ps1`, plus Divarication, optional `arrive`, Hub Exit fields, and editing worlds that hold extra fields. `luaconfig.py` edits only changed values, so comments and unknown keys survive and an unedited save is byte-identical on the live config (the `.ps1` rewrites the file). Tests: `tools/PortalHubConfig/tests/test_luaconfig.py [live config]`, `test_gui.py`. **Decisions (author):** ship a one-folder exe plus the Python source (`build_exe.bat`; `PortalHubConfig.bat` tries exe, then Python, then the `.ps1`); keep shipping the wiki icons, which are the developers' art and outside CC0 (README says so); No Symbol on A-1, A-2 and B-3 (`NO_ENTRY_SLOTS` in `hubdata.py`, a mark only; the Cabin pad is still not refused as a destination). **Open:** the `hubExits` / `hubExitBuff` format is the suggested one, unconfirmed until CRD-012 reports (coordinates expected absolute; the code is one small block in `luaconfig.py`, the BUFF button text is a placeholder); not tried in game, and the exe not tried on another PC or against antivirus (unsigned); the `.ps1` stays until retired; Divarication has no icon and sits in Optional (Major), though it is really the future half of the Botanical Wing in Fragments; its look (Botanical Green) is inferred. **Divarication return route (inferred, untested):** `botanical_future_01` is the game's link to `botanical_present_01`, so `route_return` would probably cut players off from the present side; the author wants it as the first Hub Exit test, which also needs `route_return` to leave that arrival pad alone.
 
 The numbered items below are the older detail on each piece of work.
 
@@ -69,7 +70,7 @@ The numbered items below are the older detail on each piece of work.
 
 ## 2. Unfinished threads
 
-- **Design direction (author, 17 October):** the hub is a connection hub, not a driving dependency. Map makers bake every setting they can into their world's loader Blueprint (plain value variables only: Text, Name, Boolean, Float, Integer, Vector; never asset references), and `config.lua` keeps only what belongs to the hub (slot, position in hub space). Worlds *may* depend on the hub, but they shouldn't have to. Next, after the item 1 tests: list which settings can move into the Blueprint, build the reading, and document each variable for map makers. Built (queue item 2): every per-world setting except the loader paths, `level`, `origin` and the `lighting` block. The GUI (`PortalHubConfig.ps1`) still requires `arrive` for a new world; it could make it optional now (part of step 7).
+- **Design direction (author, 17 October):** the hub is a connection hub, not a driving dependency. Map makers bake every setting they can into their world's loader Blueprint (plain value variables only: Text, Name, Boolean, Float, Integer, Vector; never asset references), and `config.lua` keeps only what belongs to the hub (slot, position in hub space). Worlds *may* depend on the hub, but they shouldn't have to. Next, after the item 1 tests: list which settings can move into the Blueprint, build the reading, and document each variable for map makers. Built (queue item 2): every per-world setting except the loader paths, `level`, `origin` and the `lighting` block. `arrive` is optional in the GUI since CRD-013.
 - **GUI: edit any world directly** (author's wish, 17 October): part of roadmap step 7.
 - **Waypoint / position tool for the dev lab (not shipped):** saving and printing the spot relative to the world's origin is done (lab F2, 18 October); still open: naming spots and teleporting back to them. Written from the game's own functions (`K2_GetActorLocation`, `K2_TeleportTo`, the character's `TeleportPlayer`, all in our object dump), not copied from any other mod. The lab's numpad keys are almost all used, so this probably needs UE4SS console commands (not tried in our mods yet: give it its own test). A trimmed hub debugger for release comes later.
 
@@ -86,7 +87,7 @@ The numbered items below are the older detail on each piece of work.
 |---|---|
 | The hub mod | `mod/PortalHub/Scripts/main.lua` (+ `slots.lua`, `config.lua` template) |
 | Dev survey mod (not shipped) | `mod/PortalMaterialLab/Scripts/main.lua` |
-| Config editor (GUI) | `tools/PortalHubConfig/PortalHubConfig.ps1`, started by `PortalHubConfig.bat` |
+| Config editor (GUI) | `tools/PortalHubConfig/PortalHubConfig.py` (+ `luaconfig.py`, `hubdata.py`), built by `build_exe.bat`, started by `PortalHubConfig.bat`; the older `PortalHubConfig.ps1` stays as a fallback |
 | Dev helpers and mock tests | `tools/dev/` (see its README) |
 | Docs and research notes | `docs/` (roadmap, Test World walkthrough, world settings for map makers), `findings/` |
 | Game install | `%USERPROFILE%\Games\Steam Library\steamapps\common\AbioticFactor\AbioticFactor` |

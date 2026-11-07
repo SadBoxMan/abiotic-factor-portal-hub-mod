@@ -1,5 +1,13 @@
 @echo off
-rem Opens the Portal Hub config editor (a plain, readable PowerShell script: tools\PortalHubConfig\PortalHubConfig.ps1).
-rem This window closes by itself once the editor is closed. -ExecutionPolicy Bypass only applies to this one run.
+rem Opens the Portal Hub config editor. Uses the packaged program if it is here, then Python, then the older PowerShell editor.
+rem This window closes by itself once the editor has opened.
+setlocal
+set "HERE=%~dp0"
+for %%E in ("%HERE%PortalHubConfig\PortalHubConfig.exe" "%HERE%tools\PortalHubConfig\dist\PortalHubConfig\PortalHubConfig.exe") do (
+    if exist %%E ( start "" %%E & exit /b 0 )
+)
+for %%P in (pyw pythonw) do (
+    %%P -c "import tkinter" >nul 2>&1 && ( start "" %%P "%HERE%tools\PortalHubConfig\PortalHubConfig.py" & exit /b 0 )
+)
 echo Opening Portal Hub Config...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\PortalHubConfig\PortalHubConfig.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%HERE%tools\PortalHubConfig\PortalHubConfig.ps1"
