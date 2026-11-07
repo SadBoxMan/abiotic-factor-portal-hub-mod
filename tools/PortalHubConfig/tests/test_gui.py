@@ -49,18 +49,18 @@ def main():
     app.save()
     check(text(path) == original, "saving with no edits leaves the file as it was")
 
-    # every destination offered, Divarication among them, DLC not
+    # every destination offered, both halves of the Botanical Wing among them, DLC not
     ids = [v for _, _, v in app.dest_items() if v]
-    check("botanical_future_01" in ids, "Divarication offered")
+    check("botanical_future_01" in ids and "botanical_present_01" in ids, "Botanical Wing offered")
     check(not any(hd.is_dlc(v) for v in ids), "no DLC in the list")
-    check(len(hd.DESTINATIONS) == 21 and len(hd.DESIGNS) == 32 and all(hd.design_name(p) in hd.DESIGN_PARTS for _, p in hd.DESIGNS), "lists complete")
-    check(all(os.path.exists(os.path.join(gui.ICON_DIR, x[3] + ".png")) for x in hd.DESTINATIONS if x[1] != "botanical_future_01"), "icons present")
+    check(len(hd.DESTINATIONS) == 22 and len(hd.DESIGNS) == 32 and all(hd.design_name(p) in hd.DESIGN_PARTS for _, p in hd.DESIGNS), "lists complete")
+    check(all(os.path.exists(os.path.join(gui.ICON_DIR, x[3] + ".png")) for x in hd.DESTINATIONS if not x[1].startswith("botanical_")), "icons present")
 
     # picking a world on an empty slot turns it on, with the world's name and look
     app.select("B-1")
     app.pick_dest("botanical_future_01")
     p = app.cfg.portals["B-1"]
-    check(p.enabled and p.name == "Divarication" and p.design.endswith("Botanical_Green"), "pick fills name and look")
+    check(p.enabled and p.name == "Botanical Wing (Future)" and p.design.endswith("Botanical_Green"), "pick fills name and look")
     app.update_state()
     check(app.save_btn.enabled, "savable")
 

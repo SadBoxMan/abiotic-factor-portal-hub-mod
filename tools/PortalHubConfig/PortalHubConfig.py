@@ -709,7 +709,7 @@ class App:
         head = tk.Frame(r, bg=T["head"], padx=px(18), pady=px(10))
         head.pack(fill="x")
         tk.Label(head, text="PORTAL HUB", bg=T["head"], fg=T["head_fg"], font=font(20, True)).pack(side="left")
-        tk.Label(head, text="   //  portal room assignments", bg=T["head"], fg=T["head_dim"], font=font(10)).pack(side="left", pady=(px(8), 0))
+        tk.Label(head, text="   CORDONA CORPORATIONS  //  portal room assignments", bg=T["head"], fg=T["head_dim"], font=font(10)).pack(side="left", pady=(px(8), 0))
         self.path_label = tk.Label(head, bg=T["head"], fg=T["head_dim"], font=font(9), cursor="hand2")
         self.path_label.pack(side="right", pady=(px(8), 0))
         self.path_label.bind("<Button-1>", lambda e: self.choose_file())

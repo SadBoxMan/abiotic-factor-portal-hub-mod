@@ -121,13 +121,17 @@ DESTINATIONS = [
     ("Story", "anteverse_c_start", "Village Den da'ko Yeer", "village-den-da-ko-yeer", "Niagara_Portal_Blueverse"),
     ("Story", "shadowgate_start", "Shadowgate", "shadowgate", "Niagara_Portal_Shadowgate2"),
     ("Story", "INQ_Entrance", "Praetorium", "praetorium", "Niagara_Portal_Friendly"),
+    # The Botanical Wing (in Fragments) is on the story path: the end of its future half gives the Motion Module recipe needed to
+    # finish Fragments, which unlocks Albatross. Its two halves are linked by the game's own red and green portals. No wiki icon
+    # for either. Looks inferred: which colour belongs to which half is a guess.
+    ("Story", "botanical_present_01", "Botanical Wing (Present)", "botanical-wing-present", "Niagara_Portal_Botanical_Red"),
+    ("Story", "botanical_future_01", "Botanical Wing (Future)", "botanical-wing-future", "Niagara_Portal_Botanical_Green"),
     ("Story", "wall_start", "GATE Arch Defense Facility", "gate-arch-defense-facility", "Niagara_Portal"),
     ("Story", "island_start", "Albatross", "albatross", "Niagara_Portal"),
     ("Optional (Major)", "rise_start", "Rise", "rise", "Niagara_Portal"),
     ("Optional (Major)", "V_Snowglobe_Start", "North Pole", "north-pole", "Niagara_Portal"),
     ("Optional (Major)", "signal_start", "Dunkeltaler Forest", "dunkeltaler-forest", "Niagara_Portal_Friendly_Red"),
     ("Optional (Major)", "VWinter_Start", "Royal Range (IS-0083)", "royal-range", "Niagara_Portal"),
-    ("Optional (Major)", "botanical_future_01", "Divarication", "divarication", "Niagara_Portal_Botanical_Green"),
     ("Optional (Minor)", "mirrorworld_start", "The World in the Mirror", "the-world-in-the-mirror", "Niagara_Portal"),
     ("Optional (Minor)", "tile_entrance", "The Pool Room", "the-pool-room", "Niagara_Portal"),
     ("Optional (Minor)", "DistantShore", "Some Distant Shore", "some-distant-shore", "Niagara_Portal"),
