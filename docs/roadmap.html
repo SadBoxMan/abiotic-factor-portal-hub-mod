@@ -78,13 +78,12 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid 
 </header>
 
 <div class="bar">
-  <span class="chip done">4 done</span><span class="chip next">1 in progress</span><span class="chip plan">6 planned</span>
+  <span class="chip done">5 done</span><span class="chip next">1 in progress</span><span class="chip plan">5 planned</span>
 </div>
-<div class="progress" aria-hidden="true"><i class="d" style="width:36.4%"></i><i class="n" style="width:9.1%"></i><i class="p" style="width:54.5%"></i></div>
+<div class="progress" aria-hidden="true"><i class="d" style="width:45.5%"></i><i class="n" style="width:9.1%"></i><i class="p" style="width:45.4%"></i></div>
 
 <nav class="pills">
-  <a href="#done">Done</a><a href="#s1">1 Vignettes</a><a href="#s2">2 Lighting</a><a href="#s3">3 Skyboxes</a><a href="#s4">4 Music</a>
-  <a href="#s5">5 Custom exit</a><a href="#s6">6 Tutorial</a><a href="#s7">7 Packaging</a><a href="#later">Later</a><a href="#design">How it fits</a>
+  <a href="#done">Done</a><a href="#plan">The order</a><a href="#fu">Full Understanding</a><a href="#detail">Detail</a><a href="#later">Later</a><a href="#design">How it fits</a>
 </nav>
 
 <div class="tools"><button id="open">Expand all</button><button id="close">Collapse all</button><button id="theme">Switch theme</button></div>
@@ -151,10 +150,85 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid 
 </details>
 
 <h2 id="plan">The plan</h2>
-<p style="color:var(--muted);margin-top:0">The project author's order, set on 14 October 2026.</p>
+<p style="color:var(--muted);margin-top:0">The project author's order, reset on 3 November 2026 after game update v1.5.0 (the Modding Update) broke parts of the custom-world work. Updated 8 November (CRD-014).</p>
 
-<details class="card" id="s1" open>
-  <summary><span class="num">1</span><span class="title">Vignette confirmation<small>Can we reliably set custom worlds as vignettes?</small></span><span class="badge next">Nearly done</span><span class="chev">&#9656;</span></summary>
+<details class="card" id="o1">
+  <summary><span class="num">1</span><span class="title">Find out what broke<small>CRD-004 struct fix, CRD-006 full assessment</small></span><span class="badge done">Done</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <p>Done 6 November, confirmed in game on v1.5.0.31876. The level and lighting row structs became native game types, the level file field became a soft object (<code>Level</code>), and flag handles lost their table path. The hub works on the new build. Everything that moved is listed in <code>findings/game-update-2026-10.md</code> ("Where things moved"); the new fields and quirks are in <code>docs/handoff.md</code> section 5.</p>
+  </div>
+</details>
+
+<details class="card" id="o2" open>
+  <summary><span class="num">2</span><span class="title">Update the docs<small>This roadmap, the handoff note, pointers to where details live now</small></span><span class="badge next">In progress</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <p>CRD-014. The roadmap and the handoff note now carry the new order and the Full Understanding bar. The README release text is a separate task (CRD-015).</p>
+  </div>
+</details>
+
+<details class="card" id="o3">
+  <summary><span class="num">3</span><span class="title">Fix custom worlds<small>Back to how they worked before the update</small></span><span class="badge plan">Next</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <p>The big repairs are in (struct fix CRD-004, reload fixes CRD-011: worlds are claimed again, in-session reloads hold and land). Left: re-checking the dev lab on the new build and any custom-world feature that still behaves differently from before the update.</p>
+  </div>
+</details>
+
+<details class="card" id="o4">
+  <summary><span class="num">4</span><span class="title">Portal Hub 1.0: base-game worlds<small>The hub for the game's own worlds, shipped as soon as it is ready</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <p>1.0 covers only worlds in the base game (portal worlds, vignettes, home worlds); anything from our own paks is 2.0. Pieces:</p>
+    <ul class="plain">
+      <li><b>Hub Exits:</b> a base-game world with its own exits (the Train) drops players at the game's return point, not the hub portal. The first test is the Botanical Wing's two pads.</li>
+      <li><b>The config GUI:</b> done (CRD-013). A Tkinter program, <code>tools/PortalHubConfig/PortalHubConfig.py</code>, dark purple, with a one-folder exe and the Python source; the PowerShell editor stays only as a fallback.</li>
+      <li><b>The Nexus package:</b> one mod folder, the GUI, a version number and changelog (see Mod packaging in the detail section).</li>
+    </ul>
+  </div>
+</details>
+
+<details class="card" id="o5">
+  <summary><span class="num">5</span><span class="title">Custom-world work, against the Full Understanding list<small>Skyboxes, lighting, music, exits, resources, enemies and the rest</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <p>Resume the custom-world research and work, scoped by the Full Understanding list below: the Mod Editor world-plugin experiment (CRD-009), lighting, skyboxes, a template project, exact-spot loading, a Facility-area world type, and the auto-detect GUI.</p>
+  </div>
+</details>
+
+<details class="card" id="o6">
+  <summary><span class="num">6</span><span class="title">Portal Hub 2.0: custom worlds<small>Any world that is not in the base game</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <p>Ships only once the Full Understanding list below is finalized and understood, and the hook stability gate is met. The tutorial and the video series come after that.</p>
+  </div>
+</details>
+
+<details class="card" id="fu" open>
+  <summary><span class="num">&#9733;</span><span class="title">Full Understanding: the bar for 2.0<small>The minimum a custom world must cover to count as fully done</small></span><span class="badge plan">Planned</span><span class="chev">&#9656;</span></summary>
+  <div class="body">
+    <h3>First: stability (a hard gate)</h3>
+    <p>No crashes, no falling through the floor on load-in. Hook stability is a hard gate for 2.0 no matter what else is done: the "Ref was not function" fault, where UE4SS drops every delayed callback and removes the hook (seen 1 load in 16 on v1.5.0, with no third-party mods), must be solved. Current plan: one shared world-check loop (done, CRD-011), then a controlled UE4SS update if the fault returns (<code>findings/game-update-2026-10.md</code>, fault 2).</p>
+    <h3>Then the twelve items</h3>
+    <ol>
+      <li>Skybox</li>
+      <li>World name (done in a first form: <code>WorldTitle</code>)</li>
+      <li>Vignette or home world (done in a first form: <code>WorldType</code>)</li>
+      <li>Exit reward: pre-existing or custom (a GUI reward builder could be a 3.0 update)</li>
+      <li>Resource placement</li>
+      <li>Enemy placement</li>
+      <li>NPC placement</li>
+      <li>Whether a world resets its resources, and which ones (if piecemeal resetting is possible)</li>
+      <li>World temperature and temperature pockets</li>
+      <li>Leyak spawning (first findings: needs a nav mesh and a story flag, see the handoff note)</li>
+      <li>Water and other liquids</li>
+      <li>Environmental hazards (lava, radioactive areas and so on)</li>
+    </ol>
+    <h3>After the list</h3>
+    <p>A tutorial people can follow along with (step 6 of the detail section below), and a video series the author is scripting. Notes are kept in a form both can reuse.</p>
+  </div>
+</details>
+
+<h2 id="detail">Detail on the work behind steps 3 to 5</h2>
+<p style="color:var(--muted);margin-top:0">The earlier plan of 14 October 2026, kept for its detail. Its numbering is its own, not the order above.</p>
+
+<details class="card" id="s1">
+  <summary><span class="num">1</span><span class="title">Vignette confirmation<small>Can we reliably set custom worlds as vignettes?</small></span><span class="badge done">Done</span><span class="chev">&#9656;</span></summary>
   <div class="body">
     <h3>Where it stands</h3>
     <p>Works in game, on the Test World and four more worlds at once: the hub gives each world its own entry in the game's level table and marks the player as being in it. The vignette check, the Portal Entrance respawn, the level name, the title banner and the world's own lighting all follow, the weather's fog goes, and everything is put back when the player leaves. The exit works after loading a save made inside a world.</p>
@@ -235,11 +309,11 @@ footer{margin-top:40px;color:var(--muted);font-size:.85rem;border-top:1px solid 
     <h3>A friendlier GUI that antivirus leaves alone</h3>
     <ul class="routes">
       <li><b>A: Keep the PowerShell script.</b> Plain text, visible console, readable by anyone. Least suspicious form of script, though never zero-risk.</li>
-      <li class="rec"><b>B: A single-file web editor</b> (HTML) in Edge or Chrome that reads and writes <code>config.lua</code> directly. No executable, no script, no install, so almost no antivirus risk. Needs a Chromium browser and a one-time file permission each session.</li>
-      <li><b>C: A compiled <code>.exe</code></b> (for example .NET). Looks polished, but unsigned executables are flagged far more often than scripts, and signing certificates cost money.</li>
+      <li><b>B: A single-file web editor</b> (HTML) in Edge or Chrome that reads and writes <code>config.lua</code> directly. No executable, no script, no install, so almost no antivirus risk. Needs a Chromium browser and a one-time file permission each session.</li>
+      <li class="rec"><b>C: A compiled <code>.exe</code></b> (for example .NET). Looks polished, but unsigned executables are flagged far more often than scripts, and signing certificates cost money.</li>
       <li><b>D: No external tool.</b> Only presets and hand-editing.</li>
     </ul>
-    <p>Recommendation: B, keeping A as a fallback.</p>
+    <p><b>Decided (CRD-013, 6 November):</b> the GUI was rebuilt in Tkinter (<code>tools/PortalHubConfig/PortalHubConfig.py</code>), shipped as a one-folder exe plus the Python source; <code>PortalHubConfig.bat</code> tries the exe, then Python, then the old <code>.ps1</code>. Not yet tried on another PC or against antivirus (unsigned).</p>
     <h3>World settings in the GUI</h3>
     <ul class="plain">
       <li><b>Find installed worlds by itself.</b> A world pak's table of contents (<code>.utoc</code>) is readable without the game: it lists the world's folder, loader and map, so the GUI can add a world in one click and pick a free position and slot.</li>
