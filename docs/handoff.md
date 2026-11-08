@@ -4,17 +4,48 @@ Read this at the start of every session, and update it before the session ends w
 The order of work lives in [`docs/roadmap.html`](roadmap.html); this note holds what a new session needs on top of that:
 the queue, unfinished threads, findings that are not written down anywhere else, open questions, and how to build and test.
 
-Last updated: 7 November 2026 (CRD-011).
+Last updated: 8 November 2026 (CRD-014).
 
 ## 1. Work queue (the project author's order)
 
 Tasks carry IDs (CRD-nnn); new cards take the next free number. The dispatcher is the pinned "Cordona dispatcher" session.
 
-**Roadmap order (author, 3 November; `docs/roadmap.html` still shows the old one, the step-2 docs task rewrites it):**
-(1) find out what broke (CRD-004, then CRD-006); (2) update the docs to show where those details live now; (3) fix custom worlds back
-to how they worked before the update; (4) Portal Hub 1.0 (base-game worlds only; the author outlines it after the repairs); (5) resume
-custom-world work (CRD-009, lighting, template, exact-spot loading, Facility-area type, auto-detect GUI); (6) Portal Hub 2.0 (custom
+**Queue at a glance.** The tracker (`tools/CordonaTracker/`, CRD-017) reads this table, so keep one row per task and change its State
+cell when the state changes; the detail stays in the bullets below. States: `done`, `running`, `waiting`, `queued`, `on hold`, `retired`.
+Commit: the hash that finished the task, or blank (the tracker also picks up commits whose message names the ID).
+
+| ID | Task | State | Commit |
+|---|---|---|---|
+| CRD-001 | Vignette confirmation | done | 00c80f6 |
+| CRD-002 | Settings in the world's Blueprint | done | 515aaff |
+| CRD-003 | Game update check | done | |
+| CRD-004 | Level and lighting struct fix | done | 6ae4c70 |
+| CRD-005 | Official modding research | done | 7ec854c |
+| CRD-006 | Full post-update assessment | done | 4002fa7 |
+| CRD-007 | Mod Editor inspection | done | f1f7ad8 |
+| CRD-008 | Roadmap edits (folded into CRD-014) | retired | |
+| CRD-009 | Mod Editor world-plugin experiment | queued | |
+| CRD-010 | Portal Hub 1.0 release plan (waits for the author's outline) | waiting | |
+| CRD-011 | Hub reload fixes | done | 2e1ad3b |
+| CRD-012 | Hub Exits for base-game worlds | queued | |
+| CRD-013 | Config GUI rebuilt in Tkinter | done | 339b309 |
+| CRD-014 | Docs and roadmap for v1.5.0 | done | |
+| CRD-015 | Portal Hub 1.0 Nexus release package | queued | |
+| CRD-016 | Lab no-clip hides level geometry | running | |
+| CRD-017 | Project tracker GUI | done | |
+
+**Roadmap order (author, 3 November; `docs/roadmap.html` now shows it, CRD-014):**
+(1) find out what broke (CRD-004, CRD-006): done; (2) update the docs (CRD-014): done; (3) fix custom worlds back to how they worked before the
+update; (4) Portal Hub 1.0 (base-game worlds only): Hub Exits, the Tkinter GUI (done, CRD-013), the Nexus package; (5) custom-world work against
+the Full Understanding list (CRD-009, lighting, template, exact-spot loading, Facility-area type, auto-detect GUI); (6) Portal Hub 2.0 (custom
 worlds = any world not in the base game).
+
+**The 2.0 bar, "Full Understanding" (author, 6 November; also a card in the roadmap):** stability first, and hook stability ("Ref was not function",
+the hook removed) is a hard gate for 2.0. Then the 12 items a custom world must cover: 1 skybox; 2 world name; 3 vignette or home; 4 exit reward
+(pre-existing or custom; a GUI reward builder could be 3.0); 5 resource placement; 6 enemy placement; 7 NPC placement; 8 whether a world resets
+its resources, and which (piecemeal?); 9 temperature and temperature pockets; 10 Leyak spawning; 11 water and liquids; 12 environmental hazards.
+Already partly done: 2 (`WorldTitle`), 3 (`WorldType`), 10 (first findings, section 5). The tutorial and the author's video series come after the list;
+keep notes in a form both can reuse.
 
 **Task status:**
 - CRD-003 game update check: done ([`findings/game-update-2026-10.md`](../findings/game-update-2026-10.md)).
@@ -31,6 +62,9 @@ worlds = any world not in the base game).
 - CRD-009 Mod Editor world-plugin experiment: queued.
 - CRD-011 reload fixes: in game 7 November (CordonaCorp, 8 reloads inside World B): every reload held and landed, no fall, no rescue, no `Ref was not function`, all five worlds ready each time, Test World exit set its flag. That run showed the claim of a vignette world failing after a reload ("the game's level table is not loaded yet", 0.2 s after the load) and never retried; it is now retried every 1 s, up to 10 times. Retest 7 November (3 reloads in World B): each reload held, landed and was claimed within 0.07 s, no rescue, no hook error; the table was loaded in time on those loads, so the retry path itself is covered by the mock test only. **CRD-011 done.** Open: after a reload the claim's previous row is `None` (the known thread in section 2). Fault 1: `world_is_ready` counts "ready" only with the loader present, and `forget_old_map` clears every old world state plus `presence.inside`, `claim`, `lit`, `saved`, `lightAt` and `held` at once, so a reload holds, lands and claims once; it runs in `spawn_all` too, so portals to a gone world start off. A world still loading across a reload starts over instead of counting as failed (the tracker would have sent the player to the portal room). A loader is a Level Instance actor (empty graph, no destroy) that lives as long as its level, which is why its presence is a safe test. Fault 2: one shared world-check loop (`run_world_checks`, `world_checks_tick`, `poll_world`) instead of a chain per world, with a generation check; the tracker keeps its own chain and generation check. Cleanup: `flag_handle` is row name only, `flag_table_path` is gone from the hub (the lab's NUMPAD 3 still has `DataTablePath`, harmless). New test: `test_hub_reload.py` (31 checks; 15 fail on the old `main.lua`, which pass a path argument to try). UE4SS stays on the July build. If "Ref was not function" returns, stop and offer the author the controlled update (findings note, fault 2).
 - CRD-013 config GUI rebuilt in Tkinter: done 6 November, the author signed off on the look. `tools/PortalHubConfig/PortalHubConfig.py` (window title "Cordona Corporations Portal Hub Assistant Tool"), dark purple, slot board plus side panel, Custom Worlds tab. Parity with the `.ps1`, plus the Botanical Wing, optional `arrive`, Hub Exit fields, and editing worlds that hold extra fields. `luaconfig.py` edits only changed values, so comments and unknown keys survive and an unedited save is byte-identical on the live config (the `.ps1` rewrites the file). Tests: `tools/PortalHubConfig/tests/test_luaconfig.py [live config]`, `test_gui.py`. **Decisions (author):** ship a one-folder exe plus the Python source (`build_exe.bat`; `PortalHubConfig.bat` tries exe, then Python, then the `.ps1`); keep shipping the wiki icons, which are the developers' art and outside CC0 (README says so); No Symbol on A-1, A-2 and B-3 (`NO_ENTRY_SLOTS` in `hubdata.py`, a mark only; the Cabin pad is still not refused as a destination). **Open:** the `hubExits` / `hubExitBuff` format is the suggested one, unconfirmed until CRD-012 reports (coordinates expected absolute; the code is one small block in `luaconfig.py`, the BUFF button text is a placeholder); not tried in game, and the exe not tried on another PC or against antivirus (unsigned); the `.ps1` stays until retired; the Botanical Wing is listed as two Story destinations, "Botanical Wing (Present)" (`botanical_present_01`, a pad in the Facility's persistent level per the teleporter dump) and "Botanical Wing (Future)" (`botanical_future_01`, Divarication), author's decision 7 November; no wiki icon for either; looks Green for present, Red for future (author, 7 November). **Botanical Wing return route (inferred, untested):** the two pads are the game's own link between the halves, so `route_return` would probably repoint whichever one a hub portal arrives at and cut players off from the other half; the author wants it as the first Hub Exit test, which also needs `route_return` to leave that arrival pad alone.
+
+- CRD-014 docs and roadmap for v1.5.0: **done 8 November.** `docs/roadmap.html` rewritten to the new order with the Full Understanding card (the old 14 October plan is kept below it as detail; its Mod packaging card now records the Tkinter GUI decision); this note updated. README release text left to CRD-015. Where things moved on v1.5.0: findings note, "Where things moved", and section 5 here.
+- CRD-017 project tracker: built 8 November. `tools/CordonaTracker/CordonaTracker.py` (+ `trackerdata.py`), read-only, same dark purple theme as the config GUI (colours copied, not imported). It reads the "Queue at a glance" table above (falls back to guessing from the bullets, with a warning, if the table is gone), the plan steps, the 1.0 pieces, the stability gate and the 12 Full Understanding items from `docs/roadmap.html` (state from wording: "done" / "done in a first form" or "first findings" = started), and fills blank commit cells from git log (marked `*`). F5 or R re-reads; 1-7 pick a state filter. Started by `CordonaTracker.bat` and by the shortcut `Desktop\Cordona\Tools\Cordona Tracker.lnk` (outside the repo). Test: `python tools\CordonaTracker\tests\test_tracker.py` (33 checks). **For every session:** when a task's state changes, update its row in the table; a new card gets a new row.
 
 The numbered items below are the older detail on each piece of work.
 
@@ -88,7 +122,8 @@ The numbered items below are the older detail on each piece of work.
 |---|---|
 | The hub mod | `mod/PortalHub/Scripts/main.lua` (+ `slots.lua`, `config.lua` template) |
 | Dev survey mod (not shipped) | `mod/PortalMaterialLab/Scripts/main.lua` |
-| Config editor (GUI) | `tools/PortalHubConfig/PortalHubConfig.py` (+ `luaconfig.py`, `hubdata.py`), built by `build_exe.bat`, started by `PortalHubConfig.bat`; the older `PortalHubConfig.ps1` stays as a fallback |
+| Config editor (GUI) | `tools/PortalHubConfig/PortalHubConfig.py` (+ `luaconfig.py`, `hubdata.py`), built by `build_exe.bat`, started by `PortalHubConfig.bat`; the older `PortalHubConfig.ps1` stays as a fallback only (the Tkinter program is the editor now, CRD-013) |
+| Project tracker (read-only progress view) | `tools/CordonaTracker/CordonaTracker.py`, started by `CordonaTracker.bat` or the desktop shortcut `Desktop\Cordona\Tools\Cordona Tracker.lnk`; reads the queue table in section 1 and `docs/roadmap.html` (CRD-017) |
 | Dev helpers and mock tests | `tools/dev/` (see its README) |
 | Docs and research notes | `docs/` (roadmap, Test World walkthrough, world settings for map makers), `findings/` |
 | Game install | `%USERPROFILE%\Games\Steam Library\steamapps\common\AbioticFactor\AbioticFactor` |
