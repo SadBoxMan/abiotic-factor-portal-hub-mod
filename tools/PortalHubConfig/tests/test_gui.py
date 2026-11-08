@@ -60,7 +60,7 @@ def main():
     app.select("B-1")
     app.pick_dest("botanical_future_01")
     p = app.cfg.portals["B-1"]
-    check(p.enabled and p.name == "Botanical Wing (Future)" and p.design.endswith("Botanical_Green"), "pick fills name and look")
+    check(p.enabled and p.name == "Botanical Wing (Future)" and p.design.endswith("Botanical_Red"), "pick fills name and look")
     app.update_state()
     check(app.save_btn.enabled, "savable")
 

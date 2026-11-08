@@ -123,9 +123,9 @@ DESTINATIONS = [
     ("Story", "INQ_Entrance", "Praetorium", "praetorium", "Niagara_Portal_Friendly"),
     # The Botanical Wing (in Fragments) is on the story path: the end of its future half gives the Motion Module recipe needed to
     # finish Fragments, which unlocks Albatross. Its two halves are linked by the game's own red and green portals. No wiki icon
-    # for either. Looks inferred: which colour belongs to which half is a guess.
-    ("Story", "botanical_present_01", "Botanical Wing (Present)", "botanical-wing-present", "Niagara_Portal_Botanical_Red"),
-    ("Story", "botanical_future_01", "Botanical Wing (Future)", "botanical-wing-future", "Niagara_Portal_Botanical_Green"),
+    # for either. Looks: green for the present half, red for the future half (the author's choice).
+    ("Story", "botanical_present_01", "Botanical Wing (Present)", "botanical-wing-present", "Niagara_Portal_Botanical_Green"),
+    ("Story", "botanical_future_01", "Botanical Wing (Future)", "botanical-wing-future", "Niagara_Portal_Botanical_Red"),
     ("Story", "wall_start", "GATE Arch Defense Facility", "gate-arch-defense-facility", "Niagara_Portal"),
     ("Story", "island_start", "Albatross", "albatross", "Niagara_Portal"),
     ("Optional (Major)", "rise_start", "Rise", "rise", "Niagara_Portal"),
