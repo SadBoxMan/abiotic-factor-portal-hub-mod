@@ -521,18 +521,8 @@ end
 local function completion_flag(def) return "PortalHub_" .. def.id .. "_Completed" end
 local function exit_pad_id(def) return def.id .. "_exit" end
 
--- the table path the game itself writes into flag handles (read from the portal room's home pads), else the table's object path
-local function flag_table_path()
-    for _, t in ipairs(FindAllOf("BP_Teleporter_HomeWorld_C") or {}) do
-        if t:IsValid() then
-            local ok, p = pcall(function() return t.RequiredWorldFlag.DataTablePath:ToString() end)
-            if ok and type(p) == "string" and p ~= "" then return p end
-        end
-    end
-    return WORLD_FLAGS_TABLE
-end
-
-local function flag_handle(name) return { RowName = FName(name), DataTablePath = flag_table_path() } end
+-- a story-flag handle (the native WorldFlagRowHandle since v1.5.0: only the row name is ours to set)
+local function flag_handle(name) return { RowName = FName(name) } end
 
 local function ensure_flag_row(def)
     local dt = StaticFindObject(WORLD_FLAGS_TABLE)
@@ -605,10 +595,107 @@ local function set_portals_active(id, on)
     end
 end
 
-local STALE_S = 10      -- a loading check or the tracker that has not run for this long (os.clock seconds) was dropped; NUMPAD 1 restarts it
+local STALE_S = 10      -- a world check loop or the tracker that has not run for this long (os.clock seconds) was dropped; NUMPAD 1 restarts it
+
+-- What the presence tracker (further down) knows about where the player is. inside, claim, lit, saved, lightAt and held all describe the
+-- map that was loaded when they were set; forget_old_map clears them.
+local presence = { running = false, lit = nil, saved = nil, lastNote = 0, cleaned = false, held = nil,
+                   inside = nil, claim = nil, lightAt = nil, reclaimAt = 0, claimRetryAt = nil, claimTries = 0 }
+
+-- This Lua state outlives map loads: after quitting to the menu and loading a save, worldState still says "ready" and presence still says
+-- "inside", though the levels and the controller they meant are gone. A world's loader is a Level Instance actor, which lives exactly as long
+-- as its level, so a world with a state but no loader belongs to the old map. Everything is cleared at once (the first one found means the
+-- map changed), so the tracker claims the world again exactly once and the normal load and hold run. Returns true if it found old state.
+local function forget_old_map()
+    local stale = 0
+    for id, st in pairs(worldState) do
+        if st.status ~= "failed" and not loader_present(worldDefs[id]) then
+            worldState[id] = nil
+            stale = stale + 1
+        end
+    end
+    if stale == 0 then return false end
+    presence.inside, presence.claim, presence.lit, presence.saved, presence.lightAt, presence.held = nil, nil, nil, nil, nil, nil
+    presence.claimRetryAt, presence.claimTries = nil, 0
+    log("worlds: a new map was loaded; " .. stale .. " world(s) start over")
+    return true
+end
+
+-- One look at one world that is loading. The caller (world_checks_tick) keeps it going until it is ready or failed.
+local function poll_world(def, st)
+    st.tries = st.tries + 1
+    local world = st.world
+    if not world:IsValid() then
+        log("worlds: " .. def.id .. ": the game world changed while loading; starting over")
+        worldState[def.id] = nil       -- not "failed": the tracker would send a player standing in it to the portal room
+        forget_old_map()
+        return
+    end
+    local ls = find_streaming(world, def.level)
+    if st.tries == 1 or st.tries % 20 == 0 then
+        local loaded, visible = "?", "?"
+        if ls then pcall(function() loaded = tostring(ls:IsLevelLoaded()) end); pcall(function() visible = tostring(ls:IsLevelVisible()) end) end
+        log(string.format("worlds: %s waiting (%.0f s): streaming level %s, loaded=%s, visible=%s", def.id, st.tries * WORLD_POLL_MS / 1000, ls and "found" or "NOT found", loaded, visible))
+        if not ls and (st.tries == 1 or st.tries == 40) then diag_streaming(world, def) end
+    end
+    if ls then
+        if st.tries % 5 == 0 then pcall(function() UEHelpers.GetGameplayStatics():FlushLevelStreaming(world) end) end
+        local visible = false
+        pcall(function() visible = ls:IsLevelVisible() end)
+        if visible then
+            st.status = "ready"
+            spawn_arrival_pad(world, def)
+            spawn_zones(world, def)
+            set_portals_active(def.id, true)
+            log(string.format("worlds: %s is ready after %.1f s, hub portals to it are on", def.id, st.tries * WORLD_POLL_MS / 1000))
+            return
+        end
+    end
+    if st.tries >= WORLD_MAX_TRIES then
+        st.status = "failed"
+        log("worlds: " .. def.id .. " did not finish loading in time")
+    end
+end
+
+-- Every world that is loading is checked in one callback. Five worlds used to mean five timer chains on top of the tracker's, and UE4SS
+-- dropped its whole game-tick hook during such a burst (findings/game-update-2026-10.md, fault 2). Returns true while any world is loading.
+local function world_checks_tick()
+    local more = false
+    for id, st in pairs(worldState) do
+        if st.status == "loading" then
+            local ok, err = pcall(poll_world, worldDefs[id], st)
+            if not ok and st.tries % 20 == 1 then log("worlds: " .. id .. " check error: " .. tostring(err):match("^[^\r\n]*")) end
+            if worldState[id] == st and st.status == "loading" then more = true end
+        end
+    end
+    return more
+end
+
+-- Starts the shared loop if it is not running, or again if its timer was dropped (UE4SS can lose queued timers). Like the tracker's loop it
+-- has a generation number, so only the newest copy keeps running.
+local worldLoop = { running = false, gen = 0, lastTick = 0 }
+local function run_world_checks()
+    if worldLoop.running then
+        if os.clock() - worldLoop.lastTick <= STALE_S then return end
+        log("worlds: the loading check stopped running; starting it again")
+    end
+    worldLoop.running = true
+    local gen = worldLoop.gen + 1
+    worldLoop.gen, worldLoop.lastTick = gen, os.clock()
+    local function loop()
+        if worldLoop.gen ~= gen then return end
+        worldLoop.lastTick = os.clock()
+        if world_checks_tick() then
+            ExecuteWithDelay(WORLD_POLL_MS, function() ExecuteInGameThread(loop) end)
+        else
+            worldLoop.running = false
+        end
+    end
+    ExecuteWithDelay(WORLD_POLL_MS, function() ExecuteInGameThread(loop) end)
+end
 
 local function start_world(world, def)
-    local st = { status = "loading", tries = 0, lastPoll = os.clock() }
+    local st = { status = "loading", tries = 0, world = world }
     worldState[def.id] = st
     if loader_present(def) then log("worlds: a loader for " .. def.id .. " already exists, not spawning another") end
     if not loader_present(def) then
@@ -621,39 +708,7 @@ local function start_world(world, def)
         log("worlds: loader spawned for " .. def.id .. ", waiting for the level to stream in")
     end
     apply_world_settings(def)
-    local function poll()
-        if st.status ~= "loading" then return end
-        st.tries = st.tries + 1
-        st.lastPoll = os.clock()
-        if not world:IsValid() then st.status = "failed"; log("worlds: " .. def.id .. ": the game world changed while loading") return end
-        local ls = find_streaming(world, def.level)
-        if st.tries == 1 or st.tries % 20 == 0 then
-            local loaded, visible = "?", "?"
-            if ls then pcall(function() loaded = tostring(ls:IsLevelLoaded()) end); pcall(function() visible = tostring(ls:IsLevelVisible()) end) end
-            log(string.format("worlds: %s waiting (%.0f s): streaming level %s, loaded=%s, visible=%s", def.id, st.tries * WORLD_POLL_MS / 1000, ls and "found" or "NOT found", loaded, visible))
-            if not ls and (st.tries == 1 or st.tries == 40) then diag_streaming(world, def) end
-        end
-        if ls then
-            if st.tries % 5 == 0 then pcall(function() UEHelpers.GetGameplayStatics():FlushLevelStreaming(world) end) end
-            local visible = false
-            pcall(function() visible = ls:IsLevelVisible() end)
-            if visible then
-                st.status = "ready"
-                spawn_arrival_pad(world, def)
-                spawn_zones(world, def)
-                set_portals_active(def.id, true)
-                log(string.format("worlds: %s is ready after %.1f s, hub portals to it are on", def.id, st.tries * WORLD_POLL_MS / 1000))
-                return
-            end
-        end
-        if st.tries >= WORLD_MAX_TRIES then
-            st.status = "failed"
-            log("worlds: " .. def.id .. " did not finish loading in time")
-            return
-        end
-        ExecuteWithDelay(WORLD_POLL_MS, function() ExecuteInGameThread(poll) end)
-    end
-    ExecuteWithDelay(WORLD_POLL_MS, function() ExecuteInGameThread(poll) end)
+    run_world_checks()
 end
 
 -- Called whenever the hub portals are (re)spawned: load every custom world a hub portal leads to, once.
@@ -665,14 +720,10 @@ local function ensure_worlds(world)
             seen[def.id] = true
             local st = worldState[def.id]
             log("worlds: checking " .. def.id .. " (status " .. (st and st.status or "none") .. ", loader present " .. tostring(loader_present(def)) .. ")")
-            if st and st.status ~= "failed" and not loader_present(def) then st = nil end    -- a new game world: start over
-            if st and st.status == "loading" and os.clock() - (st.lastPoll or 0) > STALE_S then
-                -- its timer was dropped (UE4SS can lose queued timers when mods are restarted): check again from the start
-                log("worlds: the loading check for " .. def.id .. " stopped running; starting it again")
-                st.status = "restarted"           -- stops the old check, should it still be alive
+            if not st or st.status == "failed" then
                 start_world(world, def)
-            elseif not st or st.status == "failed" then
-                start_world(world, def)
+            elseif st.status == "loading" then
+                run_world_checks()                -- restarts the loop if its timer was dropped
             elseif st.status == "ready" then
                 spawn_arrival_pad(world, def)
                 spawn_zones(world, def)
@@ -727,9 +778,8 @@ end
 --   * if the world is NOT ready (for example a save was loaded while standing in it, or its pak was removed): sends the player to the
 --     portal room instead of letting them fall through the missing level forever.
 local TRACK_MS = 500
+local CLAIM_RETRY_S, CLAIM_TRIES = 1.0, 10       -- a vignette claim that failed (level table not loaded yet) is tried again this often, this many times
 local EXIT_FORWARD, EXIT_UP = 215.1, 127.5          -- where the game puts a player who comes out of a pad (findings/portal-hub-findings.md)
-local presence = { running = false, lit = nil, saved = nil, lastNote = 0, cleaned = false, held = nil,
-                   inside = nil, claim = nil, lightAt = nil, reclaimAt = 0 }
 
 local cachedPc = nil
 local function local_pawn()
@@ -1143,11 +1193,15 @@ local function note(msg)       -- rate-limited log line for things that can repe
     if now - presence.lastNote > 5 then presence.lastNote = now; log(msg) end
 end
 
--- A world counts as ready when the hub says so, or when its level is already visible (for example the mods were restarted while the
--- player was standing in it, so the hub's own state is empty). In that case the hub adopts it.
+-- A world counts as ready when the hub says so and its loader is still there (without one that "ready" is from before a map load: see
+-- forget_old_map), or when its level is already visible (for example the mods were restarted while the player was standing in it, so the
+-- hub's own state is empty). In that case the hub adopts it.
 local function world_is_ready(def)
     local st = worldState[def.id]
-    if st and st.status == "ready" then return true end
+    if st and st.status == "ready" then
+        if loader_present(def) then return true end
+        forget_old_map()
+    end
     local world = UEHelpers.GetWorld()
     if world and world:IsValid() and loader_present(def) then
         local ls = find_streaming(world, def.level)
@@ -1229,12 +1283,25 @@ local function track_tick()
         if presence.inside ~= here.id then
             -- just arrived (or the mods were restarted while inside)
             presence.inside = here.id
-            if here.vignette then claim_level(here, pc) end
+            presence.claimRetryAt, presence.claimTries = nil, 0
+            -- right after a save is loaded the game's level table may not be loaded yet: try again shortly (see below)
+            if here.vignette and not claim_level(here, pc) then presence.claimRetryAt, presence.claimTries = os.clock() + CLAIM_RETRY_S, 1 end
             if here.vignette and world_type(here) == "vignette" and flag_is_set(here, pc) == false then
                 show("Portal sickness: find " .. world_title(here) .. "'s proper exit to lift it", MSG_YELLOW)
             end
             -- a `lighting` block goes on top once the game has switched to the world's lighting rows (that takes about a second)
             presence.lightAt = here.lighting and (os.clock() + (presence.claim and 2.0 or 0.0)) or nil
+        elseif here.vignette and presence.claimRetryAt then
+            if os.clock() >= presence.claimRetryAt then
+                if claim_level(here, pc) then
+                    presence.claimRetryAt = nil
+                elseif presence.claimTries >= CLAIM_TRIES then
+                    presence.claimRetryAt = nil
+                    log("vignette: " .. here.id .. " could not be marked as a vignette after " .. CLAIM_TRIES .. " tries; it stays a Facility area until the player comes back in")
+                else
+                    presence.claimRetryAt, presence.claimTries = os.clock() + CLAIM_RETRY_S, presence.claimTries + 1
+                end
+            end
         elseif here.vignette then
             keep_claim(here, pc)
         end
@@ -1308,6 +1375,7 @@ local function spawn_all()
     if not class or not class:IsValid() then log("teleporter class not found") return end
     destroy_hub_pads()
     install_hook()
+    forget_old_map()        -- before the portals spawn: a portal to a world of the old map must start off
     if presence.running and os.clock() - (presence.lastTick or 0) > STALE_S then
         log("tracker: it stopped running (a dropped timer); starting it again")
         presence.running = false

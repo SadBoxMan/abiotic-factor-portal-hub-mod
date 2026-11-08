@@ -66,7 +66,7 @@ check("flag row added", lua("FLAG_ROWS['%s'] ~= nil" % flag))
 check("flag row fields", lua("FLAG_ROWS['%s'].ReleaseGroup == 0 and type(FLAG_ROWS['%s'].DebugText) == 'string'" % (flag, flag)))
 check("one zone spawned", lua("#SPAWNED_ZONES") == 1, lua("#SPAWNED_ZONES"))
 check("zone waits for the flag", lua("SPAWNED_ZONES[1].PortalSicknessWorldFlag.RowName.s") == flag, lua("SPAWNED_ZONES[1].PortalSicknessWorldFlag.RowName.s"))
-check("zone handle has the game's table path", lua("SPAWNED_ZONES[1].PortalSicknessWorldFlag.DataTablePath") == "/Game/Blueprints/DataTables/DT_WorldFlags")
+check("zone handle holds the row name only (no DataTablePath since v1.5.0)", lua("SPAWNED_ZONES[1].PortalSicknessWorldFlag.DataTablePath") is None)
 pads = [lua("SPAWNED_PADS[%d].MyTeleporterID.s" % i) for i in range(1, lua("#SPAWNED_PADS") + 1)]
 check("arrival pad and exit pad spawned", "cordonatest_start" in pads and "cordonatest_start_exit" in pads, pads)
 ex = pads.index("cordonatest_start_exit") + 1
