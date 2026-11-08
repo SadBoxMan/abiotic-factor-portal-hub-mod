@@ -196,6 +196,25 @@ check("the flag is checked after the pad", has(L, "1.5 s after world_b_start_exi
 L.execute("T = 5; HOOKS['%s']({ get = function() return ARRIVAL end })" % hook)
 check("a pad with no flag logs the use only", has(L, "pad use: world_b_start -> hub_C2, active true, sets flag None"))
 
+print("=== NUMPAD 3: completion flags cleared with RowName-only handles (CRD-016)")
+L = lab()
+L.execute(r"""
+HANDLES = {}
+local set = { PortalHub_world_b_start_Completed = true }
+local fs = { IsValid = function() return true end,
+    GetWorldFlags = function(self, out) out[1] = { get = function() return FName("PortalHub_world_b_start_Completed") end } end,
+    HasWorldFlag = function(self, pc, h) HANDLES[#HANDLES + 1] = h; return set[h.RowName.s] == true end,
+    SetWorldFlag = function(self, h, on, pc) HANDLES[#HANDLES + 1] = h; set[h.RowName.s] = on end }
+local find = FindFirstOf
+function FindFirstOf(name) if name == "WorldFlagSubsystem" then return fs end return find(name) end
+""")
+press(L, "NUM_THREE")
+g = L.globals()
+n = len(g.HANDLES)
+check("NUMPAD 3 used flag handles", n > 0)
+check("no handle carries DataTablePath", n > 0 and all(L.eval("HANDLES[%d].DataTablePath" % i) is None for i in range(1, n + 1)))
+check("the hub's flag is cleared and confirmed", has(L, "clear flags: PortalHub_world_b_start_Completed -> call true, still set afterwards: false"), logs(L)[-4:])
+
 failed = [n for n, ok in results if not ok]
 print("\n%d checks, %d failed" % (len(results), len(failed)))
 sys.exit(1 if failed else 0)

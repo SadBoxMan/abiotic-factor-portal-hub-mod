@@ -8,7 +8,7 @@
 --   NUMPAD 0        lighting rows: every row of DT_LevelFX with its main values;  NUMPAD * / NUMPAD / step through them in game,
 --                   NUMPAD . gives the lighting back (the only keys besides NUMPAD 3 that change anything, and only the lighting)
 --   NUMPAD -        Leyak director: required story flag, CanSpawn, cooldown, active Leyak, each Leyak's distance (read-only); F4 forces a spawn
---   F5              no-clip on / off (changes the player: collision off, flying)
+--   F5              no-clip on / off (changes the player: capsule passes through walls but keeps overlaps for level streaming, flying)
 --   F2              save the player's position (world and world-relative, for ArriveSpot / ExitSpot) to the log and saved_positions.txt
 --   PAGE UP         flags and row registry: flags in this save, hub rows in DT_WorldFlags and DT_Levels, BaseTables, zones, pads (read-only)
 --   PAGE DOWN       the same questions asked through native calls not used elsewhere (flag library, HasWorldFlag handle forms; on their own key)
@@ -922,15 +922,12 @@ RegisterKeyBind(Key.NUM_SEVEN, function() ExecuteInGameThread(vignette_buff_surv
 
 -- NUMPAD 3 (testing): clear every Portal Hub completion flag ("PortalHub_<world>_Completed") in this world save, so a vignette world
 -- applies portal sickness again. Uses the game's own WorldFlagSubsystem:SetWorldFlag(flag, false, context); says so on screen.
+-- Handles carry the row name only, as the hub's do since CRD-011 (the game's WorldFlagRowHandle has no DataTablePath since v1.5.0).
 local function clear_hub_flags()
     local pc = player_controller()
     local pawn = pc and pc.Pawn
     local fs = FindFirstOf("WorldFlagSubsystem")
     if not (pc and fs and fs:IsValid()) then log("clear flags: no controller or flag subsystem") return end
-    local path = "/Game/Blueprints/DataTables/DT_WorldFlags.DT_WorldFlags"
-    for _, t in ipairs(FindAllOf("BP_Teleporter_HomeWorld_C") or {}) do
-        if t:IsValid() then pcall(function() local p = t.RequiredWorldFlag.DataTablePath:ToString(); if p ~= "" then path = p end end) end
-    end
     local out, cleared = {}, {}
     local okG, ret = pcall(function() return fs:GetWorldFlags(out) end)
     local names = {}
@@ -953,7 +950,7 @@ local function clear_hub_flags()
                 local n
                 if not (pcall(function() n = r:ToString() end) and type(n) == "string") then n = tostring(r) end
                 if n:find("^PortalHub_") and n:find("_Completed$") then
-                    local h = { RowName = FName(n), DataTablePath = path }
+                    local h = { RowName = FName(n) }   -- a WorldFlagRowHandle is row name only since v1.5.0 (CRD-011)
                     local okH, set = pcall(function() return fs:HasWorldFlag(pc, h) end)
                     log("clear flags: table row " .. n .. " set: " .. tostring(okH and set))
                     if okH and set then names[#names + 1] = n end
@@ -965,7 +962,7 @@ local function clear_hub_flags()
     for _, n in ipairs(names) do
         if n:find("^PortalHub_") and n:find("_Completed$") and not done[n] then
             done[n] = true
-            local h = { RowName = FName(n), DataTablePath = path }
+            local h = { RowName = FName(n) }   -- a WorldFlagRowHandle is row name only since v1.5.0 (CRD-011)
             local ok = pcall(function() fs:SetWorldFlag(h, false, pc) end)
             local okH, still = pcall(function() return fs:HasWorldFlag(pc, h) end)
             log("clear flags: " .. n .. " -> call " .. tostring(ok) .. ", still set afterwards: " .. tostring(okH and still))
@@ -1218,8 +1215,43 @@ log("Leyak keys: NUMPAD - = Leyak director survey (read-only), F4 = force a Leya
 -- engine's cheat-flying switch (bCheatFlying) and a faster fly speed. Pressing it again puts everything back and drops the player
 -- (Falling, mode 3), and logs where they are. A new pawn (after dying) starts with collision on, so the next press switches no-clip on
 -- for it. Changes only the local player.
+-- CRD-016 (7 November 2026): turning the whole actor's collision off made much of the Facility vanish. The game loads and unloads its
+-- sublevels from overlaps (LevelManagerInstance:OnPlayerEnterLevel / OnPlayerLeaveLevel(OverlappedActor, OtherActor) on its streaming
+-- volumes), so with no collision every volume saw the player leave and hid its level. Now the capsule keeps its collision and its
+-- overlaps: only the channels it blocks are switched to overlap (each one saved), so it passes through walls while the streaming
+-- volumes still see it. Off puts each saved response back. Side effect: flying through a pad or a zone triggers it, as walking does.
+-- If the capsule cannot be read, the old whole-actor switch is used and the log says so.
 ------------------------------------------------------------------------------------------------------------------------
-local noclip = nil      -- { key = pawn name, fly = previous MaxFlySpeed } while on
+local noclip = nil      -- { key = pawn name, fly = previous MaxFlySpeed, blocked = { channel numbers it blocked }, whole = true if the fallback ran }
+local ECR_OVERLAP, ECR_BLOCK = 1, 2
+
+-- switches every channel the capsule blocks to overlap; returns the list of switched channels, or nil if the capsule could not be read
+local function capsule_pass_through(pawn)
+    local cap = nil
+    pcall(function() cap = pawn.CapsuleComponent end)
+    if not (cap and cap:IsValid()) then return nil, "no capsule" end
+    local blocked, readable = {}, 0
+    for ch = 0, 31 do
+        local ok, r = pcall(function() return cap:GetCollisionResponseToChannel(ch) end)
+        if ok and type(r) == "number" then
+            readable = readable + 1
+            if r == ECR_BLOCK and pcall(function() cap:SetCollisionResponseToChannel(ch, ECR_OVERLAP) end) then blocked[#blocked + 1] = ch end
+        end
+    end
+    if readable == 0 then return nil, "channels not readable" end
+    return blocked, cap
+end
+
+local function capsule_restore(pawn, blocked)
+    local cap = nil
+    pcall(function() cap = pawn.CapsuleComponent end)
+    if not (cap and cap:IsValid()) then return 0 end
+    local n = 0
+    for _, ch in ipairs(blocked) do
+        if pcall(function() cap:SetCollisionResponseToChannel(ch, ECR_BLOCK) end) then n = n + 1 end
+    end
+    return n
+end
 
 -- one line at the top of the screen (the game's own player message: text, colour 0 green / 1 gray / 2 yellow / 3 red / 4 purple, beep)
 local function say(msg, colour)
@@ -1240,14 +1272,29 @@ local function toggle_noclip()
     if not noclip or noclip.key ~= key then
         local okF, fly = pcall(function() return mv.MaxFlySpeed end)
         noclip = { key = key, fly = okF and fly or nil }
-        local okC = pcall(function() pawn:SetActorEnableCollision(false) end)
+        local blocked, why = capsule_pass_through(pawn)
+        local how
+        if blocked then
+            noclip.blocked = blocked
+            how = string.format("capsule passes through, %d blocking channel(s) set to overlap: %s; overlaps kept for level streaming",
+                #blocked, table.concat(blocked, " "))
+        else
+            noclip.whole = true
+            local okC = pcall(function() pawn:SetActorEnableCollision(false) end)
+            how = string.format("FALLBACK (%s): whole collision off: %s; sublevels may unload", tostring(why), tostring(okC))
+        end
         pcall(function() mv.bCheatFlying = true end)
         local okM = pcall(function() mv:SetMovementMode(5, 0) end)                -- MOVE_Flying
         pcall(function() mv.MaxFlySpeed = 2000.0 end)
-        log(string.format("no-clip ON at %s (collision off: %s, flying: %s, fly speed was %s)", where, tostring(okC), tostring(okM), tostring(noclip.fly)))
+        log(string.format("no-clip ON at %s (%s; flying: %s, fly speed was %s)", where, how, tostring(okM), tostring(noclip.fly)))
         say("No-clip ON", 2)
     else
-        pcall(function() pawn:SetActorEnableCollision(true) end)
+        if noclip.whole then
+            pcall(function() pawn:SetActorEnableCollision(true) end)
+        else
+            local n = capsule_restore(pawn, noclip.blocked or {})
+            log(string.format("no-clip: %d of %d channel(s) back to block", n, #(noclip.blocked or {})))
+        end
         pcall(function() mv.bCheatFlying = false end)
         if noclip.fly then pcall(function() mv.MaxFlySpeed = noclip.fly end) end
         pcall(function() mv:SetMovementMode(3, 0) end)                            -- MOVE_Falling: lands and walks again
@@ -1356,7 +1403,7 @@ end
 ------------------------------------------------------------------------------------------------------------------------
 -- CRD-006, the assessment after game update v1.5.0 (6 November 2026). Nothing here changes the game or the save.
 -- Since v1.5.0 a flag handle is the native RowHandle: something at offset 0 that is not a property, then RowName. There is no
--- DataTablePath any more, and the hub and lab still pass one (see findings/game-update-2026-10.md).
+-- DataTablePath any more (see findings/game-update-2026-10.md); the hub (CRD-011) and the lab's NUMPAD 3 (CRD-016) pass RowName only.
 --   PAGE UP    only reads of the kinds already used in this file: flags in this save, hub rows in the two tables the hub adds to,
 --              ABFRowRegistrySubsystem.BaseTables (which tables the row registry manages), zones and pads with their flags.
 --   PAGE DOWN  native calls not used before, on their own key: the flag library, the forms of a handle, and the registry's load order.
