@@ -17,9 +17,15 @@ FLAG_ROWS, SPAWNED_ZONES, SPAWNED_PADS = {}, {}, {}
 local dtFlags = obj({ FindRow = function(self, n) return FLAG_ROWS[n] end, AddRow = function(self, n, r) FLAG_ROWS[n] = r end })
 local zoneClass, padClass = obj({ kind = "zone" }), obj({ kind = "pad" })
 local homePad = obj({ RequiredWorldFlag = { DataTablePath = FName("/Game/Blueprints/DataTables/DT_WorldFlags") } })
+-- the story-flag table starts unloaded (fresh game start, CRD-022): only LoadAsset with its object path loads it, as in game
+FLAG_TABLE_IN_MEMORY, FLAG_TABLE_LOADS = false, {}
+function LoadAsset(p)
+    if p:find("DT_WorldFlags", 1, true) then FLAG_TABLE_LOADS[#FLAG_TABLE_LOADS + 1] = p end
+    if p == "/Game/Blueprints/DataTables/DT_WorldFlags.DT_WorldFlags" then FLAG_TABLE_IN_MEMORY = true end
+end
 local baseFind, baseAll = StaticFindObject, FindAllOf
 function StaticFindObject(p)
-    if p == "/Game/Blueprints/DataTables/DT_WorldFlags.DT_WorldFlags" then return dtFlags end
+    if p == "/Game/Blueprints/DataTables/DT_WorldFlags.DT_WorldFlags" then return FLAG_TABLE_IN_MEMORY and dtFlags or nil end
     if p == "/Game/Blueprints/Environment/Volumes/Vignette_Zone.Vignette_Zone_C" then return zoneClass end
     if p == "/Game/Blueprints/Environment/Teleporters/BP_Teleporter_ParentBP.BP_Teleporter_ParentBP_C" then return padClass end
     return baseFind(p)
@@ -63,6 +69,9 @@ for l in logs:
     if "vignette" in l or "zone" in l or "exit" in l: print("    " + l)
 flag = "PortalHub_cordonatest_start_Completed"
 check("flag row added", lua("FLAG_ROWS['%s'] ~= nil" % flag))
+check("unloaded story-flag table: the hub loads it by its object path, once",
+      lua("#FLAG_TABLE_LOADS") == 1 and lua("FLAG_TABLE_LOADS[1]") == "/Game/Blueprints/DataTables/DT_WorldFlags.DT_WorldFlags"
+      and any("story-flag table was not loaded yet; loaded it" in l for l in logs), (lua("#FLAG_TABLE_LOADS"), lua("FLAG_TABLE_LOADS[1]")))
 check("flag row fields", lua("FLAG_ROWS['%s'].ReleaseGroup == 0 and type(FLAG_ROWS['%s'].DebugText) == 'string'" % (flag, flag)))
 check("one zone spawned", lua("#SPAWNED_ZONES") == 1, lua("#SPAWNED_ZONES"))
 check("zone waits for the flag", lua("SPAWNED_ZONES[1].PortalSicknessWorldFlag.RowName.s") == flag, lua("SPAWNED_ZONES[1].PortalSicknessWorldFlag.RowName.s"))

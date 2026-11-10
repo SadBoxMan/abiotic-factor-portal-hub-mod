@@ -624,9 +624,25 @@ local function exit_pad_id(def) return def.id .. "_exit" end
 -- a story-flag handle (the native WorldFlagRowHandle since v1.5.0: only the row name is ours to set)
 local function flag_handle(name) return { RowName = FName(name) } end
 
+-- Load a data table the game has not loaded yet; the table, or nil. UE4SS's LoadAsset loads it from the object path (".../DT_X.DT_X"); the
+-- package path alone loaded nothing in game (CRD-022), so it is only tried second. Game thread only (all callers run there).
+local function load_table(path)
+    local dt = StaticFindObject(path)
+    for _, try in ipairs({ path, (path:gsub("%.[^%.]*$", "")) }) do
+        if dt and dt:IsValid() then return dt end
+        pcall(LoadAsset, try)
+        dt = StaticFindObject(path)
+    end
+    if dt and dt:IsValid() then return dt end
+    return nil
+end
+
 local function ensure_flag_row(def)
     local dt = StaticFindObject(WORLD_FLAGS_TABLE)
-    if not (dt and dt:IsValid()) then pcall(LoadAsset, (WORLD_FLAGS_TABLE:gsub("%.[^%.]*$", ""))); dt = StaticFindObject(WORLD_FLAGS_TABLE) end
+    if not (dt and dt:IsValid()) then
+        dt = load_table(WORLD_FLAGS_TABLE)
+        if dt then log("vignette: the game's story-flag table was not loaded yet; loaded it") end
+    end
     if not (dt and dt:IsValid()) then log("vignette: the game's story-flag table is not loaded; " .. def.id .. " gets no completion flag yet") return false end
     local name = completion_flag(def)
     local okF, row = pcall(function() return dt:FindRow(name) end)
@@ -1091,13 +1107,8 @@ local function ensure_level_row(def, day, night)
     local dt = StaticFindObject(LEVELS_TABLE)
     if not (dt and dt:IsValid()) then
         -- on a fresh game start the game had still not loaded it a minute after a save made inside a world (CRD-022): load it here
-        -- (the tracker runs on the game thread)
-        for _, try in ipairs({ LEVELS_TABLE, (LEVELS_TABLE:gsub("%.[^%.]*$", "")) }) do       -- the object path is the form that loaded the zone class
-            if dt and dt:IsValid() then break end
-            pcall(LoadAsset, try)
-            dt = StaticFindObject(LEVELS_TABLE)
-        end
-        if dt and dt:IsValid() then log("vignette: the game's level table was not loaded yet; loaded it") end
+        dt = load_table(LEVELS_TABLE)
+        if dt then log("vignette: the game's level table was not loaded yet; loaded it") end
     end
     if not (dt and dt:IsValid()) then
         if not claimQuiet then log("vignette: the game's level table is not loaded yet") end
