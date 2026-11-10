@@ -197,7 +197,7 @@ approve.
 
 Ordered. All wait for CRD-012 to land where they touch `mod/PortalHub` or the GUI.
 
-1. **CRD-0xx Probe: save identity and interactables** (Opus, medium). A separate probe mod (new folder, single keys, no Ctrl):
+1. **CRD-020 Probe: save identity and interactables** (Opus, medium; solo run done 9 November, see section 4; the two-player part is still open). A separate probe mod (new folder, single keys, no Ctrl):
    log `ActiveWorldSaveName` and `GetSaveSubfolderName()` at load and on a key; spawn a `Button_Generic` in the portal room with a
    custom `ButtonName`, hook its `InteractWith_A`, log what fires and what the prompt shows; one two-player check (host and client)
    for both the name and the hook, and whether a host-spawned hub pad appears on a client. Runs on CordonaCorp / Mod Testing.
@@ -211,3 +211,73 @@ Ordered. All wait for CRD-012 to land where they touch `mod/PortalHub` or the GU
    the author still wants them after B1.
 
 Per-save for 1.0: not recommended; 1.0 keeps one global config. The probe (step 1) is cheap and worth doing before 2.0 planning.
+
+## 4. Probe results (CRD-020, 9 November 2026)
+
+Probe mod: `mod/CordonaProbe/` (dev only, not shipped; F11 = read-only survey, DELETE = spawn / remove a test button; mock test
+`tools/dev/tests/test_probe.py`). One **solo host** run on CordonaCorp, 9 November, about 20:40 to 20:44 (Eastern). No second player
+was available, so the client-side questions are still open (below). No `Ref was not function` in the log, no crash.
+
+### Save identity
+
+| When | `ActiveWorldSaveName` | `GetSaveSubfolderName()` |
+|---|---|---|
+| Mod load (main menu) | no game instance found yet (`UEHelpers.GetGameInstance()` and `FindFirstOf` both empty) | the Steam id folder name |
+| A Homeworld pad appears | `'CordonaCorp'` | the Steam id folder name |
+| Portal-spawn time (4 s later, when the hub spawns) | `'CordonaCorp'` | the Steam id folder name |
+| F11 in the portal room | `'CordonaCorp'` | the Steam id folder name |
+
+- **`ActiveWorldSaveName` is the save's folder name and is already set when the hub spawns its portals.** It is the key the per-save
+  file should use. The game instance is `Abiotic_GameInstance_C`, found through `UEHelpers.GetGameInstance()`.
+- **`GetSaveSubfolderName()` is not the save name**: it returns the Steam id folder (`SaveGames\<steam id>`). Useful only for the GUI's
+  path to `Worlds\`, not for identifying the world. (The id itself is not written in the repo.)
+- At mod load there is no game instance yet, so the per-save merge must run at spawn time, as section 1 already says.
+- Not tried in this run: switching to another save in the same session (expected to follow, since the value is read fresh each time),
+  and what a client or a dedicated server sees.
+
+### Portal-room button (`Button_Generic`)
+
+- **Spawning works.** `LoadAsset("/Game/Blueprints/Environment/Switches/Button_Generic")` then `SpawnActor` gives a working button
+  (19 spawns, 18 removals with `K2_DestroyActor`, no errors). Spawned defaults: name `Button`, `ButtonAlwaysPowered` already true,
+  `ShouldSave` true, `ButtonCooldown` 4.84. After the probe set `ButtonAlwaysPowered = true`, `ShouldSave = false`,
+  `ButtonDisabled = false` and `ButtonName = FText(...)`, all read back as set.
+- **It works with no power parent** (`ButtonAlwaysPowered`), floating in mid-air 1.5 m in front of the player at capsule height. The
+  author: easy to aim at and press, but a bit low. A real console should sit on a mesh or at a fixed spot in the room.
+- **The hook fires on the host for every press:** `InteractWith_A(InteractingCharacter, ComponentUsed)` with the player's character
+  as the first argument (44 presses). The order per press is `InteractWith_A_LocalFX`, `OnRep_Activated`, `InteractWith_A`, then
+  `OnRep_Activated` again. `TriggerButtonWithoutUser` never fired. `Activated` is true right after a press and false again later.
+- **The cooldown does not stop `InteractWith_A`:** presses 0.1 to 1 s apart all reached the hook despite `ButtonCooldown` 4.84. A
+  console must debounce on its own (for example ignore presses within 0.3 s), or one held key steps through several destinations.
+- **The prompt shows `ButtonName` and updates live:** the author saw "Cordona console: press N" with the number going up on each
+  press. So `GetInteractText` reads `ButtonName`, and writing it from Lua in the hook is enough for the cycling prompt (option B1).
+- `Client_DisplayWarningMessage` on the interacting character showed the message for each press.
+- The button is not saved: `ShouldSave = false` held (no button came back after reloads in this run; a save-and-reload check of that
+  is cheap to add to the two-player run).
+
+### Network roles seen on the host
+
+- The probe button, the game's own buttons and **every hub pad** report `role=Authority(3) remote=SimulatedProxy(1) replicates=true`
+  on the host. So the hub's spawned pads (and a spawned button) are replicated actors: a client should receive them from the host.
+  This is only the host's half; it is not proof that a client sees them.
+- 10 hub pads, no duplicate IDs on the host (including CRD-012's `hub_failsafe`, `hub_B1_manual` and `hub_mhe_train_start`).
+
+### Still open (needs a second player)
+
+1. Does a client see the host's probe button, and does its prompt follow `ButtonName` changes made on the host?
+2. Does a client's press reach the host's `InteractWith_A` hook (expected, since `Request_InteractA` goes to the server)?
+3. Does a client see the host-spawned hub pads, and if the client runs its own Portal Hub, does it get two pads per slot (one
+   replicated, `SimulatedProxy`, one local, `Authority`)? F11 on the client lists both and flags duplicate IDs.
+4. What `ActiveWorldSaveName` reads on a client (expected empty or its own last save).
+
+The probe is ready for that run unchanged: install it on both machines, DELETE on the host, F11 on both.
+
+### What this means for the next cards
+
+- **Per-save config, mod side:** unblocked. Key the file on `ActiveWorldSaveName` read at spawn time; treat empty as "global only".
+  Apply per-save only where the player has authority (`HasAuthority()` on the pawn), as section 1 recommends; the client reading in
+  open point 4 only confirms that rule.
+- **Per-save config, GUI side:** unblocked; the save list comes from the folder names under `Worlds\` (they match
+  `ActiveWorldSaveName`). `GetSaveSubfolderName()` is the Steam id folder, so the GUI's own folder scan is the right source.
+- **In-game console B1:** the single-player mechanics are confirmed (spawn, no power, not saved, hook, live prompt, message). Add a
+  debounce and a better placement (a fixed spot in the portal room at a usable height, or on a mesh). Its multiplayer behaviour
+  waits on open points 1 to 3; ship it host-only until those are checked.
