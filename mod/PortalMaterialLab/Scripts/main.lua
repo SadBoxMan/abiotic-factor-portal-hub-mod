@@ -10,9 +10,14 @@
 --   NUMPAD -        Leyak director: required story flag, CanSpawn, cooldown, active Leyak, each Leyak's distance (read-only); F4 forces a spawn
 --   F5              no-clip on / off (changes the player: capsule passes through walls but keeps overlaps for level streaming, flying)
 --   F2              save the player's position (world and world-relative, for ArriveSpot / ExitSpot) to the log and saved_positions.txt
+--   INSERT          Hub Exit preview and MHE: put a portal at the last F2 spot that leads to the last hub-room portal used, and save that spot
+--                   as the Manual Hub Exit (MHE) of the world it is in, in the HUB's manual_exits.lua; a hub portal in exit mode "manual" to that
+--                   world is linked to the preview at once, and the hub uses the MHE after NUMPAD 1 (or a mods restart). Press again
+--                   with no new F2 spot to remove the preview (the MHE stays). In the portal room it records the Failsafe Exit instead. Changes the game: spawns one pad, id hub_exit_preview, which the
+--                   hub's NUMPAD 1 / 2 also remove; writes the hub's manual_exits.lua.
 --   PAGE UP         flags and row registry: flags in this save, hub rows in DT_WorldFlags and DT_Levels, BaseTables, zones, pads (read-only)
 --   PAGE DOWN       the same questions asked through native calls not used elsewhere (flag library, HasWorldFlag handle forms; on their own key)
---   (no key)        every pad use is logged by a passive hook on AttemptTeleport: which pad, where it leads, which flag it sets
+--   (no key)        every pad use is logged by a passive hook on AttemptTeleport: which pad, where it leads, which flag and buffs it gives
 -- Keys stay clear of the game's own bindings: F1 is its player list, F10 its HUD toggle, + its pager (NUMPAD 1 and 2 belong to PortalHub, F6-F10 to PortalLogger). Note: Shift + a numpad digit does not work,
 -- because with Num Lock on Shift turns the digit into Home / arrow keys.
 -- Rule: every object is checked with IsValid() before anything is called on it (a call on an invalid object crashes the game).
@@ -1314,6 +1319,7 @@ end
 local HUB_CONFIG = "ue4ss/Mods/PortalHub/Scripts/config.lua"            -- relative to the game's Win64 folder (UE4SS's working folder)
 local POSITIONS_FILE = "ue4ss/Mods/PortalMaterialLab/saved_positions.txt"
 local savedCount = 0
+local lastSpot = nil        -- the last F2 spot: { x, y, z (feet), yaw, n }
 
 local function hub_worlds()
     local ok, cfg = pcall(dofile, HUB_CONFIG)
@@ -1352,6 +1358,7 @@ local function save_position()
     local f = io.open(POSITIONS_FILE, "a")
     if f then f:write(os.date("%Y-%m-%d %H:%M:%S") .. "  " .. line .. "\n"); f:close() else log("save position: could not write " .. POSITIONS_FILE) end
     say(string.format("Position %d saved: %s", savedCount, short), 0)
+    lastSpot = { x = x, y = y, z = z, yaw = yaw, n = savedCount }
 end
 
 -- F3: kill the player, for testing the respawn menu. The character only reacts to point and radial damage (it has no any-damage event) and
@@ -1592,21 +1599,326 @@ end
 
 -- Which pad was used, and what the save says just after. Only reads; the game's own teleport runs as usual.
 local padUse = { hooked = false, at = {} }
+local lastHubPad = nil      -- the last hub-room portal used: a Portal Hub pad (hub_*) or one of the game's own (H_*_Entrance)
 local function pad_used(pad)
     if not valid(pad) then return end
     local id = tostring(pad_id(pad))
     local now = os.clock()
     if padUse.at[id] and now - padUse.at[id] < 1 then return end    -- the overlap can fire more than once per crossing
     padUse.at[id] = now
+    if id:match("^hub_[A-C][1-4]$") or id:match("^H_.+_Entrance$") then lastHubPad = id end      -- same test as is_hub_room_pad
     local dest, row, active = "?", "?", "?"
     pcall(function() dest = pad.DestinationTeleporterID:ToString() end)
     pcall(function() row = handle_row(pad.WorldFlagToTriggerOnUse) end)
     pcall(function() active = tostring(pad.IsTeleporterActive) end)
-    log(string.format("pad use: %s -> %s, active %s, sets flag %s", id, dest, active, row))
+    local buffs = {}                       -- BuffsToApplyOnUse: BuffDebuffRowHandle rows the pad gives (the true exit's reward, CRD-012)
+    local okB = pcall(function() pad.BuffsToApplyOnUse:ForEach(function(_, el) buffs[#buffs + 1] = el:get().RowName:ToString() end) end)
+    log(string.format("pad use: %s -> %s, active %s, sets flag %s, gives buffs %s", id, dest, active, row,
+        not okB and "?" or (#buffs == 0 and "none" or table.concat(buffs, ", "))))
     if row == "None" or row == "?" then return end
     ExecuteWithDelay(1500, function() ExecuteInGameThread(function()
         log(string.format("pad use: 1.5 s after %s, flag %s set in this save: %s", id, row, tostring(contains(saved_flags(), row))))
     end) end)
+end
+
+-- INSERT: a Hub Exit preview. A teleporter pad at the last F2 spot (feet, facing the saved yaw) that leads to the last hub-room portal used, so
+-- a spot for a world's Hub Exit can be tried in the game at once. One preview at a time: a new F2 spot moves it, the same spot removes it.
+local TELEPORTER_CLASS = "/Game/Blueprints/Environment/Teleporters/BP_Teleporter_ParentBP.BP_Teleporter_ParentBP_C"
+local PREVIEW_ID = "hub_exit_preview"
+local PREVIEW_LOOK = "/Game/Particles/Niagara_Portal.Niagara_Portal"
+local preview = { at = nil }
+-- A portal standing in the hub room: a Portal Hub slot pad (hub_A3 ...) or one of the game's own (H_*_Entrance). Not the hub's other pads
+-- (hub_B1_manual stands in a world, hub_mhe_* too, hub_failsafe is a hidden landing): counting those sent a preview into Far Garden (9 November).
+local function is_hub_room_pad(id)
+    return id ~= nil and (id:match("^hub_[A-C][1-4]$") or id:match("^H_.+_Entrance$")) and true or false
+end
+-- When no hub-room portal was used since the mods started (a Restart All Mods forgets it): the hub-room portal whose destination pad is
+-- nearest to the player, which is the portal into the world the player stands in.
+local function nearest_hub_room_pad()
+    local pc = player_controller()
+    local pawn = pc and pc.Pawn
+    if not valid(pawn) then return nil end
+    local here = pawn:K2_GetActorLocation()
+    local pads, byId = {}, {}
+    for _, t in ipairs(FindAllOf("BP_Teleporter_ParentBP_C") or {}) do
+        if valid(t) then local id = pad_id(t); if id then pads[#pads + 1] = t; byId[id] = t end end
+    end
+    local best, bestD = nil, nil
+    for _, t in ipairs(pads) do
+        local id = pad_id(t)
+        if is_hub_room_pad(id) then
+            local okD, dest = pcall(function() return t.DestinationTeleporterID:ToString() end)
+            local d = okD and byId[dest]
+            if d then
+                local l = d:K2_GetActorLocation()
+                local dx, dy, dz = here.X - l.X, here.Y - l.Y, here.Z - l.Z
+                local dd = dx * dx + dy * dy + dz * dz
+                if not bestD or dd < bestD then best, bestD = id, dd end
+            end
+        end
+    end
+    return best, bestD and math.sqrt(bestD) / 100
+end
+local function remove_preview()
+    local n = 0
+    for _, t in ipairs(FindAllOf("BP_Teleporter_ParentBP_C") or {}) do
+        if valid(t) and pad_id(t) == PREVIEW_ID then pcall(function() t:K2_DestroyActor() end); n = n + 1 end
+    end
+    preview.at = nil
+    return n
+end
+-- MHE (Manual Hub Exit, CRD-012): the lab is a testing tool and does not ship, so a world's MHE is written into the hub's own
+-- manual_exits.lua (installed copy; copy it back to the repo before installing the hub again, or the recorded spots are lost). The world is the
+-- one whose arrival pad is nearest the spot (within MHE_NEAR_M): the game's portal worlds the config GUI offers, the Cabin, and any base-game
+-- destination in the hub's config.lua. One line per world; a new spot replaces the old one. The file must keep its "return {" ... "}" shape.
+local MHE_FILE = "ue4ss/Mods/PortalHub/Scripts/manual_exits.lua"
+local MHE_NEAR_M = 1000     -- the Cabin's arrival pad is ~1.7 km from the hub room: 2 km would claim Facility spots for it
+local MHE_WORLDS = { "anteverse_a_start", "fog_start", "train_start", "warehouse_start", "anteverse_b_start", "nightrealm_start_A", "salem_begin",
+    "alps_start", "anteverse_c_start", "shadowgate_start", "INQ_Entrance", "botanical_present_01", "botanical_future_01", "wall_start",
+    "island_start", "rise_start", "V_Snowglobe_Start", "signal_start", "VWinter_Start", "mirrorworld_start", "tile_entrance", "DistantShore",
+    "H_Cabin_Start" }
+
+-- INSERT in the portal room (within PORTAL_ROOM_M of one of the game's own hub-room portals) records the Failsafe Exit instead: where a player
+-- stands after using an MHE whose world has no hub portal (the hub's first floor, in front of the door). Saved as failsafe in manual_exits.lua.
+local PORTAL_ROOM_M = 30
+local function in_portal_room(x, y, z)
+    for _, t in ipairs(FindAllOf("BP_Teleporter_ParentBP_C") or {}) do
+        local id = valid(t) and pad_id(t)
+        if id and id:match("^H_.+_Entrance$") then
+            local l = t:K2_GetActorLocation()
+            local dx, dy, dz = x - l.X, y - l.Y, z - l.Z
+            if math.sqrt(dx * dx + dy * dy + dz * dz) / 100 <= PORTAL_ROOM_M then return true end
+        end
+    end
+    return false
+end
+
+local function mhe_world(x, y, z)
+    local ids = {}
+    for _, id in ipairs(MHE_WORLDS) do ids[id] = true end
+    local ok, cfg = pcall(dofile, HUB_CONFIG)
+    if ok and type(cfg) == "table" and type(cfg.portals) == "table" then
+        local custom = type(cfg.worlds) == "table" and cfg.worlds or {}
+        for _, pt in ipairs(cfg.portals) do
+            if type(pt) == "table" and type(pt.destination) == "string" and not custom[pt.destination] then ids[pt.destination] = true end
+        end
+    end
+    local best, bestD = nil, nil
+    for _, t in ipairs(FindAllOf("BP_Teleporter_ParentBP_C") or {}) do
+        local id = valid(t) and pad_id(t)
+        if id and ids[id] then
+            local l = t:K2_GetActorLocation()
+            local dx, dy, dz = x - l.X, y - l.Y, z - l.Z
+            local d = math.sqrt(dx * dx + dy * dy + dz * dz) / 100
+            if not bestD or d < bestD then best, bestD = id, d end
+        end
+    end
+    if best and bestD <= MHE_NEAR_M then return best, bestD end
+    return nil, bestD, best
+end
+
+local function mhe_save(world, spot)
+    local f = io.open(MHE_FILE, "rb")
+    if not f then return false, "cannot read " .. MHE_FILE end
+    local text = f:read("*a")
+    f:close()
+    local nl = text:find("\r\n", 1, true) and "\r\n" or "\n"
+    local lines = {}
+    for line in (text:gsub("\r\n", "\n") .. (text:sub(-1) == "\n" and "" or "\n")):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+    local open, close = nil, nil
+    for i, line in ipairs(lines) do
+        if not open and line:match("^%s*return%s*{%s*$") then open = i end
+        if line:match("^%s*}%s*$") then close = i end
+    end
+    if not (open and close and close > open) then return false, MHE_FILE .. " does not have its return { ... } shape; not changed" end
+    local keep, entries = {}, {}
+    for i = open + 1, close - 1 do
+        local key = lines[i]:match('^%s*%[?"?([%w_]+)"?%]?%s*=')
+        if key then
+            if key ~= world then entries[#entries + 1] = { key = key, line = lines[i] } end
+        else
+            keep[#keep + 1] = lines[i]
+        end
+    end
+    entries[#entries + 1] = { key = world, line = string.format('    ["%s"] = { %d, %d, %d, %d },    -- MHE recorded %s', world, spot.x, spot.y, spot.z,
+        spot.yaw, os.date("%Y-%m-%d %H:%M")) }
+    table.sort(entries, function(a, b) return a.key:lower() < b.key:lower() end)
+    local out = {}
+    for i = 1, open do out[#out + 1] = lines[i] end
+    for _, line in ipairs(keep) do out[#out + 1] = line end
+    for _, en in ipairs(entries) do out[#out + 1] = en.line end
+    for i = close, #lines do out[#out + 1] = lines[i] end
+    local newText = table.concat(out, nl) .. nl
+    local chunk = load(newText)
+    local okL, t = pcall(chunk or error)
+    if not (okL and type(t) == "table" and type(t[world]) == "table") then return false, "the new " .. MHE_FILE .. " would not load; not changed" end
+    local w = io.open(MHE_FILE, "wb")
+    if not w then return false, "cannot write " .. MHE_FILE end
+    w:write(newText)
+    w:close()
+    return true, #entries
+end
+
+-- After an MHE is saved: the hub portals in exit mode "manual" that lead to that world, from the hub's config.lua (slot, and whether the
+-- hub ignores a portal's own spot: mode 4 always uses the world's MHE). Their pads are hub_<slot without the dash>.
+local function manual_portals(world)
+    local out = {}
+    local ok, cfg = pcall(dofile, HUB_CONFIG)
+    if not (ok and type(cfg) == "table" and type(cfg.portals) == "table") then return out end
+    for _, pt in ipairs(cfg.portals) do
+        if type(pt) == "table" and pt.destination == world and type(pt.slot) == "string" then
+            local m = pt.exits
+            if m == 4 or (type(m) == "string" and m:lower() == "manual") then
+                out[#out + 1] = { id = "hub_" .. pt.slot:gsub("-", ""), slot = pt.slot }
+            end
+        end
+    end
+    return out
+end
+
+-- Link a manual-mode hub portal and the preview directly, both ways, until the hub spawns its portals again (NUMPAD 1 or a mods restart),
+-- when the hub's own manual portal at the saved MHE takes over.
+local function link_preview(world)
+    local pads = {}
+    for _, t in ipairs(FindAllOf("BP_Teleporter_ParentBP_C") or {}) do
+        local id = valid(t) and pad_id(t)
+        if id then pads[id] = t end
+    end
+    local preview = pads[PREVIEW_ID]
+    if not preview then return nil end
+    for _, mp in ipairs(manual_portals(world)) do
+        if pads[mp.id] then
+            local ok = pcall(function()
+                pads[mp.id].DestinationTeleporterID = FName(PREVIEW_ID)
+                preview.DestinationTeleporterID = FName(mp.id)
+            end)
+            if ok then
+                log("MHE: linked " .. mp.id .. " <-> " .. PREVIEW_ID .. " now; after NUMPAD 1 (or a mods restart) the hub's own manual portal at the MHE takes over")
+                return mp.id                                -- one preview links with one hub portal
+            end
+        end
+    end
+    return nil
+end
+
+-- One MHE per world: a new one replaces the old portal at once (the hub's manual portal of a mode-4 hub portal to that world, unless it has its
+-- own spot, and the hub's MHE portal of that world), so only the preview stands, linked; NUMPAD 1 then puts the hub's own portal in its place.
+local function remove_old_mhe(world)
+    local ids = { ["hub_mhe_" .. world] = true }
+    for _, mp in ipairs(manual_portals(world)) do ids[mp.id .. "_manual"] = true end
+    local gone = {}
+    for _, t in ipairs(FindAllOf("BP_Teleporter_ParentBP_C") or {}) do
+        local id = valid(t) and pad_id(t)
+        if id and ids[id] then pcall(function() t:K2_DestroyActor() end); gone[#gone + 1] = id end
+    end
+    if #gone > 0 then log("MHE: removed the old portal(s) of " .. world .. ": " .. table.concat(gone, ", ") .. " (one MHE per world)") end
+    return #gone
+end
+
+-- The first hub portal to a world in the hub's config.lua (hub_<slot>), which is where the hub's MHE of that world leads; nil if there is none.
+local function hub_portal_for(world)
+    local ok, cfg = pcall(dofile, HUB_CONFIG)
+    if not (ok and type(cfg) == "table" and type(cfg.portals) == "table") then cfg = { portals = {} } end
+    for _, pt in ipairs(cfg.portals) do
+        if type(pt) == "table" and pt.destination == world and type(pt.slot) == "string" then return "hub_" .. pt.slot:gsub("-", "") end
+    end
+    local home = world:match("^H_(.+)_Start$")       -- the game's homes have their own hub-room portal
+    if home then return "H_" .. home .. "_Entrance" end
+    return nil
+end
+
+local function pad_exists(id)
+    for _, t in ipairs(FindAllOf("BP_Teleporter_ParentBP_C") or {}) do if valid(t) and pad_id(t) == id then return true end end
+    return false
+end
+
+local function hub_exit_preview()
+    if not lastSpot then say("Hub Exit preview: save a spot with F2 first", 2) return end
+    if preview.at == lastSpot.n then
+        remove_preview()
+        say("Hub Exit preview removed", 0)
+        log("hub exit preview: removed (INSERT again with no new F2 spot)")
+        return
+    end
+    remove_preview()
+    -- what this spot is: the Failsafe Exit (portal room), a world's MHE, or neither; and so where the preview leads
+    local failsafe = in_portal_room(lastSpot.x, lastSpot.y, lastSpot.z)
+    if failsafe then                                   -- the Failsafe Exit is an invisible landing: no preview portal (one would lead somewhere)
+        local okF, resF = mhe_save("failsafe", lastSpot)
+        if okF then
+            log(string.format("MHE: Failsafe Exit = { %d, %d, %d, %d } saved in %s; the hub uses it after NUMPAD 1 (no preview: it is invisible)",
+                lastSpot.x, lastSpot.y, lastSpot.z, lastSpot.yaw, MHE_FILE))
+            say("Failsafe Exit saved (NUMPAD 1 to use it)", 0)
+        else
+            log("MHE: Failsafe Exit not saved: " .. tostring(resF))
+            say("Failsafe Exit not saved: " .. tostring(resF), 2)
+        end
+        return
+    end
+    local world, m, nearest = nil, nil, nil
+    if not failsafe then world, m, nearest = mhe_world(lastSpot.x, lastSpot.y, lastSpot.z) end
+    local dest, how = nil, ""
+    if world then
+        dest = hub_portal_for(world)
+        if dest then
+            how = " (the first hub portal to " .. world .. ", as the hub's MHE will)"
+        elseif pad_exists("hub_failsafe") then
+            dest, how = "hub_failsafe", " (no hub portal to " .. world .. ": the Failsafe Exit, as the hub's MHE will)"
+        else
+            dest, how = "None", " (no hub portal to " .. world .. "; after NUMPAD 1 the hub's MHE leads to the Failsafe Exit)"
+        end
+    else
+        dest = lastHubPad
+        if not dest then
+            local near, mm = nearest_hub_room_pad()
+            if near then dest, how = near, string.format(" (no hub-room portal used since the mods started; %s leads into the world %.0f m away)", near, mm) end
+        end
+        dest = dest or "None"
+        if dest == "None" then how = " (no hub-room portal found, so it leads nowhere)" end
+    end
+    local ok, err = pcall(function()
+        local w = nil
+        pcall(function() w = require("UEHelpers").GetWorld() end)
+        if not valid(w) then local pc = player_controller(); w = pc and pc:GetWorld() end
+        if not valid(w) then error("no world") end
+        local class = StaticFindObject(TELEPORTER_CLASS)
+        if not valid(class) then error("teleporter class not found") end
+        local pad = w:SpawnActor(class, { X = lastSpot.x, Y = lastSpot.y, Z = lastSpot.z }, { Pitch = 0.0, Yaw = lastSpot.yaw, Roll = 0.0 })
+        if not valid(pad) then error("SpawnActor failed") end
+        pad.MyTeleporterID = FName(PREVIEW_ID)
+        pad.DestinationTeleporterID = FName(dest)
+        pad.IsTeleporterActive = true
+        pcall(function() pad:OnRep_IsTeleporterActive() end)
+        pcall(function()
+            local sys = StaticFindObject(PREVIEW_LOOK)
+            if not valid(sys) then pcall(LoadAsset, PREVIEW_LOOK); sys = StaticFindObject(PREVIEW_LOOK) end
+            if valid(sys) then pad.ParticleLoop:SetAsset(sys, true); pad.ParticleLoop:Activate(true) end
+        end)
+    end)
+    if not ok then say("Hub Exit preview failed: " .. one_line(err), 2) log("hub exit preview failed: " .. one_line(err)) return end
+    preview.at = lastSpot.n
+    log(string.format("hub exit preview: portal at spot %d (%d, %d, %d facing %d), leads to %s%s", lastSpot.n, lastSpot.x, lastSpot.y, lastSpot.z,
+        lastSpot.yaw, dest, how))
+    say(string.format("Hub Exit preview at spot %d, leads to %s", lastSpot.n, dest), 0)
+    if not world then
+        log(string.format("MHE: spot %d is not within %d m of a world's arrival pad (nearest: %s, %s m); no MHE saved", lastSpot.n, MHE_NEAR_M,
+            tostring(nearest), m and string.format("%.0f", m) or "?"))
+        say("No MHE saved: this spot is not in a portal world", 2)
+        return
+    end
+    local okS, res = mhe_save(world, lastSpot)
+    if okS then
+        log(string.format("MHE: %s = { %d, %d, %d, %d } saved in %s (%d MHE(s) in the file; arrival pad %.0f m away); the hub uses it after NUMPAD 1",
+            world, lastSpot.x, lastSpot.y, lastSpot.z, lastSpot.yaw, MHE_FILE, res, m))
+        remove_old_mhe(world)
+        local linked = link_preview(world)
+        local note = linked and (": " .. linked .. " now leads here (NUMPAD 1 makes it the hub's own)")
+            or (dest == "None" and " (no hub portal: NUMPAD 1, then it leads to the Failsafe Exit)" or " (NUMPAD 1 to use it)")
+        say(string.format("MHE for %s saved%s", world, note), 0)
+    else
+        log("MHE: not saved: " .. tostring(res))
+        say("MHE not saved: " .. tostring(res), 2)
+    end
 end
 
 local function hook_pads()
@@ -1627,4 +1939,5 @@ log("assessment keys: PAGE UP = flags and row registry (read-only), PAGE DOWN = 
 if not pcall(function() RegisterKeyBind(Key.F5, function() ExecuteInGameThread(toggle_noclip) end) end) then log("F5 could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.F2, function() ExecuteInGameThread(save_position) end) end) then log("F2 could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.F3, function() ExecuteInGameThread(kill_player) end) end) then log("F3 could not be bound") end
-log("player keys: F5 = no-clip on / off, F2 = save this position (log, screen, saved_positions.txt), F3 = kill the player")
+if not pcall(function() RegisterKeyBind(Key.INS, function() ExecuteInGameThread(hub_exit_preview) end) end) then log("INSERT could not be bound") end
+log("player keys: F5 = no-clip on / off, F2 = save this position (log, screen, saved_positions.txt), F3 = kill the player, INSERT = Hub Exit preview at the last F2 spot")

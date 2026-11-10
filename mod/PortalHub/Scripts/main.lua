@@ -22,7 +22,63 @@ local SPAWN_DELAY_MS = 4000
 -- bypass that, so these pad IDs are refused as destinations (the config editor refuses them too). Compared in lower case.
 local BLOCKED_DESTINATIONS = { h_garden_start = true, h_garden_entrance = true, h_japan_start = true, h_japan_entrance = true }
 
-local state = { entries = {}, dests = {}, hooked = false, pending = false }
+local state = { entries = {}, dests = {}, byId = {}, byManual = {}, byMhe = {}, hubMode = {}, acts = {}, hooked = false, pending = false }
+
+-- Hub Exits (CRD-012): what a base-game world's own exits do for a hub portal leading to it. exitMode = ... sets modes 1-3 for every portal
+-- ("game" if not set); exits = ... on a portal overrides it, and is the only way to choose mode 4. Numbers 1-4 work too.
+--   game     1  the world's exits are the game's: the hub only takes players in
+--   hub      2  the world's exits take everyone to the hub portal, however they came in
+--   dynamic  3  per player: someone who came in through a hub portal leaves to it, someone who came the game's way leaves the game's way
+-- MHEs (Manual Hub Exits, manual_exits.lua): every world with a recorded MHE also gets that exit portal on its own, unless config.lua switches
+-- it off (mhe = { [arrival pad id] = false }). It leads to the first hub portal to that world (for the game's homes, such as the Cabin, their
+-- own hub-room portal), or, if there is none, to the Failsafe Exit: a
+-- hidden landing on the portal room's first floor in front of the door (manual_exits.lua failsafe = { x, y, z, yaw }, where the player stands).
+-- A world whose hub portal uses mode 4 needs no extra MHE: that portal's manual portal is its MHE.
+--   manual   4  the hub portal leads to the world's MHE (manual_exits.lua; a portal cannot carry its own spot: the hub portals are final) that
+--               always leads back to the hub portal; the world's own exits stay the game's. manualBuffs = true also gives the buffs of the
+--               world's true exit there (off by default: it makes the game much easier).
+-- game, hub and dynamic exclude each other. Custom worlds always return to the hub through their arrival pad, so they have no mode.
+local EXIT_MODE_NUMBERS = { "game", "hub", "dynamic", "manual" }
+local EXIT_MODES = { game = true, hub = true, dynamic = true, manual = true }
+local function exit_mode(v)
+    if type(v) == "number" then v = EXIT_MODE_NUMBERS[v] end
+    if type(v) == "string" and EXIT_MODES[v:lower()] then return v:lower() end
+    return nil
+end
+local DEFAULT_EXIT_MODE = exit_mode(Config.exitMode) or "game"
+if DEFAULT_EXIT_MODE == "manual" then DEFAULT_EXIT_MODE = "game" end      -- the global choice is modes 1-3 only (reported in resolve_config)
+-- The MHEs (Manual Hub Exits, manual_exits.lua) are read again each time the hub portals are spawned, so one recorded with the lab's INSERT
+-- is used after NUMPAD 1, without restarting the mods. The file itself is read (not require: UE4SS keeps a module it has loaded even after
+-- package.loaded is cleared, 9 November); require is only the fallback when the file cannot be opened. mheKey says whether it changed.
+local MHE_PATH = rawget(_G, "PORTALHUB_MHE_PATH") or "ue4ss/Mods/PortalHub/Scripts/manual_exits.lua"   -- relative to UE4SS's working folder
+local MANUAL_EXITS, mheKey = {}, nil
+local function load_manual_exits()
+    local t = nil
+    local f = io.open(MHE_PATH, "rb")
+    if f then
+        local text = f:read("*a")
+        f:close()
+        local chunk = load(text, "=manual_exits.lua")
+        local ok, r = pcall(chunk or error)
+        if ok and type(r) == "table" then t = r end
+    end
+    if not t then
+        package.loaded["manual_exits"] = nil
+        local ok, r = pcall(require, "manual_exits")
+        t = (ok and type(r) == "table") and r or {}
+    end
+    local keys = {}
+    for k, v in pairs(t) do
+        if type(v) == "table" then keys[#keys + 1] = tostring(k) .. "=" .. table.concat({ tostring(v[1]), tostring(v[2]), tostring(v[3]), tostring(v[4]) }, ",") end
+    end
+    table.sort(keys)
+    MANUAL_EXITS = t
+    local key = table.concat(keys, ";")
+    local changed = mheKey ~= nil and key ~= mheKey
+    mheKey = key
+    return changed, #keys
+end
+load_manual_exits()
 local worldDefs = {}     -- custom worlds from config.worlds, checked (see resolve_worlds)
 local worldState = {}    -- id -> { status = "loading" | "ready" | "failed", tries = n }
 
@@ -78,7 +134,37 @@ local function resolve_config()
                 if lb and lb <= 0 then lb = nil end
             end
             used[p.slot] = true
-            dests[p.destination] = true
+            local world = worldDefs[p.destination]
+            local mode, manual = nil, nil
+            if not world then
+                mode = DEFAULT_EXIT_MODE
+                if p.exits ~= nil then
+                    mode = exit_mode(p.exits)
+                    if not mode then
+                        log("config entry " .. i .. ": unknown exits '" .. tostring(p.exits) .. "', using \"" .. DEFAULT_EXIT_MODE .. "\"")
+                        mode = DEFAULT_EXIT_MODE
+                    end
+                end
+                if mode == "manual" then
+                    local function spot(m)
+                        if type(m) == "table" and tonumber(m[1]) and tonumber(m[2]) and tonumber(m[3]) then
+                            return { tonumber(m[1]), tonumber(m[2]), tonumber(m[3]), tonumber(m[4]) or 0.0 }
+                        end
+                        return nil
+                    end
+                    if p.manual ~= nil then
+                        log("config entry " .. i .. ": manual is ignored: a hub portal has no spot of its own; edit the MHE of " .. p.destination .. " in manual_exits.lua")
+                    end
+                    manual = spot(MANUAL_EXITS[p.destination])
+                    if not manual then
+                        log("config entry " .. i .. ": exits = \"manual\", but " .. p.destination .. " has no manual portal yet (manual_exits.lua); using \"game\"")
+                        mode = "game"
+                    end
+                end
+            elseif p.exits ~= nil then
+                log("config entry " .. i .. ": " .. p.destination .. " is a custom world, which always returns to the hub; exits ignored")
+            end
+            if mode ~= "manual" then dests[p.destination] = true end
             entries[#entries + 1] = {
                 slot = slot,
                 name = p.name or p.destination,
@@ -88,10 +174,24 @@ local function resolve_config()
                 lightColor = lc,
                 lightBrightness = lb,
                 id = ID_PREFIX .. (p.slot:gsub("-", "")),
+                exits = mode,
+                manual = manual,
+                manualBuffs = mode == "manual" and p.manualBuffs == true,
             }
+            local e = entries[#entries]
+            if manual then e.manualId = e.id .. "_manual" end
         end
     end
-    state.entries, state.dests = entries, dests
+    local byId, byManual, hubMode, acts = {}, {}, {}, {}
+    for _, e in ipairs(entries) do
+        byId[e.id] = e
+        if e.manualId then byManual[e.manualId] = e end
+        if e.exits == "hub" and not hubMode[e.dest] then hubMode[e.dest] = e.id end
+        if e.exits == "hub" or e.exits == "dynamic" then acts[e.dest] = true end
+    end
+    state.entries, state.dests, state.byId, state.byManual, state.hubMode, state.acts = entries, dests, byId, byManual, hubMode, acts
+    if Config.exitMode ~= nil and not exit_mode(Config.exitMode) then log("config: unknown exitMode '" .. tostring(Config.exitMode) .. "', using \"game\"") end
+    if exit_mode(Config.exitMode) == "manual" then log("config: exitMode is for modes 1-3 (game, hub, dynamic); \"manual\" is chosen per portal; using \"game\"") end
 end
 
 local function destroy_hub_pads()
@@ -732,12 +832,27 @@ local function ensure_worlds(world)
         end
     end
 end
+-- Exit mode "manual": the portal placed in the world. It leads back to its hub portal, always (nothing ever rewrites it).
+local function spawn_manual(world, class, e)
+    local m = e.manual
+    local pad = world:SpawnActor(class, { X = m[1], Y = m[2], Z = m[3] }, { Pitch = 0.0, Yaw = m[4], Roll = 0.0 })
+    if not pad or not pad:IsValid() then log(e.slot.id .. ": could not spawn the manual portal") return end
+    pad.MyTeleporterID = FName(e.manualId)
+    pad.DestinationTeleporterID = FName(e.id)
+    pad.IsTeleporterActive = true
+    pcall(function() pad:OnRep_IsTeleporterActive() end)
+    apply_design(pad, e.design)
+    apply_light(pad, e)
+    log(string.format("%s: manual portal %s at %.0f, %.0f, %.0f facing %.0f in %s, leads back to %s%s", e.slot.id, e.manualId, m[1], m[2], m[3], m[4],
+        e.dest, e.id, e.manualBuffs and " (gives the true exit's buffs)" or ""))
+end
+
 local function spawn_entry(world, class, e)
     local loc, yaw = Slots.pose(e.slot)
     local actor = world:SpawnActor(class, loc, { Pitch = 0.0, Yaw = yaw, Roll = 0.0 })
     if not actor or not actor:IsValid() then log(e.slot.id .. ": SpawnActor failed") return false end
     actor.MyTeleporterID = FName(e.id)
-    actor.DestinationTeleporterID = FName(e.dest)
+    actor.DestinationTeleporterID = FName(e.manualId or e.dest)
     local waiting = e.world and not (worldState[e.world.id] and worldState[e.world.id].status == "ready")
     actor.IsTeleporterActive = not waiting          -- a portal to a custom world stays off until that world has loaded
     pcall(function() actor:OnRep_IsTeleporterActive() end)
@@ -745,15 +860,17 @@ local function spawn_entry(world, class, e)
     apply_design(actor, e.design)
     apply_light(actor, e)
     log(string.format("%s: '%s' -> %s (pad %s)", e.slot.id, e.name, e.dest, e.id))
+    if e.exits then log(string.format("%s: exits: %s", e.slot.id, e.exits)) end
+    if e.manualId then spawn_manual(world, class, e) end
     return true
 end
 
--- The arrival pad of a world only has one destination, so before any pad that leads to a hub-connected world is used
--- we point that world's arrival pad back at the pad being used. This also covers the world's original entrance.
+-- The arrival pad of a custom world only has one destination, so before any pad that leads to it is used we point that arrival pad back at
+-- the pad being used. Base-game worlds are left alone: what their pads do is the portal's exit mode (Hub Exits, below).
 local function route_return(pad)
     local ok, err = pcall(function()
         local dest = pad.DestinationTeleporterID:ToString()
-        if not state.dests[dest] then return end
+        if not state.dests[dest] or not worldDefs[dest] then return end
         local mine = pad.MyTeleporterID:ToString()
         for _, t in ipairs(all_pads()) do
             if pad_id(t) == dest and t.DestinationTeleporterID:ToString() ~= mine then
@@ -1361,10 +1478,305 @@ local function start_tracker()
     log("tracker: watching " .. (function() local n = 0; for _ in pairs(worldDefs) do n = n + 1 end; return n end)() .. " custom world area(s)")
 end
 
+-- ---------------------------------------------------------------- Hub Exits (CRD-012): a base-game world's own exits
+-- A base-game world's exits lead to the game's return points in the Facility. For exit modes "hub" and "dynamic" (see the top of this file)
+-- the hub leaves those pads exactly as the game made them: everyone goes through the game's own teleport (so the pad's story flag and buffs
+-- are given as usual), and a moment later a player who should leave to the hub is moved on to the front of the hub portal. AttemptTeleport is
+-- told which player used the pad (InPlayer), so this is per player.
+-- Why not change the pad's destination instead: the game has already teleported the player when the hook runs, so a destination set then
+-- only counts for the NEXT use of that pad, and pads in streamed levels go back to the game's value when they reload (probe 1, 8 November).
+-- A world's exits: the known ones below, the world's arrival pad (in some worlds it is also a way out), and any pad within FIND_NEAR_M of the
+-- arrival pad whose teleport takes the player more than FIND_FAR_M away (found by distance; the log names it, for the list).
+local HUB_EXITS = {                                  -- arrival pad id -> its exits (found in game)
+    train_start = { "train_earlyexit", "train_end" },   -- 8 November
+    anteverse_a_start = { "anteverse_a_exit" },         -- Far Garden, 9 November
+}
+local TRUE_EXIT_BUFFS = {   -- arrival pad id -> the buff rows its true exit gives, for manualBuffs (also read from its listed exits when loaded)
+    anteverse_a_start = { "Buff_Hygroscopic" },        -- Far Garden: anteverse_a_exit, 9 November (lab pad-use survey)
+}
+local DEV_KEYS = true       -- END pretends to be a second player, for testing the dynamic mode alone (switch off for release)
+local FIND_NEAR_M = 1000    -- a pad this close to a world's arrival pad counts as part of that world (the widest seen: Village Den, ~730 m;
+                            -- the Cabin's arrival pad is ~1.7 km from the hub room and ~630 m from Torii's)
+local FIND_FAR_M = 1500     -- and a teleport that takes the player this far from the pad counts as leaving the world
+local LAND_CHECK_MS = 3000
+local MOVED_M = 20          -- the game has teleported the player once they are this far from the exit pad they used
+local WAIT_STEPS_MS = { 250, 500, 750 }   -- if not moved yet when the hook runs, look again after these waits (1.5 s in all)
+local HOLD_MS = 1000        -- after the move the player is held still this long, so the portal room's floor can stream in
+local exitWorld = {}        -- exit pad id -> the arrival pad id of the world it leaves
+for dest, pads in pairs(HUB_EXITS) do for _, id in ipairs(pads) do exitWorld[id] = dest end end
+local hubExit = { trips = {}, spoof = nil, said = {} }   -- trips[player][arrival id] = the hub portal that player came in by
+
+local function player_key(char)
+    if hubExit.spoof then return hubExit.spoof end
+    local key = nil
+    pcall(function()
+        local ps = char.PlayerState
+        if ps and ps:IsValid() then key = ps:GetFName():ToString() end
+    end)
+    if not key then pcall(function() key = char:GetFName():ToString() end) end
+    return key or "unknown player"
+end
+
+-- the overlap can fire more than once per crossing: say each thing once a second at most
+local function say_once(key, msg)
+    local now = os.clock()
+    if hubExit.said[key] and now - hubExit.said[key] < 1 then return end
+    hubExit.said[key] = now
+    log(msg)
+end
+
+local function metres(a, b)
+    local dx, dy, dz = a.X - b.X, a.Y - b.Y, a.Z - b.Z
+    return math.sqrt(dx * dx + dy * dy + dz * dz) / 100
+end
+
+-- Where the game puts a player who comes out of the hub pad in a slot, from the fixed slot positions (the portal room may not be streamed in).
+local function hub_pad_exit(hubId)
+    for _, e in ipairs(state.entries) do
+        if e.id == hubId then
+            local loc, yaw = Slots.pose(e.slot)
+            local rad = math.rad(yaw)
+            return { X = loc.X + math.cos(rad) * EXIT_FORWARD, Y = loc.Y + math.sin(rad) * EXIT_FORWARD, Z = loc.Z + EXIT_UP }, yaw
+        end
+    end
+    return nil
+end
+
+local function check_after_move(char, used, hub, target)
+    ExecuteWithDelay(LAND_CHECK_MS, function() ExecuteInGameThread(function()
+        local ok, err = pcall(function()
+            if not (char and char:IsValid()) then log("hub exits: check after " .. used .. ": the player is gone") return end
+            local m = metres(char:K2_GetActorLocation(), target)
+            log(string.format("hub exits: check after %s: the player is %.0f m from the front of %s%s", used, m, hub,
+                m < 10 and " (at the hub portal)" or " (NOT at the hub portal: moved away, fell, or the move was undone)"))
+        end)
+        if not ok then log("hub exits: check failed: " .. tostring(err)) end
+    end) end)
+end
+
+-- Move a player who just used a world exit on to a hub portal, once the game's own teleport has put them down.
+local function send_to_hub(char, exitPad, used, hub, farM)
+    local target, yaw = hub_pad_exit(hub)
+    if not target then log("hub exits: " .. hub .. " is not a configured hub portal any more; " .. used .. " works as the game made it") return end
+    local start = exitPad:K2_GetActorLocation()
+    local t0 = os.clock()
+    local function moved() return char:IsValid() and metres(char:K2_GetActorLocation(), start) > (farM or MOVED_M) end
+    local function go(when)
+        local ok, err = pcall(function()
+            local from = char:K2_GetActorLocation()
+            send_player(char, target, yaw)
+            pcall(function() char.CharacterMovement:SetMovementMode(0, 0) end)      -- MOVE_None: held until the floor is there
+            log(string.format("hub exits: %s: the game had moved the player %s; moved on from %.0f, %.0f, %.0f to the front of %s",
+                used, when, from.X, from.Y, from.Z, hub))
+        end)
+        if not ok then log("hub exits: move failed: " .. tostring(err)) return end
+        ExecuteWithDelay(HOLD_MS, function() ExecuteInGameThread(function()
+            pcall(function() char.CharacterMovement:SetMovementMode(3, 0) end)      -- MOVE_Falling: lands and walks again
+        end) end)
+        check_after_move(char, used, hub, target)
+    end
+    if moved() then
+        ExecuteWithDelay(100, function() ExecuteInGameThread(function() go("before the hook ran") end) end)
+        return
+    end
+    local step = 1
+    local function again()
+        ExecuteWithDelay(WAIT_STEPS_MS[step], function() ExecuteInGameThread(function()
+            local ok, isMoved = pcall(moved)
+            if ok and isMoved then go(string.format("%.2f s after the hook", os.clock() - t0)) return end
+            step = step + 1
+            if step > #WAIT_STEPS_MS then
+                log("hub exits: " .. used .. ": the game had not moved the player" .. (farM and " out of the world" or "") .. " after 1.5 s; not moving them")
+                return
+            end
+            again()
+        end) end)
+    end
+    again()
+end
+
+-- Which hub portal a player who just left a world by one of its exits goes to (nil: leave them where the game put them), and the mode.
+local function hub_target(world, who)
+    local trip = hubExit.trips[who] and hubExit.trips[who][world]
+    local e = trip and state.byId[trip]
+    if e and (e.exits == "dynamic" or e.exits == "hub") then return trip, e.exits end
+    if state.hubMode[world] then return state.hubMode[world], "hub" end
+    return nil, (e and e.exits) or (state.acts[world] and "dynamic") or "game"
+end
+
+local function find_pad(id)
+    for _, t in ipairs(all_pads()) do if pad_id(t) == id then return t end end
+    return nil
+end
+
+-- Is this pad an exit of a base-game world a hub portal leads to? Returns the world and how that is known ("list", "arrival", "distance").
+local function exit_of(pad, mine)
+    local w = exitWorld[mine]
+    if w and state.dests[w] then return w, "list" end
+    if state.dests[mine] and not worldDefs[mine] then return mine, "arrival" end
+    local here = nil
+    if mine:sub(1, 2) == "H_" then return nil end      -- the game's homes: their way out is their arrival pad, never found by distance
+    for world in pairs(state.acts) do                 -- found by distance only for worlds whose exits the hub acts on
+        local arrival = find_pad(world)
+        if arrival then
+            here = here or pad:K2_GetActorLocation()
+            if metres(here, arrival:K2_GetActorLocation()) < FIND_NEAR_M then return world, "distance" end
+        end
+    end
+    return nil
+end
+
+-- manualBuffs: the buffs the world's true exit gives, given by the manual portal (the game's own call, as its pads make it).
+local function true_exit_buffs(world)
+    local rows, seen = {}, {}
+    local function add(r) if r and r ~= "None" and not seen[r] then seen[r] = true; rows[#rows + 1] = r end end
+    for _, r in ipairs(TRUE_EXIT_BUFFS[world] or {}) do add(r) end
+    for _, id in ipairs(HUB_EXITS[world] or {}) do
+        local t = find_pad(id)
+        if t then
+            pcall(function() t.BuffsToApplyOnUse:ForEach(function(_, el) add(el:get().RowName:ToString()) end) end)
+        end
+    end
+    return rows
+end
+
+local function give_exit_buffs(char, e)
+    local rows = true_exit_buffs(e.dest)
+    if #rows == 0 then log("hub exits: " .. e.manualId .. ": no true-exit buffs known for " .. e.dest .. "; none given") return end
+    for _, r in ipairs(rows) do
+        local ok, err = pcall(function() return char.BuffComponent:Server_ApplyBuff({ RowName = FName(r) }, false, 0.0, 0, nil, false) end)
+        log("hub exits: " .. e.manualId .. ": true-exit buff " .. r .. (ok and " given" or (" failed: " .. tostring(err))))
+    end
+end
+
+local function hub_exit_use(pad, char)
+    local mine = pad_id(pad)
+    if not mine then return end
+    local dest = pad.DestinationTeleporterID:ToString()
+    local who = player_key(char)
+    local first = not hubExit.said[who .. mine] or os.clock() - hubExit.said[who .. mine] >= 1
+    local e = state.byId[mine]
+    if e then                                                -- a hub portal: remember who came in by which
+        if state.dests[e.dest] and not worldDefs[e.dest] then
+            local trips = hubExit.trips[who] or {}
+            hubExit.trips[who] = trips
+            trips[e.dest] = mine
+            say_once(who .. mine, string.format("hub exits: %s entered %s through hub portal %s (exits: %s)", who, e.dest, mine, e.exits))
+        end
+        return
+    end
+    local m = state.byManual[mine]
+    if m then                                                -- a manual portal: the game takes the player back to the hub portal
+        say_once(who .. mine, string.format("hub exits: %s used the manual portal of %s, back to %s%s", who, m.dest, m.id,
+            m.manualBuffs and " (with the true exit's buffs)" or ""))
+        if m.manualBuffs and first and char then give_exit_buffs(char, m) end
+        return
+    end
+    local mh = state.byMhe[mine]
+    if mh then                                               -- an MHE on its own: the game takes the player to its hub portal or the failsafe
+        say_once(who .. mine, string.format("hub exits: %s used the MHE of %s, to %s", who, mh.world, mh.dest))
+        return
+    end
+    if is_hub_id(mine) or is_hub_id(dest) then return end
+    if state.dests[dest] then                                -- the game's way into a world a hub portal leads to
+        local trips = hubExit.trips[who]
+        if trips and trips[dest] then
+            trips[dest] = nil
+            say_once(who .. mine, "hub exits: " .. who .. " entered " .. dest .. " the game's way (" .. mine .. ")")
+        end
+        return
+    end
+    local world, how = exit_of(pad, mine)
+    if not world then return end
+    local hub, mode = hub_target(world, who)
+    if not hub then
+        say_once(who .. mine, string.format("hub exits: %s used %s, an exit of %s (%s): exits %s, the game sends them to %s", who, mine, world, how, mode, dest))
+        return
+    end
+    say_once(who .. mine, string.format("hub exits: %s used %s, an exit of %s (%s): exits %s, the game sends them to %s, then the hub moves them to %s",
+        who, mine, world, how, mode, dest, hub))
+    if first and char then send_to_hub(char, pad, mine, hub, how == "distance" and FIND_FAR_M or nil) end
+end
+
+local function on_attempt(self, inPlayer)
+    local pad = self:get()
+    route_return(pad)
+    local ok, err = pcall(function()
+        local char = nil
+        if inPlayer then pcall(function() char = inPlayer:get() end) end
+        hub_exit_use(pad, char)
+    end)
+    if not ok then log("hub exits failed: " .. tostring(err)) end
+end
+
 local function install_hook()
     if state.hooked then return end
-    local ok, err = pcall(function() RegisterHook(ATTEMPT_FN, function(self) route_return(self:get()) end) end)
+    local ok, err = pcall(function() RegisterHook(ATTEMPT_FN, on_attempt) end)
     if ok then state.hooked = true else log("hook failed: " .. tostring(err)) end
+end
+
+-- MHEs on their own (see the top of this file) and the Failsafe Exit they may lead to. The failsafe is a landing pad only: off (like the
+-- game's own return pads, which pads still teleport to) and hidden, placed so that a player arriving there stands at the recorded spot.
+local FAILSAFE_ID = ID_PREFIX .. "failsafe"
+local FAILSAFE_LIFT = 10    -- the hidden landing pad floats 0.1 m above the recorded floor, so an arrival never ends up in the floor (author, 9 November)
+local function mhe_id(world) return ID_PREFIX .. "mhe_" .. world end
+local function spawn_failsafe(world, class)
+    local spot, yaw, from = nil, nil, "recorded"
+    local f = MANUAL_EXITS.failsafe
+    if type(f) == "table" and tonumber(f[1]) and tonumber(f[2]) and tonumber(f[3]) then
+        spot, yaw = { X = tonumber(f[1]), Y = tonumber(f[2]), Z = tonumber(f[3]) }, tonumber(f[4]) or 0.0
+    else
+        local s0, y0 = portal_room_exit()
+        if not s0 then log("MHE: no Failsafe Exit recorded and no slot to fall back on; not spawned") return false end
+        spot, yaw, from = { X = s0.X, Y = s0.Y, Z = s0.Z - EXIT_UP }, y0, "not recorded yet: in front of the first hub portal"
+    end
+    local rad = math.rad(yaw)
+    local loc = { X = spot.X - math.cos(rad) * EXIT_FORWARD, Y = spot.Y - math.sin(rad) * EXIT_FORWARD, Z = spot.Z + FAILSAFE_LIFT }
+    local pad = world:SpawnActor(class, loc, { Pitch = 0.0, Yaw = yaw, Roll = 0.0 })
+    if not pad or not pad:IsValid() then log("MHE: could not spawn the Failsafe Exit") return false end
+    pad.MyTeleporterID = FName(FAILSAFE_ID)
+    pad.DestinationTeleporterID = FName("None")
+    pad.IsTeleporterActive = false
+    pcall(function() pad:OnRep_IsTeleporterActive() end)
+    local hidden = pcall(function() pad:SetActorHiddenInGame(true) end)
+    log(string.format("MHE: Failsafe Exit (%s) at %.0f, %.0f, %.0f facing %.0f, hidden: %s", from, spot.X, spot.Y, spot.Z, yaw, tostring(hidden)))
+    return true
+end
+
+local function spawn_mhes(world, class)
+    local off = type(Config.mhe) == "table" and Config.mhe or {}
+    local first, mode4 = {}, {}
+    for _, e in ipairs(state.entries) do
+        if e.exits == "manual" then mode4[e.dest] = true elseif not first[e.dest] then first[e.dest] = e.id end
+    end
+    local byMhe, needFailsafe, n = {}, false, 0
+    for w, m in pairs(MANUAL_EXITS) do
+        if w ~= "failsafe" and type(m) == "table" and tonumber(m[1]) and tonumber(m[2]) and tonumber(m[3]) and off[w] ~= false
+                and not mode4[w] and not worldDefs[w] then
+            local home = type(w) == "string" and w:match("^H_(.+)_Start$")     -- the game's homes have their own hub-room portal
+            local dest = first[w] or (home and ("H_" .. home .. "_Entrance")) or FAILSAFE_ID
+            local pad = world:SpawnActor(class, { X = tonumber(m[1]), Y = tonumber(m[2]), Z = tonumber(m[3]) }, { Pitch = 0.0, Yaw = tonumber(m[4]) or 0.0, Roll = 0.0 })
+            if pad and pad:IsValid() then
+                pad.MyTeleporterID = FName(mhe_id(w))
+                pad.DestinationTeleporterID = FName(dest)
+                pad.IsTeleporterActive = true
+                pcall(function() pad:OnRep_IsTeleporterActive() end)
+                apply_design(pad, DEFAULT_DESIGN)
+                byMhe[mhe_id(w)] = { world = w, dest = dest }
+                needFailsafe = needFailsafe or dest == FAILSAFE_ID
+                n = n + 1
+                log(string.format("MHE: %s at %.0f, %.0f, %.0f leads to %s%s", w, tonumber(m[1]), tonumber(m[2]), tonumber(m[3]), dest,
+                    dest == FAILSAFE_ID and " (no hub portal to this world: the Failsafe Exit)" or ""))
+            else
+                log("MHE: could not spawn the MHE of " .. w)
+            end
+        elseif w ~= "failsafe" and off[w] == false then
+            log("MHE: " .. w .. " is switched off in config.lua (mhe)")
+        end
+    end
+    state.byMhe = byMhe
+    if needFailsafe then spawn_failsafe(world, class) end
+    return n
 end
 
 local function spawn_all()
@@ -1375,6 +1787,11 @@ local function spawn_all()
     if not class or not class:IsValid() then log("teleporter class not found") return end
     destroy_hub_pads()
     install_hook()
+    local mheChanged, mheCount = load_manual_exits()
+    if mheChanged then
+        log("manual_exits.lua changed (" .. mheCount .. " MHE(s)); reading the portals again")
+        resolve_config()
+    end
     forget_old_map()        -- before the portals spawn: a portal to a world of the old map must start off
     if presence.running and os.clock() - (presence.lastTick or 0) > STALE_S then
         log("tracker: it stopped running (a dropped timer); starting it again")
@@ -1386,6 +1803,7 @@ local function spawn_all()
         if spawn_entry(world, class, e) then added = added + 1 end
     end
     apply_hum(added)
+    spawn_mhes(world, class)
     ensure_worlds(world)
     log(added .. " of " .. #state.entries .. " configured portal(s) spawned")
 end
@@ -1421,4 +1839,12 @@ RegisterKeyBind(Key.NUM_TWO, function()
         apply_hum(0)
     end)
 end)
-log("loaded - NUMPAD 1 respawn portals, NUMPAD 2 remove them")
+if DEV_KEYS then
+    RegisterKeyBind(Key.END, function()
+        ExecuteInGameThread(function()
+            hubExit.spoof = (not hubExit.spoof) and "Player 2 (pretend)" or nil
+            show(hubExit.spoof and "Hub Exits test: you now count as Player 2" or "Hub Exits test: you are yourself again")
+        end)
+    end)
+end
+log("loaded - NUMPAD 1 respawn portals, NUMPAD 2 remove them" .. (DEV_KEYS and ", END pretend to be Player 2 (Hub Exits test)" or ""))

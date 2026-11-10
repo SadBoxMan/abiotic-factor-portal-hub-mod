@@ -11,12 +11,20 @@
 --   lightColor   Optional colour of the pad's own light, { r, g, b } with each value 0 to 1, e.g. { 0.2, 0.9, 0.4 } for green.
 --                It tints the surroundings and works with every look. (The editor offers rainbow presets and a colour picker.)
 --   lightBrightness  Optional multiplier for that light's brightness (1 = the game's normal brightness, 2 = twice as bright).
+--   exits        Optional: what the world's own exits do for players of this portal (overrides exitMode below):
+--                  "game" (1)     the world's exits are the game's: the portal only takes players in
+--                  "hub" (2)      the world's exits take everyone to this portal, however they came in
+--                  "dynamic" (3)  someone who came in through this portal leaves to it; someone who came the game's way leaves the game's way
+--                  "manual" (4)   this portal leads to the world's Manual Hub Exit (MHE, see manual_exits.lua), a portal placed in the world
+--                                 that always leads back here; the world's own exits stay the game's
+--   manualBuffs  Optional, with exits = "manual": true also gives the buffs of the world's true exit at the MHE. Off by default: it makes
+--                the game much easier.
 --
 -- The two DLC areas (Temple of Stone and Torii: H_Garden_Start, H_Garden_Entrance, H_Japan_Start, H_Japan_Entrance) cannot be used
 -- as destinations; entries that name them are skipped.
 --
--- The way back is handled for you: when someone uses a hub portal, the arrival pad is pointed back at that portal, so
--- players always return to the portal they came through (even if the world also has a different original entrance).
+-- Custom worlds (below) always lead back to the portal they were entered by, through their arrival pad; exits does not apply to them.
+-- Base-game worlds: see exits above and exitMode below.
 
 return {
     -- Hub portal volume (the looping hum of the portals in the portal room):
@@ -27,6 +35,15 @@ return {
     humMode = "dynamic",
     humFloor = 0.15,    -- dynamic: lowest volume, 0 to 1
     humManual = 0.5,    -- manual: volume, 0 to 1
+
+    -- What base-game worlds' own exits do, for every portal at once: "game" (default), "hub" or "dynamic" (see exits above).
+    -- A portal's own exits wins; "manual" can only be chosen per portal.
+    -- exitMode = "game",
+
+    -- Manual Hub Exits (MHEs, manual_exits.lua): every world with an MHE also gets that exit portal on its own, leading to the first portal
+    -- to that world here (for the game's homes, their own hub-room portal), or, if there is none, to the hub room (the Failsafe Exit).
+    -- To switch a world's MHE off, name its arrival pad here, e.g. mhe = { train_start = false },
+    -- mhe = {},
 
     -- Parts of a portal effect to switch off, by look. Example: hide the "Swirl" part (the accretion disk) of the SnowFlurry look:
     --   ["/Game/Particles/Niagara_Portal_SnowFlurry.Niagara_Portal_SnowFlurry"] = { "Swirl" },
