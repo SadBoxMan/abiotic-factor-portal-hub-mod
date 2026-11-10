@@ -66,10 +66,12 @@ function StaticFindObject(p)
     return nil
 end
 function LoadAsset(p) LOADED[#LOADED + 1] = p; CLASS_LOADED = true end
-function RegisterHook(path, cb) HOOKS[#HOOKS + 1] = { path = path, cb = cb } end
+function RegisterHook(path, cb) if not GAME_THREAD then OFF_THREAD[#OFF_THREAD + 1] = path end; HOOKS[#HOOKS + 1] = { path = path, cb = cb } end
 function NotifyOnNewObject(cls, cb) NOTIFY[#NOTIFY + 1] = { cls = cls, cb = cb } end
 function RegisterKeyBind(k, cb) KEYS[k] = cb end
-function ExecuteInGameThread(fn) fn() end
+GAME_THREAD = false
+OFF_THREAD = {}
+function ExecuteInGameThread(fn) local was = GAME_THREAD; GAME_THREAD = true; fn(); GAME_THREAD = was end
 function ExecuteWithDelay(ms, fn) QUEUE[#QUEUE + 1] = fn end
 function pump() local q = QUEUE; QUEUE = {}; for _, fn in ipairs(q) do fn() end end
 function press(k) if k == "SPAWN" then KEYS["DEL"]() else KEYS[k]() end end   -- SPAWN: DELETE with no probe button out
@@ -111,6 +113,12 @@ check("load: subfolder name logged", has(lines, "GetSaveSubfolderName='765611900
 check("load: keys F11 and DEL bound, INSERT left to the lab", g.KEYS["F11"] is not None and g.KEYS["DEL"] is not None and g.KEYS["INS"] is None)
 check("load: no hooks while the button class is not loaded", len(g.HOOKS) == 0)
 check("load: watches the Homeworld pad", len(g.NOTIFY) == 1 and "BP_Teleporter_HomeWorld_C" in g.NOTIFY[1].cls)
+
+# --- a Restart All Mods: the button class is already loaded, so the hooks go in at load, and must be registered on the game thread
+LR2 = lupa.LuaRuntime(unpack_returned_tuples=True); LR2.execute(MOCK); LR2.execute("CLASS_LOADED = true"); LR2.execute(open(PROBE, encoding="utf-8").read())
+gr2 = LR2.globals()
+check("reload: hooks registered at load when the class is loaded", len(gr2.HOOKS) == 4, len(gr2.HOOKS))
+check("reload: no hook registered off the game thread", len(gr2.OFF_THREAD) == 0, list(gr2.OFF_THREAD.values()))
 
 # --- portal-spawn time
 n = len(g.LOGS)

@@ -232,6 +232,9 @@ was available, so the client-side questions are still open (below). No `Ref was 
 - **`GetSaveSubfolderName()` is not the save name**: it returns the Steam id folder (`SaveGames\<steam id>`). Useful only for the GUI's
   path to `Worlds\`, not for identifying the world. (The id itself is not written in the repo.)
 - At mod load there is no game instance yet, so the per-save merge must run at spawn time, as section 1 already says.
+- **At the main menu the value is stale:** on a later launch, the mod-load reading (main menu, no world loaded) already held a
+  different save's name (another of the author's saves, presumably the last one used), and only switched to `'CordonaCorp'` once that
+  save was loaded. So never read it before a world is up; the Homeworld pad / spawn time is the right moment.
 - Not tried in this run: switching to another save in the same session (expected to follow, since the value is read fresh each time),
   and what a client or a dedicated server sees.
 
@@ -253,6 +256,15 @@ was available, so the client-side questions are still open (below). No `Ref was 
 - `Client_DisplayWarningMessage` on the interacting character showed the message for each press.
 - The button is not saved: `ShouldSave = false` held (no button came back after reloads in this run; a save-and-reload check of that
   is cheap to add to the two-player run).
+
+### Restart All Mods froze the game once (fixed)
+
+After the run, a Restart All Mods froze the game: every mod restarted, then the game thread stopped (the hub's queued respawn never
+logged). The one new element was the probe: with the button class already loaded, it registered its four `Button_Generic` hooks (and
+read the game instance) straight from the mod loader's thread at load. On a fresh launch the class is not loaded yet, so the hooks
+had gone in later, on the game thread. The probe now does all load-time work inside `ExecuteInGameThread`; the next Restart All Mods
+(21:15) reloaded cleanly, hooks in, hub respawned 7 of 7. A test check (`reload: no hook registered off the game thread`) fails on the
+old code. **Rule for every later card: register hooks and touch game objects only on the game thread**, the way the hub already does.
 
 ### Network roles seen on the host
 

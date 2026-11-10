@@ -286,8 +286,13 @@ end
 
 ------------------------------------------------------------------------------------------------------------------------
 
-log_identity("mod load")
-install_hooks()
+-- Nothing touches the game from the mod loader's own thread: on a Restart All Mods the button class is already loaded, and
+-- registering its hooks (and reading the game instance) straight from here froze the game on 9 November. The hub does the same:
+-- its hook is only ever registered on the game thread.
+ExecuteInGameThread(function()
+    log_identity("mod load")
+    install_hooks()
+end)
 
 NotifyOnNewObject(HOMEWORLD_CLASS, function()
     if probe.pendingHomeworld then return end
