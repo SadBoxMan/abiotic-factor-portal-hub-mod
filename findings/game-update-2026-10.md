@@ -3,6 +3,41 @@
 Checked 27 October 2026, read-only, before the game was launched on the new build. The `UE4SS.log` (17 October) and
 `UE4SS_ObjectDump.txt` (11 October) in the install are from the **old** build; nothing below comes from a run of the new one.
 
+## UE4SS update, 9 November 2026 (CRD-026)
+
+**Verdict: the new UE4SS works with all our mods, and fault 2 did not show.** UE4SS went from v3.0.1 Beta c838a8ac (15 July, an experimental build) to
+**v3.0.1-1212-gd4aebbf0** (5 November; the Nexus "UE4SS for Abiotic Factor" release 1.25.0); the log's version line now reads `Git SHA #d4aebbf0`. The
+third-party cheat-command mod went from 1.30.4 to 1.32.3 (a test aid only, never shipped). The old install is backed up whole, with `dwmapi.dll`, in
+`<game>\Binaries\Win64\ue4ss_backup_2026-11-09_c838a8ac\` (roll back by copying both back).
+
+**Install:** new `dwmapi.dll`, `UE4SS.dll`, layout files, `UE4SS_SDK_Backends`, `shared\UEHelpers` and `Keybinds`. The new `UE4SS-settings.ini`
+with two of our values carried over: `EnableHotReloadSystem = 1` and `GuiConsoleEnabled = 1` (the GUI and Restart All Mods, Ctrl+O). New defaults
+left as they come: `SecondsToScanBeforeGivingUp = 120` (was 30), `DefaultFNameToStringMethod = Conv_NameToString` (was `Scan`), `DebugBuild` and
+`Stats` detected, `PointerHash = Auto`. `mods.txt` is still the list that counts (`mods.json` is not read). UE4SS's stock mods sit in `Mods\`,
+switched off in `mods.txt`, except the console enabler (needed by the test aids).
+
+**API changes that touch us:** none needed a change. Every key name our mods use is still there (`Key.INS`, `Key.DEL`, the numpad keys, F-keys).
+New: `ExecuteInGameThreadWithDelay`, `LoopInGameThreadWithDelay`, `ExecuteInGameThreadAfterFrames`, an optional method argument for
+`ExecuteInGameThread`; `ExecuteAsync` and `LoopAsync` are marked deprecated but still work (the upstream changelog on GitHub, v4.0.0-rc1 section).
+The changelog names no fix for "Ref was not function". At start the new build logs one harmless line ("Failed to expose size of ...FObjectPtrProperty"),
+and two "Freed invalid callbacks" lines 3 s after mod start, as the old build did.
+
+**In game, CordonaCorp, three runs (21:30 to 22:06):**
+
+| Run | Mods on | What passed |
+|---|---|---|
+| 1 | Ours only | Hub spawn 7 of 7; World B in and out by arrival and exit pads; Far Garden `manual` and its MHE; the Train's MHE to the Failsafe Exit; probe F11 and DELETE (button hooks on every press); lab F5, NUMPAD 9, 8, 7, 0, PAGE UP; Restart All Mods; 3 reloads in World B, each held and landed within 1 s; NUMPAD 1 |
+| 2 | + console enabler, cheat-command mod | Far Garden `dynamic`: in by the hub, out by the true exit or the early exit, moved to the front of B-1; in the game's way, out the game's way; END (Player 2) out the game's way; Restart All Mods with the cheat mod running; 2 reloads; NUMPAD 1 |
+| 3 | + item spawner | Restart All Mods; 2 reloads in World B |
+
+**Fault 2 outcome:** no "Ref was not function" and no hook removed in any run: 7 reloads inside World B, 3 Restart All Mods and many hub-exit moves.
+At the old rate (1 load in 16) seven clean reloads would happen about two times in three anyway, so this is "not seen", not "gone"; the hard gate for
+2.0 stays open until a longer reload run. If it comes back, roll back from the backup above and compare.
+
+**Not ours, noted for test setups:** the item spawner's `give` failed on v1.5.0 with both UE4SS builds (its other commands work). It read the
+inventory slot by the old Blueprint field names; since v1.5.0 the slot is native (see "Where things moved"). A private local fix lives outside the repo
+and is never published. The cheat-command mod moves the console to F10 (the game's HUD key) and tilde.
+
 ## Result, added 6 November 2026 (hotfix v1.5.0.31876, Steam build 26373201)
 
 The break below was confirmed in game and fixed (CRD-004). The rest of this note is the check as written on 27 October, before any launch.
@@ -99,7 +134,8 @@ our mods were installed, and the lab's own timers were not due yet. **What is kn
 sightings were also moments of many queued callbacks. **What is not known:** whether UE4SS or the burst is at fault. **Restore, in order:** run the
 world checks in `start_world` (line 610) as one shared loop instead of five chains; then, if it comes back, the controlled UE4SS update (back up the `ue4ss`
 folder, keep `Mods\`, latest experimental build, same tests). A one-in-16 fault needs many reloads to judge either way. With no custom worlds there
-is no tracker or world check, so 1.0 is far less exposed.
+is no tracker or world check, so 1.0 is far less exposed. **Since then:** the shared loop came in with CRD-011 (8 clean reloads), and the UE4SS update
+was done on 9 November (CRD-026, section at the top): not seen in 7 more reloads, not yet proven gone.
 
 **Not a fault:** a crash in `UE4SS!RC::LuaMadeSimple::handle_error` at 21:40 from stepping lighting rows about five a second (NUMPAD `*`), each queuing a
 2 s timer. Dev key only; the author does not count it, and no player can reach it. It is one more sign that bursts of callbacks are what this UE4SS build handles badly.
@@ -136,6 +172,7 @@ with the hub's table. `flag_table_path` and `flag_handle` in the hub (lines 525-
 | Flag handle | `{RowName, DataTablePath}` | Native `WorldFlagRowHandle` (base `RowHandle`): `RowName` at offset 8, a hidden field at 0. Library: `/Script/AbioticFactor.WorldFlagHandleFunctionLibrary` (`DoesWorldFlagRowExist`, `Conv_NameToWorldFlag`, `GetAllWorldFlagRowNames`) |
 | New flag table type | | `WorldFlagTrigger` (`RequiredWorldFlags`, `WorldFlagToGrant`); teleporters still use a plain `WorldFlagRowHandle` |
 | Controller's FX rows | Names | `LevelFXRowHandle` structs: read `.RowName` |
+| Inventory slot | Blueprint struct, `ItemDataTable_18_...`, `ChangeableData_12_...` | Native `AbioticInventoryItemSlot`: `ItemDataTable` (a `GlobalItemRowHandle`, base `RowHandle`: `RowName` only, no table), `ChangeableData` (`AbioticInventoryChangeableData`: `CurrentItemDurability`, `MaxItemDurability`, `CurrentStack`, `CurrentAmmoInMagazine`, `LiquidLevel`, ...). The old names live on only in `LegacyData_*` structs (for old saves). Found 9 November (CRD-026) |
 | `DT_Levels` | 60 rows | 60 rows, 61+ with hub rows; 24 portal worlds with `ResettablePortalWorld` |
 | `DT_LevelFX` | 153 rows | 153 rows |
 | `DT_WorldFlags` | | 271 rows, 273 with two hub flags |
@@ -164,7 +201,7 @@ hooks the new exe is unknown until the author launches the game once.
 | Game version | not recorded in the repo | 1.5.0.31459 (patch notes) |
 | Steam build id | not recorded | 26092436 (`appmanifest_427410.acf`, updated 27 Oct 01:13) |
 | Engine | 5.4.4-1040001+++DF+ABF (game log, 17 Oct) | 5.4.4, changelist **1050002** (`++DF+ABF-CL-1050002` in the exe, built 15 Oct) |
-| UE4SS | v3.0.1 Beta, Git SHA c838a8ac | unchanged files (Jul 15); `dwmapi.dll` proxy still in `Binaries\Win64` |
+| UE4SS | v3.0.1 Beta, Git SHA c838a8ac | unchanged files (Jul 15); `dwmapi.dll` proxy still in `Binaries\Win64`. **Updated 9 November (CRD-026) to v3.0.1-1212-gd4aebbf0** (Nexus 1.25.0) |
 | Last launch | 17 Oct 23:07 | not launched since the update |
 
 The engine stays on **UE 5.4.4**: no engine bump, so the world paks (built with UE 5.4) and UE4SS's 5.4 layouts should still fit.
