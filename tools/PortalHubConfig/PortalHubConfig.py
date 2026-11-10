@@ -22,7 +22,7 @@ import zlib
 from tkinter import colorchooser, filedialog
 
 import hubdata as hd
-from luaconfig import HubConfig, LuaError, Portal, World, fmt_num
+from luaconfig import HubConfig, LuaError, Portal, World, fmt_num, read_manual_exits
 
 APP = "Cordona Corporations Portal Hub Assistant Tool"
 BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
@@ -151,18 +151,25 @@ class Btn(tk.Label):
 class Segmented(tk.Frame):
     def __init__(self, parent, options, command, bg):
         super().__init__(parent, bg=bg)
-        self.command, self.value, self.labels = command, None, {}
+        self.command, self.value, self.labels, self.enabled = command, None, {}, True
         for i, (label, value) in enumerate(options):
             w = tk.Label(self, text=label, font=font(9, True), padx=px(9), pady=px(5), cursor="hand2")
             w.pack(side="left", padx=(0 if i == 0 else 1, 0))
-            w.bind("<Button-1>", lambda e, v=value: self.command(v))
+            w.bind("<Button-1>", lambda e, v=value: self.enabled and self.command(v))
             self.labels[value] = w
 
     def set(self, value):
         self.value = value
         for v, w in self.labels.items():
             on = v == value
-            w.configure(bg=T["accent"] if on else T["panel"], fg=T["on_accent"] if on else T["fg"])
+            if not self.enabled:
+                w.configure(bg=T["hover"] if on else T["panel"], fg=T["dim"] if on else T["line"], cursor="arrow")
+            else:
+                w.configure(bg=T["accent"] if on else T["panel"], fg=T["on_accent"] if on else T["fg"], cursor="hand2")
+
+    def set_enabled(self, on):
+        self.enabled = on
+        self.set(self.value)
 
 
 class Tip:
@@ -689,7 +696,6 @@ class App:
         self.tab = "room"
         self.world_i = -1
         self.cards = {}
-        self.exit_rows = []
         self.status_kind = "info"
         self.saved_note = ""
         self.load()
@@ -698,6 +704,8 @@ class App:
 
     def load(self):
         self.cfg = HubConfig(self.path)
+        self.mhe_path = os.path.join(os.path.dirname(os.path.abspath(self.path)), "manual_exits.lua")
+        self.mhe_spots, self.mhe_failsafe, self.mhe_problem = read_manual_exits(self.mhe_path)
         self.hum_vals = {"dynamic": self.cfg.hum_floor, "manual": self.cfg.hum_manual}
         self.world_i = 0 if self.cfg.worlds else -1
 
@@ -718,7 +726,7 @@ class App:
         tabs = tk.Frame(r, bg=T["bg"], padx=px(16))
         tabs.pack(fill="x", pady=(px(8), 0))
         self.tab_btns = {}
-        for key, text in (("room", "PORTAL ROOM"), ("worlds", "CUSTOM WORLDS")):
+        for key, text in (("room", "PORTAL ROOM"), ("exits", "HUB EXITS"), ("worlds", "CUSTOM WORLDS")):
             w = tk.Label(tabs, text=text, font=font(10, True), padx=px(14), pady=px(6), cursor="hand2")
             w.pack(side="left")
             w.bind("<Button-1>", lambda e, k=key: self.show_tab(k))
@@ -728,8 +736,10 @@ class App:
         self.page_host.pack(fill="both", expand=True, padx=px(16))
         self.room = tk.Frame(self.page_host, bg=T["chassis"], padx=px(14), pady=px(12))
         self.worlds_page = tk.Frame(self.page_host, bg=T["chassis"], padx=px(14), pady=px(12))
+        self.exits_page = tk.Frame(self.page_host, bg=T["chassis"], padx=px(14), pady=px(12))
         self.build_board()
         self.build_inspector()
+        self.build_hub_exits()
         self.build_worlds()
         self.build_footer()
         self.show_tab("room")
@@ -820,22 +830,53 @@ class App:
 
         head = tk.Frame(f, bg=T["panel"])
         head.pack(fill="x", pady=(px(9), px(2)))
-        lab = tk.Label(head, text="HUB EXITS", bg=T["panel"], fg=T["dim"], font=font(8, True))
+        lab = tk.Label(head, text="EXIT MODE", bg=T["panel"], fg=T["dim"], font=font(8, True))
         lab.pack(side="left")
-        Tip(lab, "Extra pads inside this world that lead back to the hub, for each place its own exits would drop players at the game's return point. "
-                 "Spots are x, y, z, yaw. They belong to the destination, so every slot leading to it shares them.")
-        self.exit_add = Btn(head, "+ ADD", self.add_exit, small=True)
-        self.exit_add.pack(side="right")
-        self.buff_btn = Btn(head, "", self.toggle_buff, small=True)
-        self.buff_btn.pack(side="right", padx=(0, px(6)))
-        Tip(self.buff_btn, "hubExitBuff in config.lua. Applies to every hub exit.")
+        Tip(lab, "What the world's own exits do for players of this portal (exits in config.lua). DEFAULT follows the mode set on the "
+                 "HUB EXITS tab. MANUAL can only be chosen here. Custom worlds always lead back to the hub, so they have no mode.")
+        self.buff_btn = Btn(head, "", self.toggle_manual_buffs, small=True)
+        self.buff_btn.pack(side="right")
+        Tip(self.buff_btn, "manualBuffs, MANUAL only: the Manual Hub Exit also gives the buffs of the world's true exit. "
+                           "Off by default: it makes the game much easier.")
+        self.exit_seg = Segmented(f, [("DEFAULT", "")] + [(m.upper(), m) for m in hd.EXIT_MODES], self.pick_exit, T["panel"])
+        self.exit_seg.pack(anchor="w")
+        for m, w in self.exit_seg.labels.items():
+            Tip(w, hd.EXIT_MODE_HELP[m] if m else "Use the default mode from the HUB EXITS tab.")
         self.exit_note = tk.Label(f, bg=T["panel"], fg=T["dim"], font=font(9), anchor="w", justify="left", wraplength=px(430))
-        self.exit_caps = tk.Frame(f, bg=T["panel"])
-        for i, cap in enumerate(("X", "Y", "Z", "YAW")):
-            tk.Label(self.exit_caps, text=cap, bg=T["panel"], fg=T["dim"], font=font(8, True)).grid(row=0, column=i, sticky="ew")
-            self.exit_caps.columnconfigure(i, weight=1, uniform="cap")
-        self.exit_caps.columnconfigure(4, minsize=px(38))
-        self.exit_box = Scrolled(f, T["panel"])
+        self.exit_note.pack(fill="x", pady=(px(4), 0))
+
+    def build_hub_exits(self):
+        p = self.exits_page
+        top = tk.Frame(p, bg=T["panel"], padx=px(14), pady=px(10), highlightthickness=1, highlightbackground=T["line"])
+        top.pack(fill="x")
+        lab = tk.Label(top, text="DEFAULT EXIT MODE", bg=T["panel"], fg=T["dim"], font=font(8, True), anchor="w")
+        lab.pack(fill="x")
+        Tip(lab, "exitMode in config.lua: what base-game worlds' own exits do, for every hub portal that has no mode of its own.")
+        self.global_seg = Segmented(top, [(m.upper(), m) for m in hd.GLOBAL_EXIT_MODES], self.pick_global_exit, T["panel"])
+        self.global_seg.pack(anchor="w", pady=(px(2), 0))
+        for m, w in self.global_seg.labels.items():
+            Tip(w, hd.EXIT_MODE_HELP[m])
+        self.global_note = tk.Label(top, bg=T["panel"], fg=T["fg"], font=font(9), anchor="w", justify="left", wraplength=px(1100))
+        self.global_note.pack(fill="x", pady=(px(4), 0))
+        tk.Label(top, text="A portal can pick its own mode on the PORTAL ROOM tab; MANUAL is chosen per portal only. "
+                           "Custom worlds always lead back to the hub.", bg=T["panel"], fg=T["dim"], font=font(9), anchor="w").pack(fill="x")
+
+        box = tk.Frame(p, bg=T["panel"], padx=px(14), pady=px(10), highlightthickness=1, highlightbackground=T["line"])
+        box.pack(fill="both", expand=True, pady=(px(10), 0))
+        lab = tk.Label(box, text="MANUAL HUB EXITS (MHE)", bg=T["panel"], fg=T["dim"], font=font(8, True), anchor="w")
+        lab.pack(fill="x")
+        Tip(lab, "Spots are recorded in manual_exits.lua next to config.lua (read only here). Switching one off writes mhe = { [pad] = false } into config.lua.")
+        tk.Label(box, text="An MHE is an exit portal placed inside a base-game world that leads back to the hub: to the first hub portal to that "
+                           "world, or with none, to the Failsafe Exit in the portal room. Every recorded MHE is on unless you switch it off here, "
+                           "with or without a hub portal to its world.", bg=T["panel"], fg=T["fg"], font=font(9), anchor="w", justify="left",
+                 wraplength=px(1100)).pack(fill="x", pady=(px(2), px(6)))
+        self.mhe_note = tk.Label(box, bg=T["panel"], fg=T["warn"], font=font(9, True), anchor="w", justify="left", wraplength=px(1100))
+        host = tk.Frame(box, bg=T["crt"], highlightthickness=1, highlightbackground=T["crt_edge"])
+        host.pack(fill="both", expand=True)
+        self.mhe_list = Scrolled(host, T["crt"])
+        self.mhe_list.pack(fill="both", expand=True)
+        self.failsafe_note = tk.Label(box, bg=T["panel"], fg=T["dim"], font=font(9), anchor="w", justify="left")
+        self.failsafe_note.pack(fill="x", pady=(px(6), 0))
 
     def build_worlds(self):
         p = self.worlds_page
@@ -1058,7 +1099,7 @@ class App:
         self.bright.set_enabled(on)
         self.show_light(p)
         self.guard = False
-        self.build_exits(p if on else None)
+        self.show_exits(p if on else None)
 
     def show_dest(self, p):
         d = p.destination
@@ -1105,8 +1146,10 @@ class App:
         p = self.cfg.portals.get(slot)
         if p is None:
             self.cfg.portals[slot] = Portal(slot=slot)
+        elif p.enabled:
+            self.cfg.wipe_portal(slot)          # off = wiped: world, exit mode, look and light all go (author's ruling)
         else:
-            p.enabled = not p.enabled
+            p.enabled = True
         self.changed(slot, inspector=True)
 
     def ensure_on(self):
@@ -1142,6 +1185,8 @@ class App:
             return
         p.destination = value
         p.typing = False
+        if any(w.id == value for w in self.cfg.worlds):     # custom worlds always return to the hub: no exit mode
+            p.exits, p.manual_buffs = "", False
         known = hd.KNOWN_BY_ID.get(value)
         if known:                       # a world brings its name and the look the game uses for it
             p.name = known[2]
@@ -1159,7 +1204,7 @@ class App:
         bad = bool(self.dest_problem(p))
         self.dest.set_bad(bad)
         self.pad.set_bad(bad)
-        self.build_exits(p)
+        self.show_exits(p)
         self.changed(p.slot)
 
     def name_typed(self):
@@ -1210,80 +1255,135 @@ class App:
             self.active().brightness = v
             self.changed(self.sel)
 
-    # ------------- hub exits
-    def build_exits(self, p):
-        for child in self.exit_box.inner.winfo_children():
-            child.destroy()
-        self.exit_rows = []
-        self.exit_note.pack_forget()
-        self.exit_caps.pack_forget()
-        self.exit_box.pack_forget()
-        self.paint_buff()
-        cfg = self.cfg
-        if not cfg.hub_exits_editable:
-            self.exit_add.set_enabled(False)
-            self.exit_note.configure(text="The hubExits section uses a layout this editor can't read, so it is left exactly as written.")
-            self.exit_note.pack(fill="x")
-            return
+    # ------------- exit modes (side panel)
+    def is_custom_world(self, dest):
+        return any(w.id == dest for w in self.cfg.worlds)
+
+    def show_exits(self, p):
         dest = p.destination.strip() if p else ""
-        ok = bool(p) and PAD_ID_RX.match(dest) is not None
-        self.exit_add.set_enabled(ok)
-        spots = cfg.hub_exits.get(dest, []) if ok else []
-        if not spots:
-            self.exit_note.configure(text="None. Players leave through the world's own exits." if ok else "Pick a destination first.")
-            self.exit_note.pack(fill="x")
-            return
-        self.exit_caps.pack(fill="x")
-        self.exit_box.pack(fill="both", expand=True)
-        for spot in spots:
-            self.add_exit_row(dest, spot)
+        custom = bool(p) and self.is_custom_world(dest)
+        self.exit_seg.set_enabled(bool(p) and not custom)
+        self.exit_seg.set(p.exits if p else "")
+        manual = bool(p) and p.exits == "manual" and not custom
+        self.buff_btn.configure(text="BUFFS ON" if p and p.manual_buffs else "BUFFS OFF")
+        self.buff_btn.set_enabled(manual)
+        warn = False
+        if not p:
+            text = "Turn the slot on first."
+        elif custom:
+            text = "A custom world always leads back to the hub through its arrival pad, so it has no exit mode."
+        elif not p.exits:
+            g = self.cfg.exit_mode
+            text = f"Default: {g.upper()}. {hd.EXIT_MODE_HELP[g]}"
+        else:
+            text = hd.EXIT_MODE_HELP[p.exits]
+            if manual and dest and dest not in self.mhe_spots:
+                text += f"\nNo MHE is recorded for {self.world_title(dest)} yet (manual_exits.lua), so the hub uses GAME for this portal."
+                warn = True
+        self.exit_note.configure(text=text, fg=T["warn"] if warn else T["dim"])
 
-    def add_exit_row(self, dest, spot):
-        row = tk.Frame(self.exit_box.inner, bg=T["panel"])
-        row.pack(fill="x", pady=(0, px(3)))
-        fields = []
-        for v in spot:
-            f = Field(row, width=7, justify="center")
-            f.var.set(fmt_num(v))
-            f.var.trace_add("write", lambda *_, s=spot, fs=fields: self.exit_edited(s, fs))
-            f.pack(side="left", fill="x", expand=True, padx=(0, px(3)))
-            self.exit_box.bind_wheel(f.entry)
-            fields.append(f)
-        Btn(row, "x", lambda: self.remove_exit(dest, spot), small=True).pack(side="left")
-        self.exit_rows.append(fields)
-
-    def exit_edited(self, spot, fields):
-        for i, f in enumerate(fields):
-            try:
-                spot[i] = float(f.var.get())
-                f.set_bad(False)
-            except ValueError:
-                f.set_bad(True)
-        self.update_state()
-
-    def add_exit(self):
+    def pick_exit(self, mode):
         p = self.active()
-        if p:
-            self.cfg.hub_exits.setdefault(p.destination.strip(), []).append([0.0, 0.0, 0.0, 0.0])
-            self.build_exits(p)
-            self.update_state()
+        if not p:
+            return
+        p.exits = mode
+        if mode != "manual":
+            p.manual_buffs = False              # only read with MANUAL: no leftover in the file
+        self.show_exits(p)
+        self.changed(p.slot)
 
-    def remove_exit(self, dest, spot):
-        spots = self.cfg.hub_exits.get(dest, [])
-        spots[:] = [s for s in spots if s is not spot]
-        if not spots:
-            self.cfg.hub_exits.pop(dest, None)
-        self.build_exits(self.active())
+    def toggle_manual_buffs(self):
+        p = self.active()
+        if p and p.exits == "manual":
+            p.manual_buffs = not p.manual_buffs
+            self.show_exits(p)
+            self.changed(p.slot)
+
+    # ------------- hub exits tab
+    def pick_global_exit(self, mode):
+        self.cfg.exit_mode = mode
+        self.refresh_hub_exits()
         self.update_state()
 
-    def paint_buff(self):
-        self.buff_btn.configure(text="BUFF ON" if self.cfg.hub_exit_buff else "BUFF OFF")
+    def mhe_rows(self):
+        """(title, pad id) for every base-game world in the list, then any other world manual_exits.lua or mhe names."""
+        rows = [(d[2], d[1]) for d in hd.DESTINATIONS]
+        seen = {pad for _, pad in rows}
+        for pad in sorted(set(self.mhe_spots) | self.cfg.mhe_off):
+            if pad not in seen and not self.is_custom_world(pad):
+                rows.append((hd.home_title(pad) or pad, pad))
+                seen.add(pad)
+        return rows
 
-    def toggle_buff(self):
-        now = not bool(self.cfg.hub_exit_buff)
-        self.cfg.hub_exit_buff = None if not now and self.cfg._orig_buff is None else now
-        self.paint_buff()
+    def mhe_status(self, pad):
+        """What the MHE of a world does now, in words."""
+        if pad not in self.mhe_spots:
+            return "no MHE recorded yet"
+        if pad in self.cfg.mhe_off:
+            return "switched off"
+        portals = [self.portal(s) for s in hd.SLOT_IDS if self.portal(s) and self.portal(s).destination.strip() == pad]
+        manual = [q.slot for q in portals if (q.exits or self.cfg.exit_mode) == "manual"]
+        others = [q.slot for q in portals if (q.exits or self.cfg.exit_mode) != "manual"]
+        if manual:
+            return f"used by the MANUAL portal in {manual[0]}"
+        if others:
+            return f"leads to hub portal {others[0]}"
+        if hd.home_title(pad):
+            return "leads to its home's own portal"
+        return "leads to the Failsafe Exit (no hub portal to this world)"
+
+    def toggle_mhe(self, pad):
+        if not self.cfg.mhe_editable:
+            return
+        if pad in self.cfg.mhe_off:
+            self.cfg.mhe_off.discard(pad)
+        elif pad in self.mhe_spots:
+            self.cfg.mhe_off.add(pad)
+        self.refresh_hub_exits()
         self.update_state()
+
+    def refresh_hub_exits(self):
+        self.global_seg.set(self.cfg.exit_mode)
+        self.global_note.configure(text=hd.EXIT_MODE_HELP[self.cfg.exit_mode])
+        notes = []
+        if self.mhe_problem:
+            notes.append(self.mhe_problem + ".")
+        if not self.cfg.mhe_editable:
+            notes.append("The mhe section of config.lua uses a layout this editor can't read, so it is left exactly as written. Edit it in config.lua.")
+        self.mhe_note.pack_forget()
+        if notes:
+            self.mhe_note.configure(text="  ".join(notes))
+            self.mhe_note.pack(fill="x", pady=(0, px(6)), before=self.mhe_list.master)
+        host = self.mhe_list.inner
+        for child in host.winfo_children():
+            child.destroy()
+        for title, pad in self.mhe_rows():
+            recorded = pad in self.mhe_spots
+            off = pad in self.cfg.mhe_off
+            row = tk.Frame(host, bg=T["crt"], padx=px(8), pady=px(3))
+            row.pack(fill="x")
+            if recorded or off:
+                on = recorded and not off
+                sw = tk.Label(row, text=" ON " if on else " OFF ", width=5, font=font(9, True),
+                              bg=T["accent"] if on else T["crt_hi"], fg=T["on_accent"] if on else T["crt_dim"],
+                              cursor="hand2" if self.cfg.mhe_editable else "arrow")
+                sw.bind("<Button-1>", lambda e, k=pad: self.toggle_mhe(k))
+            else:
+                sw = tk.Label(row, text=" -- ", width=5, font=font(9, True), bg=T["crt"], fg=T["line"])
+            sw.pack(side="left", padx=(0, px(10)))
+            name = tk.Label(row, text=title, bg=T["crt"], fg=T["crt_fg"] if recorded else T["crt_dim"], font=font(10), anchor="w", width=28)
+            name.pack(side="left")
+            tk.Label(row, text=pad, bg=T["crt"], fg=T["crt_dim"], font=font(9), anchor="w", width=24).pack(side="left")
+            status = self.mhe_status(pad)
+            col = T["crt_good"] if recorded and not off else T["crt_dim"]
+            tk.Label(row, text=status, bg=T["crt"], fg=col, font=font(9), anchor="w").pack(side="left", fill="x", expand=True)
+            for w in [row] + list(row.winfo_children()):
+                self.mhe_list.bind_wheel(w)
+        if self.mhe_failsafe:
+            x, y, z, yaw = self.mhe_failsafe
+            self.failsafe_note.configure(text=f"Failsafe Exit: recorded at {fmt_num(x)}, {fmt_num(y)}, {fmt_num(z)} facing {fmt_num(yaw)} (manual_exits.lua).")
+        else:
+            self.failsafe_note.configure(text="Failsafe Exit: not recorded in manual_exits.lua.")
 
     # ------------- custom worlds tab
     def world_rows(self):
@@ -1495,9 +1595,6 @@ class App:
         bad = [w.id or "(new world)" for w, (err, _) in zip(self.cfg.worlds, problems) if err]
         if bad:
             out.append(f"Custom worlds need fixing: {', '.join(bad)}.")
-        if any(f.entry.get() and f.cget("highlightbackground") == T["crt_bad"] for row in self.exit_rows for f in row) or \
-                any(not f.var.get().strip() for row in self.exit_rows for f in row):
-            out.append("Hub exit spots must be numbers.")
         return out
 
     def update_state(self):
@@ -1519,6 +1616,7 @@ class App:
         for slot in hd.SLOT_IDS:
             self.draw_card(slot)
         self.refresh_inspector()
+        self.refresh_hub_exits()
         self.refresh_worlds()
         self.set_hum_mode(self.cfg.hum_mode)
 
@@ -1533,10 +1631,13 @@ class App:
             on = k == key
             w.configure(bg=T["chassis"] if on else T["bg"], fg=T["fg"] if on else T["dim"])
         self.room.pack_forget()
+        self.exits_page.pack_forget()
         self.worlds_page.pack_forget()
-        (self.room if key == "room" else self.worlds_page).pack(fill="both", expand=True)
+        {"room": self.room, "exits": self.exits_page, "worlds": self.worlds_page}[key].pack(fill="both", expand=True)
         if key == "room":
             self.refresh_inspector()
+        elif key == "exits":
+            self.refresh_hub_exits()
 
     # ------------- file actions
     def save(self):
@@ -1628,7 +1729,8 @@ def screenshots(root, app, base):
 
     root.attributes("-topmost", True)
     app.select("A-4")
-    app.cfg.hub_exits.setdefault("train_start", []).append([-3200.0, 1450.0, 88.0, 90.0])
+    app.pick_dest("train_start")
+    app.pick_exit("manual")
     app.refresh_inspector()
     app.update_state()
     grab(root, ".png")
@@ -1644,6 +1746,8 @@ def screenshots(root, app, base):
     d.attributes("-topmost", True)
     grab(d, "_effects.png")
     d.destroy()
+    app.show_tab("exits")
+    grab(root, "_exits.png")
     app.show_tab("worlds")
     grab(root, "_worlds.png")
     root.destroy()

@@ -10,7 +10,7 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))
 from hubdata import DEFAULT_DESIGN, design_path  # noqa: E402
-from luaconfig import HubConfig, LuaError, Parser, World, Portal  # noqa: E402
+from luaconfig import HubConfig, LuaError, Parser, World, Portal, read_manual_exits  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 TEMPLATE = os.path.join(REPO, "mod", "PortalHub", "Scripts", "config.lua")
@@ -178,21 +178,134 @@ def test_edits():
     check("-- a note" in out and "SnowFlurry" not in out.split("hideEmitters = {")[1].split("worlds = {")[0], "hide block keeps its comment")
     check('["/Game/Particles/Niagara_Portal_Rift.Niagara_Portal_Rift"] = { "smoke" },' in out, "hide entry added")
 
-    def exits(c):
-        c.hub_exits["train_start"] = [[-3200, 1450.5, 88, 90], [1, 2, 3, 0]]
-        c.hub_exit_buff = False
-    c, out = edited(exits)
-    check("train_start = { { -3200, 1450.5, 88, 90 }, { 1, 2, 3, 0 } }," in out and "hubExitBuff = false," in out, "hub exits added")
-    check(out.index("hubExits") < out.index("portals = {"), "hub exits go above portals")
+
+EXITS = '''return {
+    exitMode = 3,    -- a number works too
+    mhe = { train_start = false, ["anteverse_a_start"] = true },
+    hubExits = { train_start = { { 1, 2, 3, 4 } } },    -- the old CRD-013 field: no longer edited, kept as written
+    portals = {
+        { slot = "A-3", name = "One", destination = "signal_start", exits = 4, manualBuffs = true, title = "keep me" },
+        { slot = "A-4", name = "Two", destination = "train_start", exits = "HUB" },
+        { slot = "B-1", name = "Odd", destination = "fog_start", exits = "sideways" },
+    },
+}
+'''
+
+
+def template():
+    with open(TEMPLATE, encoding="utf-8", newline="") as f:
+        return f.read()
+
+
+def test_exit_modes():
+    c = HubConfig(text=EXITS)
+    check(c.exit_mode == "dynamic", "exitMode as a number")
+    check(c.portals["A-3"].exits == "manual" and c.portals["A-3"].manual_buffs is True, "exits 4 and manualBuffs read")
+    check(c.portals["A-4"].exits == "hub", "exits in capitals read")
+    check(c.portals["B-1"].exits == "" and c.portals["B-1"].extras == ["exits"], "an unknown exits value is kept as written")
+    check(c.portals["A-3"].extras == ["title"], "exits and manualBuffs are known fields")
+    round_trip_same(EXITS, "exits")
+    check(HubConfig(text='return { exitMode = "manual" }').exit_mode == "game", "manual is refused as the global mode")
+
+    def edit(c):
+        c.exit_mode = "hub"
+        c.portals["A-3"].exits = ""
+        c.portals["A-3"].manual_buffs = False
+        c.portals["A-4"].exits = "manual"
+        c.portals["A-4"].manual_buffs = True
+        c.portals["C-1"] = Portal(slot="C-1", name="New", destination="alps_start", exits="dynamic")
+    c, out = edited(edit, EXITS)
+    check('exitMode = "hub",    -- a number works too' in out, "exitMode edited in place, comment kept")
+    check('{ slot = "A-3", name = "One", destination = "signal_start", title = "keep me" },' in out, "exits and manualBuffs removed")
+    check('exits = "manual", manualBuffs = true }' in out.split('"A-4"')[1].split("\n")[0], "exits set and manualBuffs added")
+    check('{ slot = "C-1", name = "New", destination = "alps_start", exits = "dynamic" },' in out, "new portal with its exit mode")
+    check("hubExits = { train_start = { { 1, 2, 3, 4 } } }," in out, "the old hubExits field is left alone")
+    if LUA is not None:
+        t = lua(out)
+        check(t["exitMode"] == "hub" and t["portals"][1]["exits"] == "manual" and t["portals"][1]["manualBuffs"] is True, "real Lua agrees")
     c2 = HubConfig(text=out)
-    check(c2.hub_exits == c.hub_exits and c2.hub_exit_buff is False, "hub exits read back")
-    check(c2.render() == out, "hub exits round trip")
-    c2.hub_exits["train_start"].pop()
-    c2.hub_exit_buff = True
+    check(c2.portals["A-4"].exits == "manual" and c2.render() == out, "exit modes read back and round trip")
+
+    # the shipped template has  -- exitMode = "game",  commented out: the real line takes its place
+    def on(c):
+        c.exit_mode = "dynamic"
+    c, out = edited(on, template())
+    check('    exitMode = "dynamic",\n' in out and '-- exitMode' not in out, "exitMode written over its commented-out line")
+    check(out.count("\n") == template().count("\n"), "no lines added")
+    c, out = edited(lambda c: setattr(c, "exit_mode", "game"), template())
+    check(out == template(), "the default mode on a file without exitMode writes nothing")
+    c, out = edited(on, SAMPLE)
+    check(out.index('exitMode = "dynamic",') < out.index("portals = {"), "exitMode added above portals when there is no commented line")
+
+
+def test_mhe():
+    # the template has  -- mhe = {},  commented out
+    def off(c):
+        c.mhe_off.update({"train_start", "anteverse_a_start"})
+    c, out = edited(off, template())
+    check('    mhe = { anteverse_a_start = false, train_start = false },\n' in out and "-- mhe = {}" not in out, "mhe written over its commented-out line")
+    if LUA is not None:
+        check(lua(out)["mhe"] == {"anteverse_a_start": False, "train_start": False}, "real Lua reads mhe")
+    c2 = HubConfig(text=out)
+    check(c2.mhe_off == {"train_start", "anteverse_a_start"} and c2.render() == out, "mhe read back")
+    c2.mhe_off.discard("train_start")
     out2 = c2.render()
-    check("train_start = { { -3200, 1450.5, 88, 90 } }," in out2 and "hubExitBuff = true," in out2, "hub exits edited")
-    c2.hub_exits.clear()
-    check("train_start = {" not in c2.render(), "hub exits removed")
+    check("mhe = { anteverse_a_start = false }," in out2, "an MHE switched back on leaves the list")
+    c3 = HubConfig(text=out2)
+    c3.mhe_off.clear()
+    out3 = c3.render()
+    Parser(out3).find_return_table()
+    check("anteverse_a_start" not in out3 and HubConfig(text=out3).mhe_off == set(), "all on: nothing left switched off")
+    c, out = edited(lambda c: None, template())
+    check(out == template(), "no MHE change writes nothing")
+
+    # an existing block: = true flips, a new key is added, a false one removed
+    def edit(c):
+        c.mhe_off.discard("train_start")
+        c.mhe_off.update({"anteverse_a_start", "fog_start"})
+    c, out = edited(edit, EXITS)
+    check('mhe = { ["anteverse_a_start"] = false, fog_start = false },' in out, "mhe block edited: " + out.split("\n")[2])
+    check(HubConfig(text=out).mhe_off == {"anteverse_a_start", "fog_start"}, "mhe edits read back")
+
+
+def test_wipe():
+    c = HubConfig(text=EXITS)
+    c.wipe_portal("A-3")
+    p = c.portals["A-3"]
+    check(not p.enabled and p.destination == "" and p.exits == "" and not p.manual_buffs and p.extras == [], "wiped slot holds nothing")
+    out = c.render()
+    check('"A-3"' not in out and "keep me" not in out, "a wiped slot left off is removed from the file")
+    p.enabled = True                       # turned on again, a new world picked
+    p.destination, p.name = "train_start", "The Train"
+    out = c.render()
+    check('{ slot = "A-3", name = "The Train", destination = "train_start" },' in out, "turned on again: written anew, no leftovers")
+    check("signal_start" not in out and "manualBuffs" not in out.split('"A-3"')[1].split("\n")[0], "nothing of the old world kept")
+    if LUA is not None:
+        t = lua(out)
+        check(t["portals"][0] == {"slot": "A-3", "name": "The Train", "destination": "train_start"}, "real Lua sees only the new entry")
+    c.portals["C-4"] = Portal(slot="C-4", destination="x")
+    c.wipe_portal("C-4")
+    check("C-4" not in c.portals, "a portal never saved is simply dropped")
+    c.wipe_portal("C-3")                   # an empty slot: nothing to do
+    check("C-3" not in c.portals, "wiping an empty slot is harmless")
+
+
+def test_manual_exits_file():
+    real = os.path.join(REPO, "mod", "PortalHub", "Scripts", "manual_exits.lua")
+    spots, failsafe, problem = read_manual_exits(real)
+    check(problem == "" and "train_start" in spots and "failsafe" not in spots and failsafe is not None and len(failsafe) == 4,
+          "the repo's manual_exits.lua is read")
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "manual_exits.lua")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write('return {\n    a_start = { 1, 2, 3 },\n    bad = { 1, "x", 3, 4 },\n    expr = { 1 * 2, 0, 0, 0 },\n    H_Cabin_Start = { 4, 5, 6, 90 },\n}\n')
+        spots, failsafe, problem = read_manual_exits(p)
+        check(spots == {"a_start": [1, 2, 3, 0], "H_Cabin_Start": [4, 5, 6, 90]} and failsafe is None and problem == "",
+              "bad spots skipped, a 3-value spot padded")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("return {")
+        check(read_manual_exits(p)[2].startswith("manual_exits.lua can't be read"), "an unreadable file is reported")
+        check(read_manual_exits(os.path.join(d, "none.lua"))[2] != "", "a missing file is reported")
 
 
 def test_bad_input():
@@ -203,17 +316,22 @@ def test_bad_input():
         except LuaError:
             check(True, "refused")
     c = HubConfig(text="return {}\n")
-    c.portals["A-3"] = Portal(slot="A-3", name="x", destination="y")
-    c.hub_exits["y"] = [[1, 2, 3, 4]]
+    c.portals["A-3"] = Portal(slot="A-3", name="x", destination="y", exits="hub")
+    c.exit_mode = "dynamic"
+    c.mhe_off.add("y")
     out = c.render()
     if LUA is not None:
         t = lua(out)
-        check(t["portals"][0]["slot"] == "A-3" and t["hubExits"]["y"][0][3] == 4, "blocks added to an empty table")
+        check(t["portals"][0]["slot"] == "A-3" and t["portals"][0]["exits"] == "hub" and t["exitMode"] == "dynamic"
+              and t["mhe"]["y"] is False, "blocks added to an empty table")
     check(HubConfig(text=out).portals["A-3"].destination == "y", "reads back")
     # hand-written layouts the editor can't model stay as written
-    odd = 'return {\n    hideEmitters = { [k] = 1 },\n    hubExits = { a = "b" },\n    worlds = { 1, 2 },\n    portals = {},\n}\n'
+    odd = 'return {\n    hideEmitters = { [k] = 1 },\n    mhe = { "b" },\n    worlds = { 1, 2 },\n    portals = {},\n}\n'
     c = HubConfig(text=odd)
-    check(not c.worlds_editable and not c.hub_exits_editable, "odd blocks are read-only")
+    check(not c.worlds_editable and not c.mhe_editable, "odd blocks are read-only")
+    c.mhe_off.add("x")
+    check(c.render() == odd, "a read-only mhe is never written")
+    c.mhe_off.clear()
     round_trip_same(odd, "odd")
 
 
@@ -221,8 +339,9 @@ def test_crlf_and_bom():
     text = SAMPLE.replace("\n", "\r\n")
     round_trip_same(text, "crlf")
     def add(c):
-        c.portals["B-1"] = Portal(slot="B-1", name="Fog", destination="fog_start")
-        c.hub_exits["fog_start"] = [[1, 2, 3, 4]]
+        c.portals["B-1"] = Portal(slot="B-1", name="Fog", destination="fog_start", exits="manual", manual_buffs=True)
+        c.exit_mode = "hub"
+        c.mhe_off.add("fog_start")
     c, out = edited(add, text)
     check(out.count("\n") == out.count("\r\n"), "new lines follow the file's CRLF")
     with tempfile.TemporaryDirectory() as d:
@@ -261,6 +380,10 @@ def test_live(path):
 if __name__ == "__main__":
     test_reading()
     test_edits()
+    test_exit_modes()
+    test_mhe()
+    test_wipe()
+    test_manual_exits_file()
     test_bad_input()
     test_crlf_and_bom()
     round_trip_same(SAMPLE, "sample")

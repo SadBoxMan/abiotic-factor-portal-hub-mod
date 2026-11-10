@@ -12,7 +12,7 @@ import os
 import re
 from dataclasses import dataclass, field
 
-from hubdata import DEFAULT_DESIGN, PROTECTED_PARTS, SLOT_IDS
+from hubdata import DEFAULT_DESIGN, DEFAULT_EXIT_MODE, GLOBAL_EXIT_MODES, PROTECTED_PARTS, SLOT_IDS, exit_mode
 
 LUA_RESERVED = {
     "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto", "if", "in", "local", "nil",
@@ -397,11 +397,14 @@ class Portal:
     light_hex: str = ""
     brightness: float = 1.0
     enabled: bool = True
+    exits: str = ""                     # exit mode of this portal ("game", "hub", "dynamic", "manual"); "" = the global exitMode
+    manual_buffs: bool = False          # manualBuffs: with exits = "manual", the MHE also gives the true exit's buffs
     item: Item | None = None            # where it sits in the file; None for a portal added in the editor
     extras: list = field(default_factory=list)      # names of other fields in the entry, kept as written
+    fresh: bool = False                 # the slot was turned off and wiped: if turned on again, its entry is written anew
 
     def snapshot(self):
-        return (self.name, self.destination, self.design, self.light_hex.upper(), round(self.brightness, 3))
+        return (self.name, self.destination, self.design, self.light_hex.upper(), round(self.brightness, 3), self.exits, self.manual_buffs)
 
 
 @dataclass
@@ -455,7 +458,7 @@ class HubConfig:
         self._read_hide()
         self._read_worlds()
         self._read_portals()
-        self._read_hub_exits()
+        self._read_exits()
 
     def _read_hide(self):
         self.hide = {}
@@ -556,39 +559,44 @@ class HubConfig:
             if f and f.value.kind == "number":
                 p.brightness = f.value.value
                 known.add("lightBrightness")
+            f = t.get("exits")
+            if f and f.value.kind in ("string", "number") and exit_mode(f.value.value):
+                p.exits = exit_mode(f.value.value)
+                known.add("exits")
+            f = t.get("manualBuffs")
+            if f and f.value.kind == "bool":
+                p.manual_buffs = f.value.value
+                known.add("manualBuffs")
             p.extras = [x.key for x in t.items if x.key not in known and x.key is not None]
             self.portals[p.slot] = p
             self._orig_portals[p.slot] = p.snapshot()
 
-    def _read_hub_exits(self):
-        self.hub_exits = {}
-        self.hub_exits_editable = True
-        self.hub_exit_buff = None
-        it = self.root.get("hubExitBuff")
-        if it and it.value.kind == "bool":
-            self.hub_exit_buff = it.value.value
-        self._orig_buff = self.hub_exit_buff
-        it = self.root.get("hubExits")
+    def _read_exits(self):
+        """exitMode (the default for every portal, modes 1-3) and mhe (the MHEs switched off: { [arrival pad id] = false })."""
+        self.exit_mode = DEFAULT_EXIT_MODE
+        it = self.root.get("exitMode")
+        if it and it.value.kind in ("string", "number") and exit_mode(it.value.value) in GLOBAL_EXIT_MODES:
+            self.exit_mode = exit_mode(it.value.value)
+        self._orig_exit_mode = self.exit_mode
+        self.mhe_off = set()
+        self.mhe_editable = True
+        it = self.root.get("mhe")
         if it:
-            try:
-                data = plain(it.value)
-                if data == []:
-                    data = {}
-                if not isinstance(data, dict):
-                    raise LuaError("not a map")
-                for k, spots in data.items():
-                    if not isinstance(spots, list) or not all(self._good_spot(s) for s in spots):
-                        raise LuaError("not a list of spots")
-                    if spots:
-                        self.hub_exits[k] = [(list(s) + [0.0])[:4] for s in spots]
-            except LuaError:
-                self.hub_exits = {}
-                self.hub_exits_editable = False
-        self._orig_exits = {k: [list(s) for s in v] for k, v in self.hub_exits.items()}
+            if it.value.kind != "table" or any(sub.key is None or sub.value.kind != "bool" for sub in it.value.items):
+                self.mhe_editable = False           # a layout this editor can't model: kept as written, shown read-only
+            else:
+                self.mhe_off = {sub.key for sub in it.value.items if sub.value.value is False}
+        self._orig_mhe_off = set(self.mhe_off)
 
-    @staticmethod
-    def _good_spot(s):
-        return isinstance(s, list) and len(s) in (3, 4) and all(isinstance(v, float) for v in s)
+    def wipe_portal(self, slot):
+        """Turn a slot off and forget everything it held (world, exit mode, look, light): turned on again, it starts empty."""
+        p = self.portals.get(slot)
+        if p is None:
+            return
+        if p.item is None:
+            del self.portals[slot]
+        else:
+            self.portals[slot] = Portal(slot=slot, enabled=False, item=p.item, fresh=True)
 
     # ------------- writing
     def render(self):
@@ -597,7 +605,7 @@ class HubConfig:
         self._write_hum(e)
         self._write_hide(e)
         self._write_worlds(e)
-        self._write_hub_exits(e)
+        self._write_exits(e)
         self._write_portals(e)
         return e.result()
 
@@ -694,39 +702,45 @@ class HubConfig:
                 if w.arrive != orig[5]:
                     e.set_field(t, "arrive", None if w.arrive is None else lua_nums(w.arrive))
 
-    def _write_hub_exits(self, e):
-        if self.hub_exit_buff != self._orig_buff:
-            value = None if self.hub_exit_buff is None else ("true" if self.hub_exit_buff else "false")
-            if self.root.get("hubExitBuff"):
-                e.set_field(self.root, "hubExitBuff", value)
-            elif value is not None:
-                self._add_top_line(e, f"hubExitBuff = {value},    -- see the hubExits note")
-        if not self.hub_exits_editable or self.hub_exits == self._orig_exits:
+    def _write_exits(self, e):
+        if self.exit_mode != self._orig_exit_mode:
+            self._set_top(e, "exitMode", lua_string(self.exit_mode))
+        if not self.mhe_editable or self.mhe_off == self._orig_mhe_off:
             return
-
-        def line(k):
-            return f"{lua_key(k)} = {{ " + ", ".join(lua_nums(s) for s in self.hub_exits[k]) + " }"
-
-        block = self._block(e, "hubExits")
+        block = self._block(e, "mhe")
         if block is None:
-            self._add_block(e, "hubExits", [line(k) for k in sorted(self.hub_exits)],
-                            ("-- Hub exits: extra pads inside a world that lead back to the hub, by destination pad ID.",
-                             "-- Each spot is { x, y, z, yaw } in absolute world coordinates."))
+            if self.mhe_off:
+                self._set_top(e, "mhe", "{ " + ", ".join(f"{lua_key(k)} = false" for k in sorted(self.mhe_off)) + " }")
             return
-        for k in self._orig_exits:
+        for k in sorted(self._orig_mhe_off - self.mhe_off):
+            e.remove_item(block, block.get(k))
+        for k in sorted(self.mhe_off - self._orig_mhe_off):
             item = block.get(k)
-            if k not in self.hub_exits:
-                e.remove_item(block, item)
-            elif self.hub_exits[k] != self._orig_exits[k]:
-                e.replace(item.value.start, item.value.end, line(k).split(" = ", 1)[1])
-        for k in sorted(self.hub_exits):
-            if k not in self._orig_exits:
-                e.add_item(block, line(k))
+            if item is not None:                    # written as  = true
+                e.replace(item.value.start, item.value.end, "false")
+            else:
+                e.add_item(block, f"{lua_key(k)} = false")
 
-    def _add_top_line(self, e, text):
-        anchor = self.root.get("portals")
-        at = e.line_start(anchor.start) if anchor else e.line_start(self.root.end - 1)
-        e.replace(at, at, f"    {text}{e.nl}{e.nl}")
+    def _placeholder(self, key):
+        """A commented-out top-level line such as  -- exitMode = "game",  in the file: (start, end) of its text, or None."""
+        rx = re.compile(r"^[ \t]*(--[ \t]*" + re.escape(key) + r"[ \t]*=[^\r\n]*)", re.M)
+        for m in rx.finditer(self.text, self.root.start, self.root.end):
+            return m.start(1), m.end(1)
+        return None
+
+    def _set_top(self, e, key, value):
+        """Set a top-level  key = value : in place, else over its commented-out line, else just above  portals ."""
+        if self.root.get(key):
+            e.set_field(self.root, key, value)
+            return
+        spot = self._placeholder(key)
+        if spot:
+            e.replace(spot[0], spot[1], f"{key} = {value},")
+        elif self.root.get("portals"):
+            at = e.line_start(self.root.get("portals").start)
+            e.replace(at, at, f"    {key} = {value},{e.nl}{e.nl}")
+        else:
+            e.add_item(self.root, f"{key} = {value}", indent="")
 
     def _portal_text(self, p):
         parts = [f"slot = {lua_string(p.slot)}", f"name = {lua_string(p.name)}", f"destination = {lua_string(p.destination)}"]
@@ -736,6 +750,10 @@ class HubConfig:
             parts.append(f"lightColor = {lua_nums(hex_to_rgb(p.light_hex))}")
         if abs(p.brightness - 1.0) > 0.0001:
             parts.append(f"lightBrightness = {fmt_num(p.brightness)}")
+        if p.exits:
+            parts.append(f"exits = {lua_string(p.exits)}")
+        if p.manual_buffs:
+            parts.append("manualBuffs = true")
         return "{ " + ", ".join(parts) + " }"
 
     def _write_portals(self, e):
@@ -749,6 +767,8 @@ class HubConfig:
         for p in existing:
             if not p.enabled:
                 e.remove_item(block, p.item)
+            elif p.fresh:                               # wiped and turned on again: nothing of the old entry is kept
+                e.replace(p.item.value.start, p.item.value.end, self._portal_text(p))
             elif p.snapshot() != self._orig_portals[p.slot]:
                 self._edit_portal(e, p)
         order = [s for s in SLOT_IDS]
@@ -773,6 +793,10 @@ class HubConfig:
             e.set_field(t, "lightColor", lua_nums(hex_to_rgb(p.light_hex)) if p.light_hex else None)
         if round(p.brightness, 3) != o[4]:
             e.set_field(t, "lightBrightness", None if abs(p.brightness - 1.0) < 0.0001 else fmt_num(p.brightness))
+        if p.exits != o[5]:
+            e.set_field(t, "exits", lua_string(p.exits) if p.exits else None)
+        if p.manual_buffs != o[6]:
+            e.set_field(t, "manualBuffs", "true" if p.manual_buffs else None)
 
     # ------------- saving
     def is_dirty(self):
@@ -803,3 +827,37 @@ class HubConfig:
         with open(tmp, "wb") as f:
             f.write(data)
         os.replace(tmp, path)
+
+
+# ------------------------------------------------------------------ manual_exits.lua (read only)
+def read_manual_exits(path):
+    """The MHEs recorded in manual_exits.lua, beside config.lua: ({arrival pad id: [x, y, z, yaw]}, failsafe spot or None, problem).
+
+    The hub's own file; this tool only reads it. Entries it can't read are left out, and problem says why the file as a whole
+    could not be read ("" when it was).
+    """
+    if not path or not os.path.exists(path):
+        return {}, None, "manual_exits.lua was not found next to config.lua"
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+        if raw.startswith(b"\xef\xbb\xbf"):
+            raw = raw[3:]
+        root = Parser(raw.decode("utf-8")).find_return_table()
+    except (OSError, UnicodeDecodeError, LuaError) as err:
+        return {}, None, f"manual_exits.lua can't be read: {err}"
+    spots, failsafe = {}, None
+    for it in root.items:
+        if not isinstance(it.key, str) or it.value.kind != "table":
+            continue
+        try:
+            vals = plain(it.value)
+        except LuaError:
+            continue
+        if isinstance(vals, list) and len(vals) in (3, 4) and all(isinstance(v, float) for v in vals):
+            spot = (list(vals) + [0.0])[:4]
+            if it.key == "failsafe":
+                failsafe = spot
+            else:
+                spots[it.key] = spot
+    return spots, failsafe, ""

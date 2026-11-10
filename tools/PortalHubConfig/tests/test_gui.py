@@ -35,6 +35,7 @@ def main():
     d = tempfile.mkdtemp()
     path = os.path.join(d, "config.lua")
     shutil.copy(TEMPLATE, path)
+    shutil.copy(os.path.join(os.path.dirname(TEMPLATE), "manual_exits.lua"), d)
     original = text(path)
     root = tk.Tk()
     root.withdraw()
@@ -55,6 +56,9 @@ def main():
     check(not any(hd.is_dlc(v) for v in ids), "no DLC in the list")
     check(len(hd.DESTINATIONS) == 22 and len(hd.DESIGNS) == 32 and all(hd.design_name(p) in hd.DESIGN_PARTS for _, p in hd.DESIGNS), "lists complete")
     check(all(os.path.exists(os.path.join(gui.ICON_DIR, x[3] + ".png")) for x in hd.DESTINATIONS if not x[1].startswith("botanical_")), "icons present")
+    story = [x[1] for x in hd.DESTINATIONS if x[0] == "Story"]
+    check(story[-3:] == ["wall_start", "botanical_future_01", "island_start"], "Divarication sits just above Albatross")
+    check(app.mhe_problem == "" and "train_start" in app.mhe_spots and app.mhe_failsafe, "manual_exits.lua read next to config.lua")
 
     # picking a world on an empty slot turns it on, with the world's name and look
     app.select("B-1")
@@ -91,21 +95,55 @@ def main():
     app.toggle_slot()
     check("A-1" not in app.cfg.portals, "locked slot refused")
 
-    # hub exits on a destination
+    # slot off = wiped (author's ruling): turned on again it starts empty, and the old world's data is not kept
+    app.select("C-2")
+    app.pick_dest("train_start")
+    app.pick_exit("manual")
+    app.toggle_manual_buffs()
+    app.pick_light("#FF2020")
+    check(app.cfg.portals["C-2"].manual_buffs and app.buff_btn.cget("text") == "BUFFS ON", "manual buffs on")
+    app.toggle_slot()
+    q = app.cfg.portals.get("C-2")
+    check(q is None or (not q.enabled and not q.destination and not q.exits and not q.manual_buffs and not q.light_hex), "slot off wipes it")
+    app.toggle_slot()
+    q = app.portal("C-2")
+    check(q is not None and q.destination == "" and q.exits == "" and q.light_hex == "" and q.name == "", "turned on again: empty")
+    root.update()
+    check(not app.save_btn.enabled and "C-2" in app.status.cget("text"), "an empty slot turned on asks for a world")
+    app.toggle_slot()
+    root.update()
+    check(app.save_btn.enabled, "turned off again: savable")
+
+    # exit modes: per portal (1-4), manual buffs only with MANUAL, none for custom worlds
     app.select("B-1")
-    app.add_exit()
+    check(app.exit_seg.value == "" and app.exit_seg.enabled and "Default: GAME" in app.exit_note.cget("text"), "new portal follows the default")
+    check(not app.buff_btn.enabled, "buffs off limits outside MANUAL")
+    app.pick_exit("manual")
+    check("No MHE is recorded" in app.exit_note.cget("text"), "MANUAL without a recorded MHE warns")
+    app.toggle_manual_buffs()
+    app.pick_exit("hub")
+    check(app.cfg.portals["B-1"].exits == "hub" and not app.cfg.portals["B-1"].manual_buffs, "leaving MANUAL drops the buffs")
+    app.select("A-4")
+    app.pick_dest("anteverse_a_start")
+    app.pick_exit("manual")
+    check("No MHE" not in app.exit_note.cget("text") and app.buff_btn.enabled, "MANUAL with a recorded MHE")
+    app.toggle_manual_buffs()
+
+    # the HUB EXITS tab: global mode and MHE switches
+    app.show_tab("exits")
     root.update()
-    fields = app.exit_rows[0]
-    for f, v in zip(fields, ("-100.5", "2", "3", "90")):
-        f.var.set(v)
-    root.update()
-    fields[1].var.set("abc")
-    root.update()
-    check(not app.save_btn.enabled, "bad hub exit number blocks saving")
-    fields[1].var.set("2")
-    root.update()
-    check(app.save_btn.enabled, "fixed")
-    app.toggle_buff()
+    app.pick_global_exit("dynamic")
+    check(app.cfg.exit_mode == "dynamic" and app.global_seg.value == "dynamic", "global mode picked")
+    rows = dict((pad, title) for title, pad in app.mhe_rows())
+    check(len(rows) == len(hd.DESTINATIONS) and "failsafe" not in rows, "one row per base-game world")
+    check(app.mhe_status("anteverse_a_start").startswith("used by the MANUAL portal in A-4"), "mode-4 portal uses the MHE")
+    check(app.mhe_status("train_start").startswith("leads to the Failsafe Exit"), "no hub portal: Failsafe Exit")
+    check(app.mhe_status("fog_start") == "no MHE recorded yet", "unrecorded world")
+    app.toggle_mhe("fog_start")
+    check("fog_start" not in app.cfg.mhe_off, "an unrecorded MHE can't be switched off")
+    app.toggle_mhe("train_start")
+    check(app.cfg.mhe_off == {"train_start"} and app.mhe_status("train_start") == "switched off", "MHE switched off")
+    app.show_tab("room")
 
     # a world with no arrival pad
     app.show_tab("worlds")
@@ -132,7 +170,11 @@ def main():
     c = HubConfig(path)
     check(c.portals["B-1"].destination == "botanical_future_01" and c.portals["B-1"].brightness == 2.5 and c.portals["B-1"].light_hex == "#2EE65C", "B-1 written")
     check("A-3" not in c.portals and c.portals["B-2"].destination == "my_own_pad", "other slots written")
-    check(c.hub_exits == {"botanical_future_01": [[-100.5, 2.0, 3.0, 90.0]]} and c.hub_exit_buff is True, "hub exits written")
+    check("C-2" not in c.portals and "#FF2020" not in [q.light_hex for q in c.portals.values()], "the wiped slot left nothing behind")
+    check(c.portals["B-1"].exits == "hub" and not c.portals["B-1"].manual_buffs, "B-1 exit mode written")
+    check(c.portals["A-4"].exits == "manual" and c.portals["A-4"].manual_buffs, "A-4 manual with buffs written")
+    check(c.exit_mode == "dynamic" and c.mhe_off == {"train_start"}, "exitMode and mhe written")
+    check("hubExit" not in text(path), "no old hubExits fields")
     check(c.worlds[0].id == "plain_start" and c.worlds[0].arrive is None, "world written without arrive")
     check(c.hum_mode == "manual" and c.hum_manual == 40, "hum written")
     check(list(c.hide) == [hd.design_path("Niagara_Portal_Botanical_Green")], "effects written")
@@ -144,7 +186,8 @@ def main():
         try:
             import lupa
             t = lupa.LuaRuntime().execute(out)
-            check(t["portals"][1]["slot"] == "B-1", "real Lua reads the saved file")
+            check(t["portals"][1]["slot"] == "A-4" and t["portals"][1]["exits"] == "manual" and t["mhe"]["train_start"] is False,
+                  "real Lua reads the saved file")
         except ImportError:
             pass
 

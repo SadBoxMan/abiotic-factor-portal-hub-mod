@@ -124,9 +124,10 @@ DESTINATIONS = [
     # The Botanical Wing (in Fragments) is on the story path: the end of its future half gives the Motion Module recipe needed to
     # finish Fragments, which unlocks Albatross. Its two halves are linked by the game's own red and green portals. No wiki icon
     # for either. Looks: green for the present half, red for the future half (the author's choice).
+    # The future half is the game's Divarication (V_BOTANICAL), a required story area: it sits just above Albatross (author, 9 November).
     ("Story", "botanical_present_01", "Botanical Wing (Present)", "botanical-wing-present", "Niagara_Portal_Botanical_Green"),
-    ("Story", "botanical_future_01", "Botanical Wing (Future)", "botanical-wing-future", "Niagara_Portal_Botanical_Red"),
     ("Story", "wall_start", "GATE Arch Defense Facility", "gate-arch-defense-facility", "Niagara_Portal"),
+    ("Story", "botanical_future_01", "Botanical Wing (Future)", "botanical-wing-future", "Niagara_Portal_Botanical_Red"),
     ("Story", "island_start", "Albatross", "albatross", "Niagara_Portal"),
     ("Optional (Major)", "rise_start", "Rise", "rise", "Niagara_Portal"),
     ("Optional (Major)", "V_Snowglobe_Start", "North Pole", "north-pole", "Niagara_Portal"),
@@ -144,6 +145,37 @@ DLC_PADS = {"h_garden_start", "h_garden_entrance", "h_japan_start", "h_japan_ent
 
 def is_dlc(pad):
     return pad.strip().lower() in DLC_PADS
+
+
+# Hub Exits (CRD-012): what a base-game world's own exits do for a hub portal leading to it. exitMode (top of config.lua) is the
+# default for every portal and takes modes 1-3; exits on a portal overrides it and is the only way to pick mode 4. Numbers 1-4 work too.
+EXIT_MODES = ["game", "hub", "dynamic", "manual"]
+GLOBAL_EXIT_MODES = EXIT_MODES[:3]
+DEFAULT_EXIT_MODE = "game"
+EXIT_MODE_HELP = {
+    "game": "The world's exits are the game's: the hub portal only takes players in.",
+    "hub": "The world's exits take everyone to the hub portal, however they came in.",
+    "dynamic": "Per player: came in through the hub portal, leave to it; came the game's way, leave the game's way.",
+    "manual": "The hub portal leads to the world's Manual Hub Exit (MHE), which always leads back. The world's own exits stay the game's.",
+}
+
+
+def exit_mode(v):
+    """A mode name from a config value ("hub", "HUB", 2 or 2.0), or None if it is not one."""
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    if isinstance(v, int) and not isinstance(v, bool):
+        return EXIT_MODES[v - 1] if 1 <= v <= 4 else None
+    if isinstance(v, str) and v.lower() in EXIT_MODES:
+        return v.lower()
+    return None
+
+
+def home_title(pad):
+    """The game's homes key their MHE by their start pad (H_Cabin_Start): a readable name, or None."""
+    if pad.startswith("H_") and pad.endswith("_Start") and len(pad) > 8:
+        return pad[2:-6] + " (home)"
+    return None
 
 
 LIGHT_PRESETS = [("Red", "#FF2020"), ("Orange", "#FF8A1A"), ("Yellow", "#FFE81A"), ("Green", "#2EE65C"),
