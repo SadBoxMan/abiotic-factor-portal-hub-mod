@@ -895,7 +895,10 @@ end
 --   * if the world is NOT ready (for example a save was loaded while standing in it, or its pak was removed): sends the player to the
 --     portal room instead of letting them fall through the missing level forever.
 local TRACK_MS = 500
-local CLAIM_RETRY_S, CLAIM_TRIES = 1.0, 10       -- a vignette claim that failed (level table not loaded yet) is tried again this often, this many times
+-- A vignette claim that failed (level table not loaded yet) is tried again this often for as long as the player stays inside: on a fresh game
+-- start the table took over 10 s (CRD-022). The first CLAIM_TRIES tries log why they failed; after that one line every CLAIM_TRIES tries.
+local CLAIM_RETRY_S, CLAIM_TRIES = 1.0, 10
+local claimQuiet = false                           -- true while a quiet retry runs: ensure_level_row does not log why it failed
 local EXIT_FORWARD, EXIT_UP = 215.1, 127.5          -- where the game puts a player who comes out of a pad (findings/portal-hub-findings.md)
 
 local cachedPc = nil
@@ -1086,13 +1089,26 @@ end
 
 local function ensure_level_row(def, day, night)
     local dt = StaticFindObject(LEVELS_TABLE)
-    if not (dt and dt:IsValid()) then log("vignette: the game's level table is not loaded yet") return false end
+    if not (dt and dt:IsValid()) then
+        -- on a fresh game start the game had still not loaded it a minute after a save made inside a world (CRD-022): load it here
+        -- (the tracker runs on the game thread)
+        for _, try in ipairs({ LEVELS_TABLE, (LEVELS_TABLE:gsub("%.[^%.]*$", "")) }) do       -- the object path is the form that loaded the zone class
+            if dt and dt:IsValid() then break end
+            pcall(LoadAsset, try)
+            dt = StaticFindObject(LEVELS_TABLE)
+        end
+        if dt and dt:IsValid() then log("vignette: the game's level table was not loaded yet; loaded it") end
+    end
+    if not (dt and dt:IsValid()) then
+        if not claimQuiet then log("vignette: the game's level table is not loaded yet") end
+        return false
+    end
     local rowName = level_row_name(def)
     if find_row(LEVELS_TABLE, rowName) ~= nil then return true end
     local f = level_fields()
     for _, k in ipairs({ "ReleaseGroup", "LevelFXRow_Day", "LevelFXRow_Night", "SectorName", "ResettablePortalWorld",
                          "HasFacilityShakes", "IsVignette", "EntranceTeleporter" }) do
-        if not f[k] then log("vignette: the game's level table has no field " .. k .. " (game update?); " .. def.id .. " stays a Facility area") return false end
+        if not f[k] then if not claimQuiet then log("vignette: the game's level table has no field " .. k .. " (game update?); " .. def.id .. " stays a Facility area") end return false end
     end
     local fx = StaticFindObject(FX_TABLE)
     local row = {}
@@ -1125,6 +1141,14 @@ local function switch_lighting(pc, day, night, title)
     end)
 end
 
+-- The level entry to put back on leaving, or nil when it is unknown: empty, "None" (a fresh controller after a save is loaded holds that until
+-- the game's level tracking runs, CRD-022) or ours from before a mod restart. Unknown falls back to the Facility's row on leaving
+-- (FALLBACK_LEVEL_ROW); the game sets its own row again within seconds wherever the player lands. Also used for the level name.
+local function known_level(v)
+    if not v or v == "" or v == "None" or v:sub(1, #ROW_PREFIX) == ROW_PREFIX then return nil end
+    return v
+end
+
 local function claim_level(def, pc)
     -- the vignette zone (Buff_InVignette) may have been missing when the world loaded; it is only spawned if not there yet
     local world = UEHelpers.GetWorld()
@@ -1132,19 +1156,19 @@ local function claim_level(def, pc)
     local day, night = world_light_rows(def)
     if not ensure_level_row(def, day, night) then return false end
     local rowName = level_row_name(def)
-    local prev = name_prop(pc, "ActiveLevelFXName")
-    if prev and prev:sub(1, #ROW_PREFIX) == ROW_PREFIX then prev = nil end      -- ours from before a mod restart: unknown
+    local prevRaw = name_prop(pc, "ActiveLevelFXName")
+    local prev = known_level(prevRaw)
     local okW = pcall(function() pc.ActiveLevelFXName = FName(rowName) end)
     if not okW then log("vignette: could not mark the player as being in " .. def.id) return false end
     local okT, err = switch_lighting(pc, day, night, world_title(def))
     -- the level's name as the game reports it (ActiveLevelName, a STRING property: write a Lua string, never an FName). In the game's own
     -- vignettes it holds the level's file name (V_ISLAND, H_Garden, ...), so ours holds the row name.
-    local prevName = name_prop(pc, "ActiveLevelName")
-    if prevName and prevName:sub(1, #ROW_PREFIX) == ROW_PREFIX then prevName = nil end
+    -- a level name kept only with a known row: after a reload the name can be left from the previous map while the row is "None"
+    local prevName = prev and known_level(name_prop(pc, "ActiveLevelName")) or nil
     pcall(function() pc.ActiveLevelName = rowName end)
     presence.claim = { id = def.id, row = rowName, prev = prev, prevName = prevName, day = day, night = night }
     log(string.format("vignette: inside %s; the game now treats it as a vignette (level entry %s, was %s); lighting %s / %s: %s",
-        def.id, rowName, tostring(prev), day, night, okT and "switched" or ("not switched (" .. tostring(err):match("^[^\r\n]*") .. ")")))
+        def.id, rowName, prev or ("unknown (" .. tostring(prevRaw) .. "), will fall back to " .. FALLBACK_LEVEL_ROW), day, night, okT and "switched" or ("not switched (" .. tostring(err):match("^[^\r\n]*") .. ")")))
     return true
 end
 
@@ -1185,12 +1209,13 @@ local function release_level(pc, why)
         if c then log("vignette: " .. why .. "; the game has already moved on to " .. tostring(now) .. ", nothing to put back") end
         return
     end
-    local back = (c and c.prev) or FALLBACK_LEVEL_ROW
+    local prev = c and known_level(c.prev)
+    local back = prev or FALLBACK_LEVEL_ROW
     pcall(function() pc.ActiveLevelFXName = FName(back) end)
     -- the level name back too: the one from before, or the file name of the level row being restored
     local nowName = name_prop(pc, "ActiveLevelName")
     if nowName and nowName:sub(1, #ROW_PREFIX) == ROW_PREFIX then
-        local backName = c and c.prevName
+        local backName = prev and c.prevName or nil
         if not backName then
             local row, f = find_row(LEVELS_TABLE, back), level_fields()
             if row and f.LevelFileName then pcall(function() backName = row[f.LevelFileName]:ToString() end) end
@@ -1201,7 +1226,7 @@ local function release_level(pc, why)
     local day, night = facility_light_rows(pc, back)
     local okT = false
     if day then okT = switch_lighting(pc, day, night, level_title(back)) end
-    log(string.format("vignette: %s; level entry back to %s%s, lighting %s", why, back, (c and c.prev) and "" or " (previous one unknown)",
+    log(string.format("vignette: %s; level entry back to %s%s, lighting %s", why, back, prev and "" or " (previous one unknown)",
         day and ((day .. " / " .. night) .. (okT and "" or " (switch failed)")) or "left to the game"))
 end
 
@@ -1401,6 +1426,7 @@ local function track_tick()
             -- just arrived (or the mods were restarted while inside)
             presence.inside = here.id
             presence.claimRetryAt, presence.claimTries = nil, 0
+            claimQuiet = false
             -- right after a save is loaded the game's level table may not be loaded yet: try again shortly (see below)
             if here.vignette and not claim_level(here, pc) then presence.claimRetryAt, presence.claimTries = os.clock() + CLAIM_RETRY_S, 1 end
             if here.vignette and world_type(here) == "vignette" and flag_is_set(here, pc) == false then
@@ -1410,13 +1436,19 @@ local function track_tick()
             presence.lightAt = here.lighting and (os.clock() + (presence.claim and 2.0 or 0.0)) or nil
         elseif here.vignette and presence.claimRetryAt then
             if os.clock() >= presence.claimRetryAt then
-                if claim_level(here, pc) then
+                local n = presence.claimTries + 1         -- this try's number (the one on arrival was 1)
+                claimQuiet = n > CLAIM_TRIES
+                local ok = claim_level(here, pc)
+                claimQuiet = false
+                if ok then
                     presence.claimRetryAt = nil
-                elseif presence.claimTries >= CLAIM_TRIES then
-                    presence.claimRetryAt = nil
-                    log("vignette: " .. here.id .. " could not be marked as a vignette after " .. CLAIM_TRIES .. " tries; it stays a Facility area until the player comes back in")
+                    if n > CLAIM_TRIES then log("vignette: " .. here.id .. " was marked as a vignette on try " .. n) end
                 else
-                    presence.claimRetryAt, presence.claimTries = os.clock() + CLAIM_RETRY_S, presence.claimTries + 1
+                    presence.claimRetryAt, presence.claimTries = os.clock() + CLAIM_RETRY_S, n
+                    if n % CLAIM_TRIES == 0 then
+                        log("vignette: " .. here.id .. " could not be marked as a vignette after " .. n .. " tries; trying again every "
+                            .. CLAIM_RETRY_S .. " s while the player is inside")
+                    end
                 end
             end
         elseif here.vignette then

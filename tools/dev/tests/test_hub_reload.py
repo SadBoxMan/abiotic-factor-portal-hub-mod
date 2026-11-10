@@ -58,6 +58,13 @@ end
 WORLD = new_world()
 local baseFind = StaticFindObject
 LEVELS_LATE = 0       -- the game's level table stays unloaded for this many more StaticFindObject calls after a map load
+LEVELS_LOADABLE, LEVELS_LOADS = false, 0   -- true: the hub's LoadAsset of the table's package loads it (fresh game start, CRD-022)
+function LoadAsset(p)
+    if p == "/Game/Blueprints/DataTables/Environment/DT_Levels.DT_Levels" then   -- only the object path loads (as with the zone class in game)
+        LEVELS_LOADS = LEVELS_LOADS + 1
+        if LEVELS_LOADABLE then LEVELS_LATE = 0 end
+    end
+end
 function StaticFindObject(p)
     if p == "/Game/Blueprints/DataTables/Environment/DT_Levels.DT_Levels" and LEVELS_LATE > 0 then LEVELS_LATE = LEVELS_LATE - 1; return nil end
     if p == "/Game/Blueprints/Environment/Teleporters/BP_Teleporter_ParentBP.BP_Teleporter_ParentBP_C" then return padClass end
@@ -210,11 +217,71 @@ check("level table late: claimed once it is there", count("vignette: inside worl
 tick(8)
 check("level table late: and only once", count("vignette: inside world_b_start") == before + 1)
 L.execute("LOC.X = -10000"); tick(2)
-L.execute("new_map(ORIGIN.world_b); LEVELS_LATE = 100000"); tick(3); L.execute("show_all()"); tick(60)
-check("level table never loads: gives up after 10 tries", count("could not be marked as a vignette after 10 tries") == 1)
-L.execute("LEVELS_LATE = 0"); tick(4)
-check("level table never loads: no claim after giving up", lua("PC.ActiveLevelFXName.s") != "PortalHub_world_b_start")
+# fresh game start (CRD-022, in game 10 November): the table took over 10 s; the claim keeps trying while the player is inside, quietly
+before, notLoaded = count("vignette: inside world_b_start"), count("level table is not loaded yet")
+L.execute("new_map(ORIGIN.world_b); LEVELS_LATE = 100000"); tick(3); L.execute("show_all()"); tick(140)
+check("level table very late: still trying after 30 tries, a line every 10",
+      count("could not be marked as a vignette after 10 tries; trying again") == 1 and count("after 30 tries; trying again") == 1
+      and count("vignette: inside world_b_start") == before, (count("after 10 tries"), count("after 30 tries")))
+check("level table very late: only the first 10 tries say why", count("level table is not loaded yet") - notLoaded == 10,
+      count("level table is not loaded yet") - notLoaded)
+check("level table very late: no longer gives up", count("it stays a Facility area until the player comes back in") == 0)
+L.execute("LEVELS_LATE = 0"); tick(6)
+check("level table very late: claimed once it loads", count("vignette: inside world_b_start") == before + 1
+      and count("world_b_start was marked as a vignette on try") == 1 and lua("PC.ActiveLevelFXName.s") == "PortalHub_world_b_start",
+      lua("PC.ActiveLevelFXName.s"))
+tick(8)
+check("level table very late: and only once", count("vignette: inside world_b_start") == before + 1)
+L.execute("LOC.X = -10000"); tick(2)
+check("level table very late: leaving puts the Facility row back", lua("PC.ActiveLevelFXName.s") == "office1", lua("PC.ActiveLevelFXName.s"))
+# fresh game start as seen in game (10 November): the game never loads the table by itself, so the hub loads it
+before = count("vignette: inside world_b_start")
+L.execute("new_map(ORIGIN.world_b); LEVELS_LATE = 100000; LEVELS_LOADABLE = true; LEVELS_LOADS = 0"); tick(3); L.execute("show_all()"); tick(2)
+check("table never loaded by the game: the hub loads it and claims on the first try",
+      count("vignette: inside world_b_start") == before + 1 and count("level table was not loaded yet; loaded it") == 1
+      and lua("LEVELS_LOADS") == 1 and lua("PC.ActiveLevelFXName.s") == "PortalHub_world_b_start", (lua("LEVELS_LOADS"), lua("PC.ActiveLevelFXName.s")))
+L.execute("LOC.X = -10000; LEVELS_LOADABLE = false"); tick(2)
+check("table never loaded by the game: leaving puts the Facility row back", lua("PC.ActiveLevelFXName.s") == "office1", lua("PC.ActiveLevelFXName.s"))
+# leaving while still trying stops the tries; coming back starts over
+L.execute("new_map(ORIGIN.world_b); LEVELS_LATE = 100000"); tick(3); L.execute("show_all()"); tick(20)
+L.execute("LOC.X = -10000"); tick(2); n0 = count("tries; trying again"); tick(80)
+check("left while trying: no more tries outside", count("tries; trying again") == n0, count("tries; trying again") - n0)
+L.execute("LEVELS_LATE = 0")
 
+# ---- CRD-022: after a reload the fresh controller holds "None" as its level entry; leaving must not put "None" back
+L.execute("LOC.X = -10000"); tick(2)
+L.execute("new_map(ORIGIN.world_b); PC.ActiveLevelName = 'V_ISLAND'"); tick(3); L.execute("show_all()"); tick(2)
+check("reload, None row: claimed, previous row logged as unknown",
+      count("level entry PortalHub_world_b_start, was unknown (None), will fall back to office1") >= 1, lua("PC.ActiveLevelFXName.s"))
+L.execute("LOC.X = -10000"); tick(2)
+check("reload, None row: leaving puts the Facility row back, not None",
+      lua("PC.ActiveLevelFXName.s") == "office1" and count("level entry back to office1 (previous one unknown)") >= 1, lua("PC.ActiveLevelFXName.s"))
+check("reload, None row: the stale level name is not put back", lua("PC.ActiveLevelName:ToString()") == "Facility_Office1", lua("PC.ActiveLevelName:ToString()"))
+
+# a real previous row is still put back, with its level name
+L.execute("LEVEL_ROWS.v_island = LEVEL_ROWS.office1; PC.ActiveLevelFXName = FName('v_island'); PC.ActiveLevelName = 'V_ISLAND'")
+L.execute("LOC.X = ORIGIN.world_b"); tick(2)
+check("known row: logged as the previous row", count("level entry PortalHub_world_b_start, was v_island)") >= 1)
+L.execute("LOC.X = -10000"); tick(2)
+check("known row: put back with its level name", lua("PC.ActiveLevelFXName.s") == "v_island" and lua("PC.ActiveLevelName:ToString()") == "V_ISLAND",
+      (lua("PC.ActiveLevelFXName.s"), lua("PC.ActiveLevelName:ToString()")))
+
+# empty, or a row of ours left from before a mod restart: unknown too
+for raw in ("", "PortalHub_world_c_start"):
+    L.execute("PC.ActiveLevelFXName = FName([[%s]]); PC.ActiveLevelName = 'Elsewhere'" % raw)
+    L.execute("LOC.X = ORIGIN.world_b"); tick(2); L.execute("LOC.X = -10000"); tick(2)
+    check("row '%s': falls back to the Facility row" % raw, lua("PC.ActiveLevelFXName.s") == "office1" and lua("PC.ActiveLevelName:ToString()") == "Facility_Office1",
+          (lua("PC.ActiveLevelFXName.s"), lua("PC.ActiveLevelName:ToString()")))
+
+# the retry path (level table late after a reload): the late claim also treats None as unknown
+before = count("vignette: inside world_b_start")
+L.execute("new_map(ORIGIN.world_b); LEVELS_LATE = 1000"); tick(3); L.execute("show_all()"); tick(2)
+L.execute("LEVELS_LATE = 0"); tick(3)
+check("retry path: claimed late, once", count("vignette: inside world_b_start") == before + 1 and lua("PC.ActiveLevelFXName.s") == "PortalHub_world_b_start")
+L.execute("LOC.X = -10000"); tick(2)
+check("retry path: leaving puts the Facility row back", lua("PC.ActiveLevelFXName.s") == "office1", lua("PC.ActiveLevelFXName.s"))
+
+check("never put None back in the whole run", count("level entry back to None") == 0, count("level entry back to None"))
 check("no rescue in the whole run", count("rescue:") == 0, count("rescue:"))
 print("\n%d checks, %d passed, %d failed" % (len(results), sum(results), len(results) - sum(results)))
 sys.exit(0 if all(results) else 1)
