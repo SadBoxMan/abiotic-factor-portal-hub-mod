@@ -2,7 +2,8 @@
 
 Run it with PortalHubConfig.bat, with the packaged PortalHubConfig.exe, or with  python PortalHubConfig.py .
 Python standard library only (Tkinter). Optional switches for testing:
-  --config <file>      edit this file instead of looking for the installed mod
+  --config <file>      edit this file instead of looking for the installed mod (the install check is shown, not enforced)
+  --game <folder>      check this game folder instead of looking through the Steam libraries
   --roundtrip <out>    read the config, write it to <out> unchanged, and exit
   --screenshot <png>   save pictures of each screen and exit (needs Pillow)
 """
@@ -22,6 +23,7 @@ import zlib
 from tkinter import colorchooser, filedialog
 
 import hubdata as hd
+import install_check as ic
 from luaconfig import HubConfig, LuaError, Portal, World, fmt_num, read_manual_exits
 
 APP = "Cordona Corporations Portal Hub Assistant Tool"
@@ -29,6 +31,7 @@ BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 TOOL_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else BASE_DIR
 ICON_DIR = os.path.join(BASE_DIR, "icons")
 SETTINGS_FILE = os.path.join(os.environ.get("APPDATA", ""), "PortalHubConfig", "config-path.txt")
+GAME_FILE = os.path.join(os.environ.get("APPDATA", ""), "PortalHubConfig", "game-path.txt")
 PAD_ID_RX = re.compile(r"^[A-Za-z0-9_\-]+$")
 
 MONO = "Consolas"
@@ -71,27 +74,7 @@ REL_CONFIG = os.path.join("steamapps", "common", "AbioticFactor", "AbioticFactor
                           "PortalHub", "Scripts", "config.lua")
 
 
-def steam_libraries():
-    roots = []
-    try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as k:
-            roots.append(winreg.QueryValueEx(k, "SteamPath")[0].replace("/", "\\"))
-    except OSError:
-        pass
-    for env in ("ProgramFiles(x86)", "ProgramFiles"):
-        if os.environ.get(env):
-            roots.append(os.path.join(os.environ[env], "Steam"))
-    libs = []
-    for steam in roots:
-        if not os.path.isdir(steam):
-            continue
-        libs.append(steam)
-        vdf = os.path.join(steam, "steamapps", "libraryfolders.vdf")
-        if os.path.exists(vdf):
-            with open(vdf, encoding="utf-8", errors="replace") as f:
-                libs += [m.replace("\\\\", "\\") for m in re.findall(r'"path"\s+"([^"]+)"', f.read())]
-    return list(dict.fromkeys(libs))
+steam_libraries = ic.steam_libraries
 
 
 def find_config():
@@ -122,6 +105,76 @@ def remember_config(path):
             f.write(path)
     except OSError:
         pass
+
+
+# ------------------------------------------------------------------ the install check (install_check.py; read only)
+def remembered(path_file):
+    try:
+        with open(path_file, encoding="utf-8-sig") as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
+def remember_game(folder):
+    try:
+        os.makedirs(os.path.dirname(GAME_FILE), exist_ok=True)
+        with open(GAME_FILE, "w", encoding="utf-8") as f:
+            f.write(folder)
+    except OSError:
+        pass
+
+
+def check_game(*first):
+    """Find the game (the folders given first, then a remembered one, the remembered config, this program's folder,
+    the Steam libraries) and check the hub's install there."""
+    hints = [h for h in (*first, remembered(GAME_FILE), remembered(SETTINGS_FILE), TOOL_DIR) if h]
+    return ic.check_install(ic.find_game(hints=hints))
+
+
+def pick_game_folder(parent):
+    """Ask for the game's folder. Returns the game folder, or None (with a message if the pick wasn't the game)."""
+    picked = filedialog.askdirectory(parent=parent, mustexist=True,
+                                     title="Pick Abiotic Factor's folder (Steam library\\steamapps\\common\\AbioticFactor)")
+    if not picked:
+        return None
+    game = ic.game_folder_from(picked)
+    if not game:
+        ask(parent, APP, f"That folder isn't Abiotic Factor's:\n\n{os.path.normpath(picked)}\n\n"
+                         "Pick the AbioticFactor folder in your Steam library (steamapps\\common\\AbioticFactor).", [("OK", 1)])
+        return None
+    remember_game(game)
+    return game
+
+
+INSTALL_COLOURS = {"ok": "status_good", "warn": "warn", "missing": "status_bad", "nogame": "status_bad"}
+INSTALL_MARKS = {"ok": "INSTALLED", "warn": "CHECK", "missing": "MISSING", "nogame": "NO GAME"}
+
+
+class InstallBar(tk.Frame):
+    """The install check's status line: a mark, what was found and what to do, RE-CHECK and PICK GAME FOLDER."""
+
+    def __init__(self, parent, on_recheck, on_pick):
+        super().__init__(parent, bg=T["panel"], padx=px(12), pady=px(6), highlightthickness=1, highlightbackground=T["line"])
+        self.mark = tk.Label(self, bg=T["panel"], font=font(9, True), width=10, anchor="w")
+        self.mark.pack(side="left", anchor="n")
+        Btn(self, "RE-CHECK", on_recheck, small=True).pack(side="right", anchor="n")
+        self.pick = Btn(self, "PICK GAME FOLDER", on_pick, small=True)
+        self.pick.pack(side="right", anchor="n", padx=px(6))
+        self.text = tk.Label(self, bg=T["panel"], fg=T["fg"], font=font(9), anchor="w", justify="left")
+        self.text.pack(side="left", fill="x", expand=True, padx=(px(6), px(8)))
+        self.tip = Tip(self.mark, "")
+        self.bind("<Configure>", lambda e: self.text.configure(wraplength=max(px(200), e.width - px(360))))
+
+    def show(self, report):
+        if report is None:
+            self.mark.configure(text="NOT CHECKED", fg=T["dim"])
+            self.text.configure(text="Install check skipped.")
+            return
+        colour = T[INSTALL_COLOURS[report.state]]
+        self.mark.configure(text=INSTALL_MARKS[report.state], fg=colour)
+        self.text.configure(text=report.text(), fg=T["fg"] if report.state == "ok" else colour)
+        self.tip.text = ("Game: " + report.game) if report.game else "No game folder found."
 
 
 # ------------------------------------------------------------------ small widgets
@@ -687,9 +740,13 @@ def next_origin(worlds, skip=None):
 
 # ------------------------------------------------------------------ the app
 class App:
-    def __init__(self, root, path):
+    def __init__(self, root, path, install=None, gate=False):
+        """install: the install check's report (None = not checked). gate: refuse to save while the hub isn't installed
+        (off when the config was named with --config)."""
         self.root = root
         self.path = path
+        self.install = install
+        self.gate = gate
         self.images = {}
         self.guard = False
         self.sel = "A-3"
@@ -722,6 +779,8 @@ class App:
         self.path_label.pack(side="right", pady=(px(8), 0))
         self.path_label.bind("<Button-1>", lambda e: self.choose_file())
         Tip(self.path_label, "The config.lua being edited. Click to pick a different one.")
+        self.install_bar = InstallBar(r, self.recheck, self.pick_game)
+        self.install_bar.pack(fill="x", padx=px(16), pady=(px(2), 0))
 
         tabs = tk.Frame(r, bg=T["bg"], padx=px(16))
         tabs.pack(fill="x", pady=(px(8), 0))
@@ -1597,11 +1656,21 @@ class App:
             out.append(f"Custom worlds need fixing: {', '.join(bad)}.")
         return out
 
+    def save_blocked(self):
+        """Why saving is refused by the install check, or ''. Only when the hub's files are missing; a hub switched off in
+        mods.txt or an old UE4SS is a warning only (the config can be edited while the player fixes that)."""
+        if self.gate and self.install is not None and not self.install.hub_installed:
+            return "Portal Hub isn't installed in the game, so nothing is written. See the install line at the top."
+        return ""
+
     def update_state(self):
         probs = self.problems()
-        self.save_btn.set_enabled(not probs)
+        blocked = self.save_blocked()
+        self.save_btn.set_enabled(not probs and not blocked)
         dirty = self.cfg.is_dirty() if not probs else True
-        if probs:
+        if blocked:
+            self.status.configure(fg=T["status_bad"], text="Can't save: " + blocked)
+        elif probs:
             self.status.configure(fg=T["status_bad"], text="Can't save yet: " + "  ".join(probs))
         elif dirty:
             self.saved_note = ""
@@ -1613,6 +1682,7 @@ class App:
 
     def refresh_all(self):
         self.path_label.configure(text=self.short_path())
+        self.install_bar.show(self.install)
         for slot in hd.SLOT_IDS:
             self.draw_card(slot)
         self.refresh_inspector()
@@ -1640,8 +1710,28 @@ class App:
             self.refresh_hub_exits()
 
     # ------------- file actions
+    # ------------- install check
+    def recheck(self, game=None):
+        """Check the install again: the given game folder, else the one checked last, then the usual places."""
+        self.install = check_game(game, self.install.game if self.install else None, None if self.gate else self.path)
+        new = self.install.config_path
+        if self.gate and new and os.path.normcase(os.path.abspath(new)) != os.path.normcase(os.path.abspath(self.path)):
+            # the installed hub's config is another file than the one open (another game folder was picked): edit that one
+            if not self.cfg.is_dirty() or ask(self.root, APP, f"Switch to the Portal Hub config in that game folder?\n\n{new}\n\n"
+                                                              "Your unsaved changes here are dropped.", [("SWITCH", 1), ("STAY", 0)]):
+                self.path = new
+                self.do_reload()
+                return
+        self.install_bar.show(self.install)
+        self.update_state()
+
+    def pick_game(self):
+        game = pick_game_folder(self.root)
+        if game:
+            self.recheck(game)
+
     def save(self):
-        if not self.save_btn.enabled:
+        if not self.save_btn.enabled or self.save_blocked():
             return
         self.commit_focus()
         if self.cfg.changed_on_disk():
@@ -1677,6 +1767,7 @@ class App:
             self.world_i = world
         self.saved_note = ""
         self.refresh_all()
+        self.update_state()
 
     def reload(self):
         if self.cfg.is_dirty() and not ask(self.root, "Reload", "Drop your unsaved changes and read config.lua again?", [("RELOAD", 1), ("CANCEL", 0)]):
@@ -1708,6 +1799,66 @@ class App:
                     return
                 self.save()
         self.root.destroy()
+
+
+class Gate:
+    """Shown instead of the editor while the hub isn't installed: what is missing, what to do, RE-CHECK, PICK GAME FOLDER.
+    Nothing is read or written here; once a check finds the hub, on_ready(report) builds the editor."""
+
+    def __init__(self, root, report, on_ready):
+        self.root, self.report, self.on_ready = root, report, on_ready
+        self.frame = tk.Frame(root, bg=T["bg"])
+        self.frame.pack(fill="both", expand=True)
+        App.stripe(None, self.frame).pack(fill="x")
+        head = tk.Frame(self.frame, bg=T["head"], padx=px(18), pady=px(10))
+        head.pack(fill="x")
+        tk.Label(head, text="PORTAL HUB", bg=T["head"], fg=T["head_fg"], font=font(20, True)).pack(side="left")
+        tk.Label(head, text="   CORDONA CORPORATIONS  //  install check", bg=T["head"], fg=T["head_dim"], font=font(10)).pack(side="left", pady=(px(8), 0))
+        body = tk.Frame(self.frame, bg=T["chassis"], padx=px(24), pady=px(20))
+        body.pack(fill="both", expand=True, padx=px(16), pady=(px(8), px(16)))
+        self.mark = tk.Label(body, bg=T["chassis"], font=font(16, True), anchor="w")
+        self.mark.pack(fill="x")
+        self.headline = tk.Label(body, bg=T["chassis"], font=font(11, True), anchor="w", justify="left")
+        self.headline.pack(fill="x", pady=(px(8), 0))
+        self.steps = tk.Label(body, bg=T["chassis"], fg=T["fg"], font=font(10), anchor="w", justify="left")
+        self.steps.pack(fill="x", pady=(px(10), 0))
+        self.where = tk.Label(body, bg=T["chassis"], fg=T["dim"], font=font(9), anchor="w", justify="left")
+        self.where.pack(fill="x", pady=(px(14), 0))
+        tk.Label(body, text="This tool only reads the game folder; it never installs, downloads or changes UE4SS or mod files.",
+                 bg=T["chassis"], fg=T["dim"], font=font(9), anchor="w").pack(fill="x", pady=(px(4), 0))
+        row = tk.Frame(body, bg=T["chassis"])
+        row.pack(fill="x", pady=(px(18), 0))
+        Btn(row, "RE-CHECK", self.recheck, primary=True).pack(side="left")
+        Btn(row, "PICK GAME FOLDER", self.pick).pack(side="left", padx=px(8))
+        Btn(row, "QUIT", root.destroy).pack(side="right")
+        body.bind("<Configure>", lambda e: [w.configure(wraplength=e.width - px(50)) for w in (self.headline, self.steps, self.where)])
+        self.show()
+
+    def show(self):
+        r = self.report
+        colour = T[INSTALL_COLOURS[r.state]]
+        self.mark.configure(text=INSTALL_MARKS[r.state], fg=colour)
+        self.headline.configure(text=r.headline, fg=colour)
+        self.steps.configure(text="\n".join(f"{i}. {t}" for i, t in enumerate(r.todo, 1)))
+        lines = [f"Game folder: {r.game}" if r.game else "Game folder: not found (looked in the Steam libraries)."]
+        if r.ue4ss:
+            lines.append(f"UE4SS: {r.ue4ss['text']} in {r.ue4ss_dir}")
+        if r.hub_dir:
+            lines.append(f"PortalHub: {r.hub_dir}")
+        self.where.configure(text="\n".join(lines))
+
+    def recheck(self, game=None):
+        self.report = check_game(game, self.report.game)
+        if self.report.hub_installed:
+            self.frame.destroy()
+            self.on_ready(self.report)
+        else:
+            self.show()
+
+    def pick(self):
+        game = pick_game_folder(self.root)
+        if game:
+            self.recheck(game)
 
 
 def pick_config(parent):
@@ -1757,6 +1908,7 @@ def main():
     global S
     ap = argparse.ArgumentParser(description=APP)
     ap.add_argument("--config")
+    ap.add_argument("--game")
     ap.add_argument("--roundtrip")
     ap.add_argument("--screenshot")
     args = ap.parse_args()
@@ -1774,30 +1926,49 @@ def main():
     root.withdraw()
     root.title(APP)
     S = root.winfo_fpixels("1i") / 96.0
-    path = args.config or find_config()
-    if not path:
-        path = pick_config(root)
-        if not path:
+    # The install check comes first. Without --config the editor opens only on an installed hub's own config.lua;
+    # with --config (testing) the check is shown but doesn't stop saving.
+    report = check_game(args.game, args.config)
+
+    def open_editor(rep):
+        path = args.config or rep.config_path
+        if not args.config and not args.screenshot:
+            remember_config(path)
+        try:
+            app = App(root, path, install=rep, gate=not args.config)
+        except (LuaError, UnicodeDecodeError) as err:
+            root.deiconify()
+            ask(root, APP, f"config.lua can't be read, so nothing was changed:\n\n{path}\n\n{err}", [("OK", 1)])
             root.destroy()
-            return
-    if not args.config and not args.screenshot:
-        remember_config(path)
-    try:
-        app = App(root, path)
-    except (LuaError, UnicodeDecodeError) as err:
-        root.deiconify()
-        ask(root, APP, f"config.lua can't be read, so nothing was changed:\n\n{path}\n\n{err}", [("OK", 1)])
-        root.destroy()
-        return
+            return None
+        root.minsize(px(1260), px(700))
+        root.geometry(f"{px(1320)}x{px(780)}")
+        root.protocol("WM_DELETE_WINDOW", app.on_close)
+        return app
+
     window_icon(root)
-    root.geometry(f"{px(1320)}x{px(760)}")
-    root.minsize(px(1260), px(700))
-    root.protocol("WM_DELETE_WINDOW", app.on_close)
+    if args.config or report.hub_installed:
+        app = open_editor(report)
+        if app is None:
+            return
+    else:
+        app = None
+        root.geometry(f"{px(900)}x{px(520)}")
+        Gate(root, report, open_editor)
     root.deiconify()
     dark_title_bar(root)
     root.update()
     if args.screenshot:
-        screenshots(root, app, args.screenshot)
+        if app:
+            screenshots(root, app, args.screenshot)
+        else:
+            from PIL import ImageGrab
+            root.attributes("-topmost", True)
+            root.after(300, root.quit)
+            root.mainloop()
+            x, y, w, h = root.winfo_rootx(), root.winfo_rooty(), root.winfo_width(), root.winfo_height()
+            ImageGrab.grab((x, y, x + w, y + h), all_screens=True).save(args.screenshot)
+            root.destroy()
         return
     root.mainloop()
 
