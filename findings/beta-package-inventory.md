@@ -34,5 +34,5 @@ spawner and UE4SS's test mods, `Cordona Local Patches`, and anything from `Exter
 ## Flags for LuciDin
 
 - The GUI's world pictures are the developers' art. They are already in the public repo; shipping them to a few testers is the same exposure.
-- The UE4SS link in the README is `nexusmods.com/abioticfactor/mods/35`, found by a web search (title "Working UE4SS for Abiotic Factor").
-  Please confirm it is the page you installed 1.25.0 from.
+- The UE4SS link in the README is `nexusmods.com/abioticfactor/mods/35`: confirmed, the 1.25.0 zip LuciDin downloaded in CRD-026 carries mod id 35 in its file name.
+- A fresh UE4SS install has its GUI window off (`GuiConsoleEnabled = 0`); the README tells testers to switch it on for Ctrl+O and Restart All Mods.

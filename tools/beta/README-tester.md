@@ -15,6 +15,10 @@ Mods page: https://www.nexusmods.com/abioticfactor/mods/35
 Follow that page's install steps. When it is right, the game folder has `AbioticFactor\Binaries\Win64\ue4ss\` with a `Mods` folder in it.
 Start the game once and quit, so UE4SS sets itself up.
 
+Then switch on UE4SS's own window (it is off in a fresh install): open `AbioticFactor\Binaries\Win64\ue4ss\UE4SS-settings.ini` in
+Notepad, find `GuiConsoleEnabled = 0` and change it to `GuiConsoleEnabled = 1`. Ctrl + O then opens the window, where you can watch
+the log and use "Restart All Mods".
+
 The game folder is usually `...\Steam\steamapps\common\AbioticFactor` (in Steam: right-click the game > Manage > Browse local files).
 Below, `<game>` means that folder.
 
