@@ -1,11 +1,14 @@
 -- Cordona Probe (CRD-020, dev only, not shipped): answers the open questions of findings/in-game-config-research.md.
 --   1. Which save is loaded: AbioticGameInstance.ActiveWorldSaveName and AbioticFunctionLibrary:GetSaveSubfolderName(), logged at
---      mod load, when a Homeworld pad appears (at once and after the hub's 4 s spawn delay) and on F11.
+--      mod load, when a Homeworld pad appears (at once and after the hub's 4 s spawn delay) and on the survey key ].
 --   2. A console in the portal room: DELETE spawns a Button_Generic in front of the player (ButtonAlwaysPowered, ShouldSave = false) with a
 --      custom ButtonName, and hooks InteractWith_A; each press steps the name ("press 1", "press 2", ...) and shows a message.
---   3. Multiplayer: F11 also lists, with network roles, the probe buttons near the player and every hub pad (hub_*), so a host and
---      a client can compare what they see.
---   F11 = identity + network survey (read-only)   DELETE = spawn the probe button (host only); press again to remove it
+--   3. Multiplayer: the survey also lists, with network roles, the probe buttons near the player and every hub pad (hub_*), so a host and
+--      a client can compare what they see. It also lists every pad in the portal room, whatever its ID, with its look (particle
+--      asset) and its hum volume on this machine, so a client can tell whether the host's pads, IDs and looks reached it (CRD-023).
+--   ] = identity + network survey (read-only)   DELETE = spawn the probe button (host only); press again to remove it
+-- Keys (CRD-023): the survey was on F11, the game's fullscreen toggle; ] (UE4SS Key.OEM_SIX, US layout) carries only a debug-only game
+-- binding (DebugCycleCultureBack), accepted by the author. DELETE is the game's "clear keybind" key inside the Controls menu only; kept.
 
 local UEHelpers = require("UEHelpers")
 
@@ -36,10 +39,21 @@ local function str(v)            -- an FString / FText / FName (or a Lua value) 
     return "<" .. t .. ">"
 end
 
+-- On a host every player has a controller, so the first one found may be a client's: pick the one this machine controls.
 local function player_controller()
+    local first, n = nil, 0
+    for _, pc in ipairs(FindAllOf("Abiotic_PlayerController_C") or {}) do
+        if valid(pc) then
+            n = n + 1
+            first = first or pc
+            local ok, isLocal = pcall(function() return pc:IsLocalController() end)
+            if ok and isLocal == true then return pc, n end
+        end
+    end
+    if first then return first, n end
     local pc = FindFirstOf("Abiotic_PlayerController_C")
-    if valid(pc) then return pc end
-    return nil
+    if valid(pc) then return pc, 1 end
+    return nil, 0
 end
 
 local function player()
@@ -239,8 +253,8 @@ end
 -- 3. Network survey (read-only)
 
 local function survey()
-    log("---- F11: identity and network survey")
-    log_identity("F11")
+    log("---- ]: identity and network survey")
+    log_identity("survey key ]")
     install_hooks()
     local pawn = player()
     local here = nil
@@ -264,23 +278,39 @@ local function survey()
         end
     end
     log("  " .. n .. " Button_Generic actor(s) in the world, " .. near .. " listed (probe name or within " .. NEAR_M .. " m)")
-    local pads, perId = 0, {}
+    local _, pcs = player_controller()
+    log("  " .. pcs .. " player controller(s) on this machine")
+    local pads, perId, room = 0, {}, 0
     for _, t in ipairs(FindAllOf("BP_Teleporter_ParentBP_C") or {}) do
         if valid(t) then
             local okI, id = pcall(function() return t.MyTeleporterID:ToString() end)
-            if okI and id:sub(1, 4) == "hub_" then
+            if not okI then id = "?" end
+            local okP, pl = pcall(function() return t:K2_GetActorLocation() end)
+            local inRoom = okP and metres(pl, ROOM) <= NEAR_M
+            if id:sub(1, 4) == "hub_" then
                 pads = pads + 1
                 perId[id] = (perId[id] or 0) + 1
                 log("  hub pad " .. id .. " at " .. loc_text(t) .. ", HasAuthority=" .. str(has_authority(t)) .. ", " .. role_of(t))
             end
+            if id:sub(1, 4) == "hub_" or inRoom then
+                room = room + 1
+                local dest, active, hidden, look, hum = "?", "?", "?", "?", "?"
+                pcall(function() dest = t.DestinationTeleporterID:ToString() end)
+                pcall(function() active = str(t.IsTeleporterActive) end)
+                pcall(function() hidden = str(t.bHidden) end)
+                pcall(function() local a = t.ParticleLoop.Asset; if valid(a) then look = a:GetFName():ToString() else look = "none" end end)
+                pcall(function() local h = t.PortalHumLoop; if valid(h) then hum = string.format("%.3f", h.VolumeMultiplier) end end)
+                log(string.format("  pad '%s' -> '%s' at %s: active=%s hidden=%s look=%s hum=%s, %s", id, dest, loc_text(t), active, hidden, look, hum, role_of(t)))
+            end
         end
     end
+    log("  " .. room .. " pad(s) listed with look and hum (hub_ IDs, or within " .. NEAR_M .. " m of the portal room's middle)")
     local dup = {}
     for id, c in pairs(perId) do if c > 1 then dup[#dup + 1] = id .. " x" .. c end end
     table.sort(dup)
     log("  " .. pads .. " hub pad(s)" .. (#dup > 0 and ("; more than one with the same ID: " .. table.concat(dup, ", ")) or "; no duplicate IDs"))
     log("  hooks installed: " .. (function() local t = {}; for _, f in ipairs(HOOKS) do if probe.hooked[f] then t[#t + 1] = f end end; return #t > 0 and table.concat(t, ", ") or "none (class not loaded yet)" end)())
-    log("---- F11 done")
+    log("---- survey done")
     screen(pawn, "Probe survey logged")
 end
 
@@ -304,10 +334,10 @@ NotifyOnNewObject(HOMEWORLD_CLASS, function()
     end)
 end)
 
--- Keys kept clear of the hub and lab (the lab's INSERT is CRD-012's Hub Exit preview): F11 and DELETE only.
-RegisterKeyBind(Key.F11, function() ExecuteInGameThread(survey) end)
+-- Keys kept clear of the hub and lab (the lab's INSERT is CRD-012's Hub Exit preview) and of the game's F11 (fullscreen): ] and DELETE only.
+RegisterKeyBind(Key.OEM_SIX, function() ExecuteInGameThread(survey) end)
 RegisterKeyBind(Key.DEL, function() ExecuteInGameThread(function()
     local n = remove_buttons()
     if n > 0 then log("DELETE pressed: removed " .. n .. " probe button(s)") else spawn_button() end
 end) end)
-log("keys: F11 = identity + network survey (read-only), DELETE = spawn the probe button (host only) / press again to remove it")
+log("keys: ] = identity + network survey (read-only), DELETE = spawn the probe button (host only) / press again to remove it")

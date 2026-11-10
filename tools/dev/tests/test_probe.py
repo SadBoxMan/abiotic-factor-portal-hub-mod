@@ -1,7 +1,8 @@
 # Runs the real mod/CordonaProbe/Scripts/main.lua (CRD-020) against a small mock of the game and checks: the save identity is logged at
-# load, on F11 and at portal-spawn time; DELETE spawns one Button_Generic on the host only, sets ButtonAlwaysPowered / ShouldSave /
+# load, on the survey key ] and at portal-spawn time; DELETE spawns one Button_Generic on the host only, sets ButtonAlwaysPowered / ShouldSave /
 # ButtonName, and hooks the button's functions once; a press on our button steps its name and messages the presser, while other
-# buttons are ignored; F11 lists hub pads with their roles and flags duplicate IDs; DELETE again removes the probe button.
+# buttons are ignored; the survey (], was F11) lists hub pads with their roles and flags duplicate IDs,
+# lists every portal-room pad with its look and hum volume, and picks the local player controller on a host; DELETE again removes the probe button.
 import sys, os
 sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa may be installed there (pip install --target %TEMP%\pylib lupa)
 import lupa
@@ -16,7 +17,7 @@ local NameMT = { __index = { ToString = function(self) return self.s end }, __eq
 function FName(s) return setmetatable({ s = s }, NameMT) end
 function FText(s) return setmetatable({ s = s, text = true }, NameMT) end
 Key = setmetatable({}, { __index = function(_, k) return k end })
-local function obj(t) t.IsValid = t.IsValid or function() return true end; return t end
+function obj(t) t.IsValid = t.IsValid or function() return true end; return t end
 
 AUTH = true
 CLASS_LOADED = false
@@ -110,7 +111,7 @@ L = probe(); g = L.globals()
 lines = logs(L)
 check("load: identity logged with the save name", has(lines, "identity (mod load): ActiveWorldSaveName='CordonaCorp'"), lines)
 check("load: subfolder name logged", has(lines, "GetSaveSubfolderName='76561190000000000'"), lines)
-check("load: keys F11 and DEL bound, INSERT left to the lab", g.KEYS["F11"] is not None and g.KEYS["DEL"] is not None and g.KEYS["INS"] is None)
+check("load: keys ] (OEM_SIX) and DEL bound; F11 (the game's fullscreen) and INSERT (the lab) left alone", g.KEYS["OEM_SIX"] is not None and g.KEYS["DEL"] is not None and g.KEYS["F11"] is None and g.KEYS["INS"] is None)
 check("load: no hooks while the button class is not loaded", len(g.HOOKS) == 0)
 check("load: watches the Homeworld pad", len(g.NOTIFY) == 1 and "BP_Teleporter_HomeWorld_C" in g.NOTIFY[1].cls)
 
@@ -129,7 +130,7 @@ check("homeworld: identity logged at once", has(lines, "identity (a Homeworld pa
 check("homeworld: identity logged at portal-spawn time", has(lines, "identity (portal-spawn time, 4000 ms"), lines)
 check("homeworld: a second pad in the same load adds no second pair", sum("a Homeworld pad appeared" in l for l in lines) == 1, lines)
 
-# --- F11 on a client
+# --- DELETE on a client
 g.AUTH = False
 n = len(g.LOGS)
 L.execute("press('SPAWN')")
@@ -137,7 +138,7 @@ check("client spawn: nothing spawned", len(g.SPAWNED) == 0)
 check("client spawn: says host only", has(logs(L, n), "client"), logs(L, n))
 g.AUTH = True
 
-# --- F11 on the host
+# --- DELETE on the host
 n = len(g.LOGS)
 L.execute("press('SPAWN')")
 lines = logs(L, n)
@@ -181,34 +182,74 @@ check("spawn again: the name starts at press 0", g.SPAWNED[2].ButtonName.s == "C
 L2 = probe(); g2 = L2.globals()
 g2.AUTH = False
 L2.execute("CLASS_LOADED = true; REP = make_button('Cordona console: press 3', -12850); SPAWNED[1] = REP")
-L2.execute("press('F11')")
+L2.execute("press('OEM_SIX')")
 n = len(g2.LOGS)
 L2.execute("hook('InteractWith_A_LocalFX')(param(REP), param(PAWN))")
 L2.execute("hook('InteractWith_A')(param(REP), param(PAWN), param(nil))")
 lines = logs(L2, n)
-check("client: hooks installed by F11 once the class is loaded", len(g2.HOOKS) == 4, len(g2.HOOKS))
+check("client: hooks installed by the survey once the class is loaded", len(g2.HOOKS) == 4, len(g2.HOOKS))
 check("client: a replicated probe button's hooks are logged", has(lines, "a replicated probe button") and has(lines, "InteractWith_A_LocalFX"), lines)
 check("client: a replicated probe button is never renamed", g2.REP.ButtonName.s == "Cordona console: press 3")
 
-# --- F11 survey
+# --- survey (])
 L.execute("PADS = { pad('hub_A-3', 3), pad('hub_A-3', 1), pad('hub_C-1', 1), pad('H_Cabin_Entrance', 3) }")
 n = len(g.LOGS)
-L.execute("press('F11')")
+L.execute("press('OEM_SIX')")
 lines = logs(L, n)
-check("F11 survey: identity in the survey", has(lines, "identity (F11): ActiveWorldSaveName='CordonaCorp'"), lines)
-check("F11 survey: the probe button listed with its name and role", has(lines, "button 'Cordona console: press 0'") and has(lines, "role=Authority(3)"), lines)
-check("F11 survey: the nearby game button listed too", has(lines, "button 'Elevator'"), lines)
-check("F11 survey: three hub pads, the base pad skipped", has(lines, "3 hub pad(s)") and not has(lines, "H_Cabin_Entrance"), lines)
-check("F11 survey: duplicate hub IDs flagged", has(lines, "more than one with the same ID: hub_A-3 x2"), lines)
-check("F11 survey: a pad's role shown", has(lines, "hub pad hub_C-1") and has(lines, "role=SimulatedProxy(1)"), lines)
+check("survey: identity in the survey", has(lines, "identity (survey key ]): ActiveWorldSaveName='CordonaCorp'"), lines)
+check("survey: the probe button listed with its name and role", has(lines, "button 'Cordona console: press 0'") and has(lines, "role=Authority(3)"), lines)
+check("survey: the nearby game button listed too", has(lines, "button 'Elevator'"), lines)
+check("survey: three hub pads, the base pad skipped", has(lines, "3 hub pad(s)") and not has(lines, "H_Cabin_Entrance"), lines)
+check("survey: duplicate hub IDs flagged", has(lines, "more than one with the same ID: hub_A-3 x2"), lines)
+check("survey: a pad's role shown", has(lines, "hub pad hub_C-1") and has(lines, "role=SimulatedProxy(1)"), lines)
+
+# --- survey (]) on a client whose pads arrived without our IDs: every pad in the portal room is listed, with its look and hum volume
+L.execute("""
+local function roompad(id, x, look, hum)
+    local p = pad(id, 1)
+    p.K2_GetActorLocation = function() return { X = x, Y = 8250, Z = -400 } end
+    p.DestinationTeleporterID = FName('train_start'); p.IsTeleporterActive = true; p.bHidden = false
+    p.ParticleLoop = obj({ Asset = look and obj({ GetFName = function() return FName(look) end }) or nil })
+    p.PortalHumLoop = obj({ VolumeMultiplier = hum })
+    return p
+end
+PADS = { roompad('None', -12000, 'NS_Portal_Purple', 0.575), roompad('H_Garden_Entrance', -12900, nil, 1.0), pad('far_away', 1) }
+""")
+n = len(g.LOGS)
+L.execute("press('OEM_SIX')")
+lines = logs(L, n)
+check("survey: a room pad with no hub ID is listed with destination, look and hum",
+      has(lines, "pad 'None' -> 'train_start'") and has(lines, "look=NS_Portal_Purple hum=0.575"), lines)
+check("survey: a room pad with no particle asset says look=none", has(lines, "pad 'H_Garden_Entrance'") and has(lines, "look=none hum=1.000"), lines)
+check("survey: a pad far from the portal room is not listed", not has(lines, "far_away"), lines)
+check("survey: room pad count", has(lines, "2 pad(s) listed with look and hum"), lines)
+check("survey: player controller count logged", has(lines, "1 player controller(s) on this machine"), lines)
+
+# --- on a host the first controller found may be a client's: the survey and DELETE use the local one
+L4 = probe(); g4 = L4.globals()
+L4.execute("""
+REMOTE_PAWN = obj({ GetFName = function() return FName('Client_Character') end, K2_GetActorLocation = function() return { X = 0, Y = 0, Z = 0 } end,
+    K2_GetActorRotation = function() return { Pitch = 0, Yaw = 0, Roll = 0 } end, HasAuthority = function() return true end })
+REMOTE_PC = obj({ Pawn = REMOTE_PAWN, IsLocalController = function() return false end })
+PC.IsLocalController = function() return true end
+local ff = FindAllOf
+FindAllOf = function(n) if n == 'Abiotic_PlayerController_C' then return { REMOTE_PC, PC } end return ff(n) end
+""")
+n = len(g4.LOGS)
+L4.execute("press('OEM_SIX')")
+lines = logs(L4, n)
+check("host with two controllers: the survey reports the local player", has(lines, "player Abiotic_PlayerCharacter_C_0") and not has(lines, "player Client_Character"), lines)
+check("host with two controllers: both counted", has(lines, "2 player controller(s) on this machine"), lines)
+L4.execute("press('SPAWN')")
+check("host with two controllers: the button spawns in front of the local player", len(g4.SPAWNED) == 1 and abs(g4.SPAWNED[1].at.Y - (8250 + 150)) < 1)
 
 # --- empty save name and missing game instance do not break
 L.execute("SAVE = ''")
-n = len(g.LOGS); L.execute("press('F11')")
+n = len(g.LOGS); L.execute("press('OEM_SIX')")
 check("empty save name logged as ''", has(logs(L, n), "ActiveWorldSaveName=''"), logs(L, n))
 L3 = probe(); g3 = L3.globals()
 L3.execute("package.loaded['UEHelpers'].GetGameInstance = function() return nil end; LIB = nil")
-n = len(g3.LOGS); L3.execute("press('F11')")
+n = len(g3.LOGS); L3.execute("press('OEM_SIX')")
 check("no game instance / library: logged, no error", has(logs(L3, n), "no game instance") and has(logs(L3, n), "library not found"), logs(L3, n))
 
 # --- DELETE

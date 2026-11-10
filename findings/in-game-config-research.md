@@ -281,7 +281,9 @@ old code. **Rule for every later card: register hooks and touch game objects onl
    replicated, `SimulatedProxy`, one local, `Authority`)? F11 on the client lists both and flags duplicate IDs.
 4. What `ActiveWorldSaveName` reads on a client (expected empty or its own last save).
 
-The probe is ready for that run unchanged: install it on both machines, DELETE on the host, F11 on both.
+The probe is ready for that run: install it on both machines, DELETE on the host, the survey key on both. (CRD-023, 10 November: the
+survey moved from F11, the game's fullscreen toggle, to `]`, and now also lists every portal-room pad with its look and hum volume; the
+run itself is in [`two-player-test-plan.md`](two-player-test-plan.md).)
 
 ### What this means for the next cards
 
