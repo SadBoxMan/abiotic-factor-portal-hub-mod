@@ -11,6 +11,30 @@
 !/docs/
 !/data/
 
+# test worlds A-D (CRD-025): each project's own files and the built paks only.
+# Not the Test World, not Intermediate/Saved/DerivedDataCache/Build/Packaged (generated, engine binaries).
+!/World Projects/
+/World Projects/*
+!/World Projects/README.md
+!/World Projects/Builds/
+/World Projects/Builds/*
+!/World Projects/Builds/World[A-D]_P.pak
+!/World Projects/Builds/World[A-D]_P.ucas
+!/World Projects/Builds/World[A-D]_P.utoc
+!/World Projects/World [A-D]/
+/World Projects/World [A-D]/*
+!/World Projects/World [A-D]/World_[A-D]/
+/World Projects/World [A-D]/World_[A-D]/*
+!/World Projects/World [A-D]/World_[A-D]/AbioticFactor.uproject
+!/World Projects/World [A-D]/World_[A-D]/Config/
+/World Projects/World [A-D]/World_[A-D]/Config/Layouts/
+!/World Projects/World [A-D]/World_[A-D]/Scripts/
+!/World Projects/World [A-D]/World_[A-D]/Content/
+/World Projects/World [A-D]/World_[A-D]/Content/*
+!/World Projects/World [A-D]/World_[A-D]/Content/Mods/
+/World Projects/World [A-D]/World_[A-D]/Content/Mods/*
+!/World Projects/World [A-D]/World_[A-D]/Content/Mods/World_[A-D]/
+
 # editor backups
 *.bak
 
