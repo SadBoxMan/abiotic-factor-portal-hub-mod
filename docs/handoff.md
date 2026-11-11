@@ -42,7 +42,7 @@ Commit: the hash that finished the task, or blank (the tracker also picks up com
 | CRD-024 | Select beta package for two-player testing (run-1 pack, then full with the hub) | running | |
 | CRD-025 | Upload test worlds A-D (projects and builds) to GitHub | done | |
 | CRD-026 | Upgrade UE4SS and the cheat-command mod to the official Nexus builds, check our mods | done | |
-| CRD-027 | Hub client mode (joining players stand down; local hum; local controller) | running | |
+| CRD-027 | Hub client mode (joining players stand down; local hum; local controller) | done | c792eff |
 
 **Roadmap order (author, 3 November; `docs/roadmap.html` now shows it, CRD-014):**
 (1) find out what broke (CRD-004, CRD-006): done; (2) update the docs (CRD-014): done; (3) fix custom worlds back to how they worked before the
