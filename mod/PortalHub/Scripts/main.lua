@@ -26,6 +26,7 @@ local BLOCKED_DESTINATIONS = { h_garden_start = true, h_garden_entrance = true, 
 
 local state = { entries = {}, dests = {}, byId = {}, byManual = {}, byMhe = {}, hubMode = {}, acts = {}, hooked = false, pending = false }
 local is_client             -- true on a joining player's machine (client mode, CRD-027); defined with the presence tracker below
+local spawn_all             -- spawns the hub portals (defined at the end; the tracker also calls it, CRD-028)
 
 -- Hub Exits (CRD-012): what a base-game world's own exits do for a hub portal leading to it. exitMode = ... sets modes 1-3 for every portal
 -- ("game" if not set); exits = ... on a portal overrides it, and is the only way to choose mode 4. Numbers 1-4 work too.
@@ -197,11 +198,21 @@ local function resolve_config()
     if exit_mode(Config.exitMode) == "manual" then log("config: exitMode is for modes 1-3 (game, hub, dynamic); \"manual\" is chosen per portal; using \"game\"") end
 end
 
+-- A destroyed actor is still found (and IsValid) until the frame ends, so apply_hum, which runs in the same call, skips the pads destroyed here
+-- (after Restart All Mods it counted 20 hub pads for 10: CRD-028). Keyed by address: each FindAllOf hands out new Lua objects.
+local doomed = {}
+local function obj_key(t)
+    local ok, a = pcall(function() return t:GetAddress() end)
+    if ok and a then return a end
+    return t
+end
+
 local function destroy_hub_pads()
     local n = 0
+    doomed = {}
     for _, t in ipairs(all_pads()) do
         local id = pad_id(t)
-        if id and is_hub_id(id) then t:K2_DestroyActor(); n = n + 1 end
+        if id and is_hub_id(id) then doomed[obj_key(t)] = true; t:K2_DestroyActor(); n = n + 1 end
     end
     return n
 end
@@ -225,13 +236,14 @@ local function apply_hum(added)
     local touched = 0
     for _, t in ipairs(all_pads()) do
         local id = pad_id(t)
-        if id and (is_hub_id(id) or Slots.baseEntrances[id]) then
+        if id and (is_hub_id(id) or Slots.baseEntrances[id]) and not doomed[obj_key(t)] then
             pcall(function()
                 local h = t.PortalHumLoop
                 if h and h:IsValid() then h:SetVolumeMultiplier(mult); touched = touched + 1 end
             end)
         end
     end
+    doomed = {}              -- only good for the call that destroyed them (a freed address can be used again later)
     log(string.format("hum volume (%s) x%.3f on %d hub pad(s) (%d added)", HUM_MODE, mult, touched, added))
 end
 -- Look and hidden parts of a portal's particle effect. Hidden parts (hideEmitters)
@@ -1443,6 +1455,23 @@ local function hold_player(pawn, loc)
     log("hold: the player is inside a world that is still loading; held in place until it is ready")
 end
 
+-- After a save made inside a custom world is loaded, the world is often ready before the hub portals exist: they spawn SPAWN_DELAY_MS after
+-- the portal room's own pads appear, and the world's pads (its arrival and exit pads) lead to a hub portal, so for a few seconds they gave the
+-- game's "No Exit Found" (10 November: the hold let go at 01:46:12.09, hub_C2 spawned at 01:46:14.71). So when the player is in a ready world
+-- whose hub portal is not there, the host spawns the hub portals at once (CRD-028). They are pads at fixed spots and need no portal room.
+local function ensure_return_portal(def)
+    local want = {}
+    for _, e in ipairs(state.entries) do
+        if e.world and e.world.id == def.id then want[e.id] = true end
+    end
+    if next(want) == nil then return end
+    for _, t in ipairs(all_pads()) do
+        if want[pad_id(t) or ""] then return end
+    end
+    log("worlds: the player is in " .. def.id .. " but its hub portal is not there yet; spawning the hub portals now")
+    spawn_all()
+end
+
 local function release_player(pawn)
     local h = presence.held
     presence.held = nil
@@ -1493,9 +1522,12 @@ local function track_tick()
         return
     end
     if world_is_ready(here, client) then
+        local justIn = presence.inside ~= here.id
         if presence.held then
             if client then presence.held = nil else release_player(pawn) end
         end
+        -- in the same call as the release, so the player cannot reach a pad first; never on a client (the host's portals)
+        if justIn and not client then ensure_return_portal(here) end
         if presence.inside ~= here.id then
             -- just arrived (or the mods were restarted while inside)
             presence.inside = here.id
@@ -2016,7 +2048,7 @@ local ROLE_TRIES = 10       -- no player controller yet when the portals are due
 local roleTries = 0
 local schedule_spawn        -- (below)
 
-local function spawn_all()
+spawn_all = function()
     log("spawn_all: starting")
     local world = UEHelpers.GetWorld()
     if not world or not world:IsValid() then log("no world yet") return end
@@ -2048,6 +2080,7 @@ local function spawn_all()
         end
     end
     destroy_hub_pads()
+    state.spawns = (state.spawns or 0) + 1        -- a spawn that was scheduled before this one is not needed (see schedule_spawn)
     install_hook()
     local mheChanged, mheCount = load_manual_exits()
     if mheChanged then
@@ -2073,9 +2106,14 @@ end
 schedule_spawn = function(delay_ms)
     if state.pending then return end
     state.pending = true
+    local before = state.spawns or 0
     ExecuteWithDelay(delay_ms, function()
         state.pending = false
-        ExecuteInGameThread(spawn_all)
+        ExecuteInGameThread(function()
+            -- the hub portals were spawned while this one waited (the tracker, CRD-028, or NUMPAD 1): spawning again would only replace them
+            if (state.spawns or 0) ~= before then log("the hub portals were spawned in the meantime; not spawning them again") return end
+            spawn_all()
+        end)
     end)
 end
 

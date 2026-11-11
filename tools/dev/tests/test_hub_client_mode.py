@@ -323,6 +323,8 @@ check("the host's teleport put the player in its area: the world is loaded on th
       and h.has("the host's teleport brought this player into cordonatest_start's area; loading it on this machine", n), h.logs(n))
 check("... with no hold, no teleport and no pads", h.ev("#PAWN.CharacterMovement.modes") == 0 and h.ev("TELEPORTS") == 0 and h.ev("SPAWNS") == 0, h.logs(n))
 check("... no arrival pad or zones of its own", not h.has("worlds: arrival pad") and not h.has("zone spawned") and not h.has("zone class"), h.logs(n))
+check("... and no hub portals spawned for it once it is ready (CRD-028 is the host's)", h.ev("PC.ActiveLevelFXName:ToString()") == "PortalHub_cordonatest_start"
+      and not h.has("spawning the hub portals now") and h.ev("SPAWNS") == 0, h.logs(n))
 check("... and the claim and lighting are made on this player's screen", h.ev("PC.ActiveLevelFXName:ToString()") == "PortalHub_cordonatest_start"
       and h.ev("#TRANSITIONS") >= 1, h.logs(n))
 h.ex("LOC.Z = -5000"); h.pump(3)

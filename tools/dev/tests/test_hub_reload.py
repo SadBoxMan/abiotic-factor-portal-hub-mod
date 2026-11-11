@@ -50,7 +50,8 @@ local function new_world()
             local a = obj({ loc = loc, K2_GetActorLocation = function() return loc end, OnRep_IsTeleporterActive = function() end,
                 K2_GetActorRotation = function() return { Pitch = 0, Yaw = rot.Yaw, Roll = 0 } end,
                 GetActorForwardVector = function() return { X = 1, Y = 0, Z = 0 } end, ParticleLoop = { SetAsset = function() end, Activate = function() end } })
-            a.K2_DestroyActor = function() a.gone = true end
+            a.PortalHumLoop = obj({ SetVolumeMultiplier = function() end })
+            a.K2_DestroyActor = function() a.gone = true; a.goneAt = T end
             SPAWNED[#SPAWNED + 1] = a
             return a
         end })
@@ -73,7 +74,8 @@ end
 function FindAllOf(n)
     if n == "BP_Teleporter_ParentBP_C" then
         local out = {}
-        for _, a in ipairs(SPAWNED) do if not a.gone then out[#out + 1] = a end end
+        -- KEEP_DYING: as in game, a destroyed pad is still found until the frame ends (here: until the clock moves on)
+        for _, a in ipairs(SPAWNED) do if not a.gone or (KEEP_DYING and a.goneAt == T) then out[#out + 1] = a end end
         return out
     end
     local w = n:match("^BP_(.+)_C$")
@@ -280,6 +282,47 @@ L.execute("LEVELS_LATE = 0"); tick(3)
 check("retry path: claimed late, once", count("vignette: inside world_b_start") == before + 1 and lua("PC.ActiveLevelFXName.s") == "PortalHub_world_b_start")
 L.execute("LOC.X = -10000"); tick(2)
 check("retry path: leaving puts the Facility row back", lua("PC.ActiveLevelFXName.s") == "office1", lua("PC.ActiveLevelFXName.s"))
+
+# ---- CRD-028: a save made inside World B; the world is ready before the portal room's pads appear. Its pads lead to hub_C2, which must
+# exist the moment the hold lets go ("No Exit Found" for ~2.6 s, 10 November 01:46), and the later scheduled spawn is then not needed.
+L.execute("LOC.X = -10000"); tick(2)
+L.execute("new_map(ORIGIN.world_b)"); tick(3)
+# the portal room's pads appear while the world is still loading; its spawn waits SPAWN_DELAY_MS (the mock runs timers on the next tick,
+# so that one is held back here and let go after the release)
+L.execute("ON_HOMEWORLD(); DELAYED = table.remove(QUEUE)")
+check("CRD-028: held, no hub portal yet", lua("MODE") == 0 and lua("portal_on('hub_C2')") is None, (lua("MODE"), lua("portal_on('hub_C2')")))
+early = count("its hub portal is not there yet; spawning the hub portals now")
+# the release and the spawn happen in one tracker call: look right after the call that lets go
+L.execute("show_all()")
+released = False
+for _ in range(4):
+    tick()
+    if lua("MODE") == 3:
+        released = True
+        break
+check("CRD-028: hub_C2 is there and on in the call that lets the player go", released and lua("portal_on('hub_C2')") is True,
+      (released, lua("portal_on('hub_C2')")))
+check("CRD-028: the hub portals were spawned at once, one time", count("its hub portal is not there yet; spawning the hub portals now") == early + 1)
+check("CRD-028: World B's arrival pad returns to hub_C2", lua("(function() for _, a in ipairs(SPAWNED) do if not a.gone and a.MyTeleporterID and "
+      "a.MyTeleporterID.s == 'world_b_start' then return a.DestinationTeleporterID.s end end end)()") == "hub_C2")
+spawns = count("spawn_all: starting")
+L.execute("QUEUE[#QUEUE + 1] = DELAYED"); tick(3)
+check("CRD-028: the portal room's scheduled spawn is skipped", count("spawn_all: starting") == spawns
+      and count("spawned in the meantime; not spawning them again") >= 1, count("spawn_all: starting") - spawns)
+L.execute("ON_HOMEWORLD()"); tick(3)
+check("CRD-028: a later portal-room appearance spawns as before", count("spawn_all: starting") == spawns + 1, count("spawn_all: starting") - spawns)
+tick(8)
+check("CRD-028: no second early spawn while inside", count("its hub portal is not there yet; spawning the hub portals now") == early + 1)
+# walking in the normal way, with the hub portal there: nothing extra
+L.execute("LOC.X = -10000"); tick(2); L.execute("LOC.X = ORIGIN.world_b"); tick(2)
+check("CRD-028: walking in with the portal there spawns nothing", count("its hub portal is not there yet") == early + 1)
+L.execute("LOC.X = -10000"); tick(2)
+
+# ---- CRD-028: the hum line counts only pads that stay (destroyed pads are still found until the frame ends, as after Restart All Mods)
+L.execute("KEEP_DYING = true; ON_HOMEWORLD()"); tick()
+line = lua("(function() for i = #LOGS, 1, -1 do if LOGS[i]:find('hum volume', 1, true) then return LOGS[i] end end end)()")
+check("CRD-028: respawn: the hum counts 5 hub pads, not 10", line is not None and "on 5 hub pad(s) (5 added)" in line, line)
+L.execute("KEEP_DYING = false")
 
 check("never put None back in the whole run", count("level entry back to None") == 0, count("level entry back to None"))
 check("no rescue in the whole run", count("rescue:") == 0, count("rescue:"))

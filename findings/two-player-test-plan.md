@@ -209,5 +209,8 @@ UE4SS overwrites `UE4SS.log` at every launch, so **the friend must copy it befor
   seconds later it worked. Possible fixes: spawn the hub portals at once when the player is inside a custom world at load, keep the
   world's own pads off until their hub portal exists, or hold the player until then. Not urgent, but with a client joining into a
   world (row 12) it is worth having first.
+  **Fixed (CRD-028, 10 November):** the host's tracker spawns the hub portals at once when the player is in a ready custom world whose
+  hub portal is missing, in the same call that ends the hold (it needs no portal room); the 4 s spawn then skips. A client spawns nothing.
+  Checked in game (World B: hub portals 0.5 ms after the hold let go). The hum count after Restart All Mods is fixed too.
 - **D. Hub-exit landing spot** (`main.lua` `send_to_hub`, `test_hub_exits.py`; Opus, medium; only if row 6 shows the re-entry): land further
   from the portal, or ignore a re-entry by the same player for a few seconds after a move.
