@@ -125,7 +125,9 @@ the rest.
 - Keep `humMode = "manual"`, `humManual = 0.15` on the host so the volume difference is easy to hear.
 
 **Friend's config for run 2** (deliberately different): a different world on B-1 (for example Flathill) and on one free slot the host
-leaves empty, `exitMode = "game"`, `humMode = "manual"`, `humManual = 1.0`.
+leaves empty, `exitMode = "game"`, `humMode = "manual"`, `humManual = 0.5` (not 1.0: with client mode (CRD-027) the friend's own volume
+goes on the host's portals, and 1.0 would sound the same as the game's default), and a light colour on C-2 World B (for example red), the
+slot both configs give the same world.
 
 ## 4. The evening's test table
 
@@ -148,13 +150,18 @@ running). Both players say the time aloud at each row, and the host notes it. Sa
 | 11 | Host NUMPAD 1 in the portal room | Portal room | Respawn lines | Pads flicker? Duplicates? |
 | 12 | Friend leaves the game while standing in World B, rejoins | World B | Join lines; hub keeps running | Lands in World B or falls (a client's hold / rescue is untested: 1a) |
 | 13 | Host saves, quits to the menu, reloads, friend rejoins | Facility | Probe button not back (`ShouldSave = false`); hub spawns again | – |
-| 14 | **Run 2:** friend switches their hub on, restarts, rejoins; `]` on both in the portal room | Portal room | As row 1 | **Duplicates** (`more than one with the same ID`), the friend's own pads `role=Authority` next to the host's `SimulatedProxy` ones; their hum x1.0 on their pads and what it is on the host's |
-| 15 | Run 2: friend uses B-1 (where the two configs differ) and the slot only their config fills | Portal room | Which pad the server used; any `hub exits:` line | Where they ended up; any rubber-band; the friend's hub log for `hub exits:` lines (does the hook fire on a client?) |
-| 16 | Run 2: friend leaves Far Garden by its early exit (host config: `manual` on B-1, friend's: `game`) | Far Garden | – | Moved twice, or once? Friend's log for a move of their own |
-| 17 | Run 2: friend NUMPAD 1 and NUMPAD 2 | Portal room | Nothing should change on the host | Their own pads respawn or vanish; the host's stay |
+| 14 | **Run 2:** friend switches their hub on, restarts, rejoins; `]` on both in the portal room | Portal room | As row 1 | **Client mode (CRD-027):** friend's log `client mode: this player joined someone else's game`, then `client mode: hum volume (manual) x0.500 on N hub pad(s) (M portal(s) from the host)` with M = the host's portals in the room. Their `]`: **no** duplicates, only the host's `SimulatedProxy` pads, every hub portal x0.500 |
+| 15 | Run 2: friend uses B-1 (where the two configs differ), then looks for the slot only their config fills | Portal room | Which pad the server used; `hub exits:` lines naming the friend | B-1 takes them where the **host's** B-1 leads; the slot only their config fills is empty. Friend's log: `client mode: AttemptTeleport ran on this client (pad ...)` if the hook fires on a client (that answers the question), never a `hub exits:` line |
+| 16 | Run 2: friend leaves Far Garden by its early exit (host config: `manual` on B-1, friend's: `game`) | Far Garden | As row 9 | Moved once, by the host's hub; no move in their own log |
+| 17 | Run 2: friend NUMPAD 1 and NUMPAD 2 | Portal room | Nothing changes on the host | NUMPAD 1: `client mode: this player joined ...` and the hum line again, no pads spawned. NUMPAD 2: `client mode: NUMPAD 2 does nothing here`. The host's pads stay |
+| 18 | Run 2: host NUMPAD 1 while the friend stands in the portal room | Portal room | Respawn lines, `N of N configured portal(s) spawned` | The new pads keep the friend's volume (x0.500 by ear and in `]`); a new `client mode: hum volume` line only if the count changed |
+| 19 | Run 2: friend looks at C-2 World B (red light in their config), then B-1 | Portal room | – | Expected from run 1 (destinations do not reach a client): every host portal logs `client mode: the host's portal in X shows no destination here; your look for it is not applied`, so the friend sees the game's default look on the host's portals (not their own designs, as in the `clientMode = false` run). A `your look for C-2` line instead means destinations do come through after all |
+| 20 | Run 2: friend in the portal room, then into C-2 World B and out again | Portal room, World B | As row 4 | In the portal room: `client mode: the host has a portal in C-2, where your config puts world_b_start; loading it on this machine ahead of time`, then `world_b_start is ready after ... s (client mode: loaded on this machine only ...)` (and the same for C-1, C-3, C-4). World B is there when they arrive; no `worlds: arrival pad`, `zone spawned`, `hold:` or `rescue:` lines. Title and lighting on their screen. If they arrive before it was loaded: `the host's teleport brought this player into world_b_start's area; loading it on this machine` and about a second of empty space |
+| 21 | Optional comparison: friend sets `clientMode = false` in their config, restarts, rejoins; `]` on both | Portal room | As row 1 | Friend's log `client mode: OFF`; duplicates as before CRD-027 (`more than one with the same ID`, their own pads `role=Authority` next to the host's) |
+| 22 | Run 2: friend looks at the host's C-row portals (custom worlds) | Portal room | – | Their `]` lists them with `active=`: run 1 read `active=false` (the host switches them on from Lua after its world loads, and that switch did not reach the client). Do they look on or off to the friend, and do they still take them in? |
 
-Rows 0-13 are the core; 14-17 only if time allows. If anything crashes, stop, keep both machines' logs and crash folders, and send them
-before trying again.
+Rows 0-13 are the core; 14-20 and 22 next (client mode), 21 only if time allows. If anything crashes, stop, keep both machines' logs and crash
+folders, and send them before trying again. In both logs, `grep "Ref was not function"`.
 
 ## 5. Logs to collect afterwards
 
@@ -175,6 +182,21 @@ UE4SS overwrites `UE4SS.log` at every launch, so **the friend must copy it befor
   It needs a dev switch that turns client mode off, so a run can still compare. Done: mock tests for host, client and switch-off; one
   two-player check. **Timing is LuciDin's call:** built before the evening, run 2 tests the intended behaviour; built after, it is
   shaped by the evening's data. The local-controller fix alone is small and safe before the evening.
+  **Built before the evening (CRD-027, 10 November); rows 14-22 test it.** Host or client is read from the local controller's
+  `HasAuthority()` (else `GetLocalRole()`; no controller yet = look again every 1 s, up to 10 times, then act as host; unreadable = host).
+  On a client: no pads spawned or destroyed, no MHEs or failsafe, the hook installed but inert (it logs `AttemptTeleport ran on this
+  client`), no `route_return`, exit moves or buffs; the tracker keeps the vignette claim and lighting (its own screen) but never holds,
+  rescues or teleports the pawn. The hum (the client's own `humMode`) goes on the 3 game entrances and every host portal in a slot, found
+  by ID or, if the ID did not replicate, by standing at a slot's pad position, and is counted from those; a teleporter watch
+  (`NotifyOnNewObject`, registered only once the machine is a client) looks again 1 s after any teleporter arrives. The client's own look
+  and light go on a host portal only when its own config fills that slot with a portal to the same destination, once per pad (brightness
+  is a multiplier). **Custom worlds** (changed after run 1, which showed the host's loaders and levels never reach a client, while a client's own
+  loader works: with the friend's hub on and `clientMode = false` each world was ready 0.2 s after its loader): a client loads worlds on
+  its own machine, only worlds the host also has (LuciDin). The host's portals reach a client with no IDs or destinations (`'None' ->
+  'None'` in the friend's survey), so a world loads when the host's teleport puts the client in its area, and ahead of time where the host
+  has a portal in a slot that the client's own config fills with that world (a guess, right when both configs agree). Pads, zones,
+  portal switching and moves stay with the host; a client's config must list the same worlds, with their paks installed. `clientMode = false` in config.lua switches all of it off (row 21). `local_pawn` now picks the
+  `IsLocalController` controller on the host too. Mock test `tools/dev/tests/test_hub_client_mode.py` (63 checks, 40 fail on the old file).
 - **B. Host-side tracking for every player** (same file; Opus, high; after the evening): the presence tracker for all player pawns on the
   host (vignette claim on each controller, fall rescue and hold done by the server), if rows 4 and 12 show a client is left alone.
 - **C. Hub keys vs the game's debug bindings** (LuciDin's decision; then a small hub + GUI README change, Sonnet, low, or none): NUMPAD 1

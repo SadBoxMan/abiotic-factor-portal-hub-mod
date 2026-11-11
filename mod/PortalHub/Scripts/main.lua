@@ -1,6 +1,8 @@
 -- Portal Hub: lets modders connect worlds to the Homeworld portal room.
 -- Reads Scripts/config.lua, spawns a teleporter pad into each configured slot whenever the world loads, routes the
 -- return trip back through the portal the player came in by, and lowers the hub's portal hum as portals are added.
+-- In someone else's game (no authority here) the hub stands down: the host's hub runs the portals, exits and worlds, and this one only sets
+-- the hum (see "client mode" further down).
 --   NUMPAD 1 = respawn the configured portals now      NUMPAD 2 = remove all hub portals
 
 local UEHelpers = require("UEHelpers")
@@ -23,6 +25,7 @@ local SPAWN_DELAY_MS = 4000
 local BLOCKED_DESTINATIONS = { h_garden_start = true, h_garden_entrance = true, h_japan_start = true, h_japan_entrance = true }
 
 local state = { entries = {}, dests = {}, byId = {}, byManual = {}, byMhe = {}, hubMode = {}, acts = {}, hooked = false, pending = false }
+local is_client             -- true on a joining player's machine (client mode, CRD-027); defined with the presence tracker below
 
 -- Hub Exits (CRD-012): what a base-game world's own exits do for a hub portal leading to it. exitMode = ... sets modes 1-3 for every portal
 -- ("game" if not set); exits = ... on a portal overrides it, and is the only way to choose mode 4. Numbers 1-4 work too.
@@ -760,6 +763,10 @@ local function poll_world(def, st)
         pcall(function() visible = ls:IsLevelVisible() end)
         if visible then
             st.status = "ready"
+            if is_client() then         -- CRD-027: loaded here only so the level is there to stand on; its pads, zones and portals are the host's
+                log(string.format("worlds: %s is ready after %.1f s (client mode: loaded on this machine only; its pads and zones are the host's)", def.id, st.tries * WORLD_POLL_MS / 1000))
+                return
+            end
             spawn_arrival_pad(world, def)
             spawn_zones(world, def)
             set_portals_active(def.id, true)
@@ -917,18 +924,64 @@ local CLAIM_RETRY_S, CLAIM_TRIES = 1.0, 10
 local claimQuiet = false                           -- true while a quiet retry runs: ensure_level_row does not log why it failed
 local EXIT_FORWARD, EXIT_UP = 215.1, 127.5          -- where the game puts a player who comes out of a pad (findings/portal-hub-findings.md)
 
+-- The player controller of this machine's player. On a host every player has a controller, so the first one found may be a client's
+-- (CRD-023): the one that says IsLocalController wins. It is remembered (and only searched for again when it is gone, in a new world) once
+-- it has said so; a controller that cannot be asked is used, but not remembered.
 local cachedPc = nil
+local function find_local_pc()
+    local first = nil
+    for _, pc in ipairs(FindAllOf("Abiotic_PlayerController_C") or {}) do
+        if pc:IsValid() then
+            first = first or pc
+            local ok, isLocal = pcall(function() return pc:IsLocalController() end)
+            if ok and isLocal == true then return pc, true end
+        end
+    end
+    if first then return first, false end
+    local pc = FindFirstOf("Abiotic_PlayerController_C")
+    if pc and pc:IsValid() then return pc, false end
+    return nil, false
+end
+
 local function local_pawn()
     local pc = cachedPc
     if not (pc and pc:IsValid()) then
-        pc = FindFirstOf("Abiotic_PlayerController_C")       -- only searched for again when the old one is gone (a new world)
-        cachedPc = pc
+        local sure
+        pc, sure = find_local_pc()
+        cachedPc = sure and pc or nil
     end
     if not (pc and pc:IsValid()) then return nil, nil end
     local pawn = pc.Pawn
     if pawn and pawn:IsValid() then return pawn, pc end
     return nil, pc
 end
+
+-- ---------------------------------------------------------------- client mode (CRD-027)
+-- Every machine with the hub installed runs this file. Where this machine's own controller has no authority (a player who joined someone
+-- else's game), the host's hub already runs what matters to the game: its portals replicate to every player (without their IDs and
+-- destinations, run 1), and its AttemptTeleport hook sees every player's pad use. So a joining player's hub stands down: it spawns and
+-- destroys no pads, moves no one (no exit moves, route_return, buffs, fall rescue or hold), spawns no zones or arrival pads, and only does
+-- what is local by nature: the hum volume of the hub portals it sees (from its own config, counting the host's portals that are really
+-- there), its own look on a host portal that leads where its own portal in that slot does, the vignette lighting on its own screen, and the
+-- custom worlds' levels: the host's loaders never reach a client (run 1, 10 November), so a client loads a world itself when the host's
+-- teleport puts it in that world's area, and ahead of time where the host has a portal in a slot its own config fills with that world (a
+-- guess). clientMode = false in config.lua switches this off, for comparison runs: the hub then acts as it did before (a whole second hub).
+local CLIENT_MODE = Config.clientMode ~= false
+local ROLE_AUTHORITY = 3                  -- ENetRole: 1 simulated proxy, 2 autonomous proxy (a client's own controller), 3 authority
+
+-- "host" (also a game on its own), "client", or nil while this machine has no player controller yet. A controller whose authority cannot be
+-- read counts as the host, which is what the hub always assumed before client mode.
+local function net_role()
+    local _, pc = local_pawn()
+    if not pc then return nil end
+    local ok, a = pcall(function() return pc:HasAuthority() end)
+    if ok and type(a) == "boolean" then return a and "host" or "client" end
+    local okR, r = pcall(function() return pc:GetLocalRole() end)
+    if okR and type(r) == "number" then return (r == ROLE_AUTHORITY) and "host" or "client" end
+    return "host"
+end
+
+is_client = function() return CLIENT_MODE and net_role() == "client" end
 
 local function lighting_parts()
     local sunA, skyA, fogA = FindFirstOf("DirectionalLight"), FindFirstOf("SkyLight"), FindFirstOf("ExponentialHeightFog")
@@ -1162,8 +1215,9 @@ end
 
 local function claim_level(def, pc)
     -- the vignette zone (Buff_InVignette) may have been missing when the world loaded; it is only spawned if not there yet
+    -- (not on a client: zones are the host's, CRD-027)
     local world = UEHelpers.GetWorld()
-    if world and world:IsValid() then spawn_zones(world, def) end
+    if world and world:IsValid() and not is_client() then spawn_zones(world, def) end
     local day, night = world_light_rows(def)
     if not ensure_level_row(def, day, night) then return false end
     local rowName = level_row_name(def)
@@ -1348,8 +1402,9 @@ end
 
 -- A world counts as ready when the hub says so and its loader is still there (without one that "ready" is from before a map load: see
 -- forget_old_map), or when its level is already visible (for example the mods were restarted while the player was standing in it, so the
--- hub's own state is empty). In that case the hub adopts it.
-local function world_is_ready(def)
+-- hub's own state is empty). In that case the hub adopts it. On a client (CRD-027) it is only adopted: its arrival pad, zones and portals
+-- are the host's.
+local function world_is_ready(def, client)
     local st = worldState[def.id]
     if st and st.status == "ready" then
         if loader_present(def) then return true end
@@ -1363,6 +1418,10 @@ local function world_is_ready(def)
         if visible then
             worldState[def.id] = { status = "ready", tries = 0 }
             apply_world_settings(def)
+            if client then
+                log("worlds: " .. def.id .. " was already loaded on this machine; adopted (client mode: its pads and zones are the host's)")
+                return true
+            end
             spawn_arrival_pad(world, def)
             spawn_zones(world, def)
             set_portals_active(def.id, true)
@@ -1407,6 +1466,8 @@ local function track_tick()
     end
     watch_flags(pc)
     if not pawn then return end         -- dead, or between pawns: change nothing until there is a pawn again
+    -- a client (CRD-027) keeps the claim and the lighting (its own screen) but never moves its pawn (the server would undo it) or loads a world
+    local client = is_client()
     local okL, loc = pcall(function() return pawn:K2_GetActorLocation() end)
     if not okL or not loc then return end
     local here
@@ -1431,8 +1492,10 @@ local function track_tick()
         end
         return
     end
-    if world_is_ready(here) then
-        if presence.held then release_player(pawn) end
+    if world_is_ready(here, client) then
+        if presence.held then
+            if client then presence.held = nil else release_player(pawn) end
+        end
         if presence.inside ~= here.id then
             -- just arrived (or the mods were restarted while inside)
             presence.inside = here.id
@@ -1470,12 +1533,25 @@ local function track_tick()
             apply_lighting(here, pc)
             presence.lit = here.id
         end
-        if here.killZ and loc.Z < here.origin[3] + here.killZ then
+        if here.killZ and loc.Z < here.origin[3] + here.killZ and not client then
             local dest, yaw = arrival_exit(here)
             if dest then
                 send_player(pawn, dest, yaw)
                 note(string.format("rescue: the player fell below z %.0f in %s and was returned to its arrival pad", here.origin[3] + here.killZ, here.id))
             end
+        end
+        return
+    end
+    if client then
+        -- Only the host's teleport can put this player here, so the host has this world: load it on this machine (the host's loader and level
+        -- never reach a client, run 1, 10 November). No hold: the pawn is the server's to move; the level streams in within about a second.
+        local st = worldState[here.id]
+        local world = UEHelpers.GetWorld()
+        if not st and world and world:IsValid() then
+            log("client mode: the host's teleport brought this player into " .. here.id .. "'s area; loading it on this machine")
+            start_world(world, here)
+        elseif st and st.status == "failed" then
+            note("client mode: " .. here.id .. " cannot be loaded on this machine (is its pak installed?); this player stands in empty space")
         end
         return
     end
@@ -1743,6 +1819,11 @@ end
 
 local function on_attempt(self, inPlayer)
     local pad = self:get()
+    if is_client() then          -- CRD-027: the host's hub sees every player's pad use; a client's would only fight it. Logged, to learn when it fires.
+        local id = pad_id(pad) or "?"
+        say_once("client " .. id, "client mode: AttemptTeleport ran on this client (pad " .. id .. "); the host's hub handles it, nothing done here")
+        return
+    end
     route_return(pad)
     local ok, err = pcall(function()
         local char = nil
@@ -1822,12 +1903,150 @@ local function spawn_mhes(world, class)
     return n
 end
 
+-- ---------------------------------------------------------------- client mode: what a joining player's hub still does (see "client mode" above)
+-- The host's portals in the room: by ID (hub_A3 ...) or, if their ID has not come through, by standing where a slot's pad stands.
+local SLOT_BY_PAD = {}
+for _, s in ipairs(Slots.list) do
+    if not s.base then SLOT_BY_PAD[ID_PREFIX .. (s.id:gsub("-", ""))] = s end
+end
+local SLOT_NEAR = 50                -- units: a pad this close to a slot's pad position stands in that slot
+local CLIENT_REFRESH_MS = 1000      -- after a teleporter arrives from the host, look again this much later (its ID comes with it)
+local client = { watching = false, pending = false, pendingAt = 0, styled = {}, line = nil, gen = 0 }
+
+local function slot_of_pad(t, id)
+    if id and SLOT_BY_PAD[id] then return SLOT_BY_PAD[id] end
+    if id and id ~= "" and id ~= "None" then return nil end
+    local ok, l = pcall(function() return t:K2_GetActorLocation() end)
+    if not (ok and l) then return nil end
+    for _, s in ipairs(Slots.list) do
+        if not s.base then
+            local p = Slots.pose(s)
+            local dx, dy, dz = l.X - p.X, l.Y - p.Y, l.Z - p.Z
+            if dx * dx + dy * dy + dz * dz < SLOT_NEAR * SLOT_NEAR then return s end
+        end
+    end
+    return nil
+end
+
+-- This player's own look and light, on a host portal whose slot this player's config also fills with a portal to the same place. Once per
+-- pad (the light's brightness is a multiplier). Look and light are settings of the pad's own components on this machine: never sent anywhere.
+local function style_host_pad(t, slot)
+    local okN, name = pcall(function() return t:GetFName():ToString() end)
+    local key = (okN and type(name) == "string") and name or (slot.id .. " " .. tostring(t))
+    if client.styled[key] then return end
+    client.styled[key] = true
+    local e = nil
+    for _, x in ipairs(state.entries) do if x.slot == slot then e = x end end
+    if not e then return end
+    local dest = nil
+    pcall(function() dest = t.DestinationTeleporterID:ToString() end)
+    local mine = e.manualId or e.dest
+    if not dest or dest == "" or dest == "None" then
+        log("client mode: the host's portal in " .. slot.id .. " shows no destination here; your look for it is not applied")
+        return
+    end
+    if dest ~= mine then
+        log("client mode: the host's portal in " .. slot.id .. " leads to " .. dest .. " (yours: " .. mine .. "); your look for it is not applied")
+        return
+    end
+    apply_design(t, e.design)
+    apply_light(t, e)
+    log("client mode: your look for " .. slot.id .. " ('" .. e.name .. "') is on the host's portal there")
+end
+
+-- The hum volume (this player's own humMode) on every hub-room pad here: the game's 3 entrances and the host's portals, counted as they are.
+local function client_refresh()
+    local seen, count, pads = {}, 0, {}
+    for _, t in ipairs(all_pads()) do
+        local id = pad_id(t)
+        local slot = slot_of_pad(t, id)
+        if slot then
+            if not seen[slot.id] then seen[slot.id] = true; count = count + 1 end
+            pads[#pads + 1] = { t = t, slot = slot }
+        elseif id and Slots.baseEntrances[id] then
+            pads[#pads + 1] = { t = t }
+        end
+    end
+    local mult, touched = hum_multiplier(count), 0
+    for _, p in ipairs(pads) do
+        pcall(function()
+            local h = p.t.PortalHumLoop
+            if h and h:IsValid() then h:SetVolumeMultiplier(mult); touched = touched + 1 end
+        end)
+    end
+    for _, p in ipairs(pads) do
+        if p.slot then pcall(style_host_pad, p.t, p.slot) end
+    end
+    -- Custom worlds, loaded ahead of time by a guess: the host's portals reach a client without their IDs or destinations (run 1), so where
+    -- the host has a portal in a slot that this player's config fills with a custom world, that world is loaded here. Right when both configs
+    -- give the slot the same world; when wrong, a world loads that nothing leads to. (The tracker also loads a world on arrival.)
+    local world = UEHelpers.GetWorld()
+    for _, e in ipairs(state.entries) do
+        if e.world and seen[e.slot.id] and not worldState[e.world.id] and world and world:IsValid() then
+            log("client mode: the host has a portal in " .. e.slot.id .. ", where your config puts " .. e.world.id .. "; loading it on this machine ahead of time")
+            start_world(world, e.world)
+        end
+    end
+    local line = string.format("client mode: hum volume (%s) x%.3f on %d hub pad(s) (%d portal(s) from the host)", HUM_MODE, mult, touched, count)
+    if line ~= client.line then client.line = line; log(line) end
+    return count
+end
+
+-- Hub portals reach a client whenever the host spawns them or the player comes near them (and they are new objects each time), so every new
+-- teleporter means one more look a moment later. Registered once, the first time this machine is a client; does nothing while it hosts.
+local function watch_client_pads()
+    if client.watching then return end
+    client.watching = true
+    NotifyOnNewObject(TELEPORTER_CLASS, function()
+        if client.pending and os.clock() - client.pendingAt < STALE_S then return end     -- one look per burst (a dropped timer is replaced)
+        client.pending, client.pendingAt = true, os.clock()
+        client.gen = client.gen + 1
+        local gen = client.gen
+        ExecuteWithDelay(CLIENT_REFRESH_MS, function() ExecuteInGameThread(function()
+            if gen ~= client.gen then return end
+            client.pending = false
+            local ok, err = pcall(function() if is_client() then client_refresh() end end)
+            if not ok then log("client mode: refresh failed: " .. tostring(err):match("^[^\r\n]*")) end
+        end) end)
+    end)
+    log("client mode: watching for hub portals that arrive from the host")
+end
+
+local ROLE_TRIES = 10       -- no player controller yet when the portals are due: look again every second this many times, then act as host
+local roleTries = 0
+local schedule_spawn        -- (below)
+
 local function spawn_all()
     log("spawn_all: starting")
     local world = UEHelpers.GetWorld()
     if not world or not world:IsValid() then log("no world yet") return end
     local class = StaticFindObject(TELEPORTER_CLASS)
     if not class or not class:IsValid() then log("teleporter class not found") return end
+    if CLIENT_MODE then
+        local role = net_role()
+        if role == nil and roleTries < ROLE_TRIES then
+            roleTries = roleTries + 1
+            log("client mode: no player controller yet, so host or client is not known; looking again in 1 s (" .. roleTries .. "/" .. ROLE_TRIES .. ")")
+            schedule_spawn(1000)
+            return
+        end
+        if role == nil then log("client mode: still no player controller; acting as host") end
+        roleTries = 0
+        if role == "client" then
+            log("client mode: this player joined someone else's game; the host's hub runs the portals, exits and worlds (clientMode = false turns this off)")
+            install_hook()               -- inert on a client: it only logs that AttemptTeleport ran here
+            forget_old_map()
+            if presence.running and os.clock() - (presence.lastTick or 0) > STALE_S then
+                log("tracker: it stopped running (a dropped timer); starting it again")
+                presence.running = false
+                start_tracker()
+            end
+            watch_client_pads()
+            client.line = nil            -- the hum line is logged once per load (after that only when it changes)
+            client_refresh()
+            return
+        end
+    end
     destroy_hub_pads()
     install_hook()
     local mheChanged, mheCount = load_manual_exits()
@@ -1851,7 +2070,7 @@ local function spawn_all()
     log(added .. " of " .. #state.entries .. " configured portal(s) spawned")
 end
 
-local function schedule_spawn(delay_ms)
+schedule_spawn = function(delay_ms)
     if state.pending then return end
     state.pending = true
     ExecuteWithDelay(delay_ms, function()
@@ -1863,6 +2082,8 @@ end
 resolve_worlds()
 resolve_config()
 log(#state.entries .. " portal(s) configured")
+log(CLIENT_MODE and "client mode: on (in someone else's game this hub stands down; clientMode = false in config.lua turns it off)"
+    or "client mode: OFF (clientMode = false in config.lua): in someone else's game this hub also spawns its own portals")
 start_tracker()
 
 -- Spawn whenever the hub room's own portals appear (world load), and now if the world is already up.
@@ -1878,6 +2099,7 @@ end
 RegisterKeyBind(Key.NUM_ONE, function() log("NUMPAD 1 pressed"); ExecuteInGameThread(spawn_all) end)
 RegisterKeyBind(Key.NUM_TWO, function()
     ExecuteInGameThread(function()
+        if is_client() then log("client mode: NUMPAD 2 does nothing here; the portals are the host's") return end
         log("removed " .. destroy_hub_pads() .. " pad(s)")
         apply_hum(0)
     end)
