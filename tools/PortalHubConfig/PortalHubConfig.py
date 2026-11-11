@@ -1831,6 +1831,10 @@ class Gate:
         Btn(row, "RE-CHECK", self.recheck, primary=True).pack(side="left")
         Btn(row, "PICK GAME FOLDER", self.pick).pack(side="left", padx=px(8))
         Btn(row, "QUIT", root.destroy).pack(side="right")
+        # the download pages open in the player's browser only on a click; the tool itself never downloads anything
+        if ic.PORTAL_HUB_NEXUS_URL:
+            Btn(row, "PORTAL HUB PAGE", lambda: open_page(ic.PORTAL_HUB_NEXUS_URL)).pack(side="right", padx=px(8))
+        Btn(row, "UE4SS PAGE", lambda: open_page(ic.UE4SS_NEXUS_URL)).pack(side="right", padx=(px(8), 0))
         body.bind("<Configure>", lambda e: [w.configure(wraplength=e.width - px(50)) for w in (self.headline, self.steps, self.where)])
         self.show()
 
@@ -1859,6 +1863,11 @@ class Gate:
         game = pick_game_folder(self.root)
         if game:
             self.recheck(game)
+
+
+def open_page(url):
+    import webbrowser
+    webbrowser.open(url)
 
 
 def pick_config(parent):

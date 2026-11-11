@@ -1,5 +1,5 @@
 @echo off
-rem Opens the Portal Hub config editor. Uses the packaged program if it is here, then Python, then the older PowerShell editor.
+rem Opens the Portal Hub config editor. Uses the packaged program if it is here, then Python (with Tkinter).
 rem This window closes by itself once the editor has opened.
 setlocal
 set "HERE=%~dp0"
@@ -9,5 +9,6 @@ for %%E in ("%HERE%PortalHubConfig\PortalHubConfig.exe" "%HERE%tools\PortalHubCo
 for %%P in (pyw pythonw) do (
     %%P -c "import tkinter" >nul 2>&1 && ( start "" %%P "%HERE%tools\PortalHubConfig\PortalHubConfig.py" & exit /b 0 )
 )
-echo Opening Portal Hub Config...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%HERE%tools\PortalHubConfig\PortalHubConfig.ps1"
+echo Could not find PortalHubConfig\PortalHubConfig.exe next to this file, or Python with Tkinter.
+echo Keep the PortalHubConfig folder beside PortalHubConfig.bat, or install Python from python.org.
+pause

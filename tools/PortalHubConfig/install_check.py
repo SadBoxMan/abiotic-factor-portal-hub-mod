@@ -17,6 +17,11 @@ REL_WIN64 = os.path.join("AbioticFactor", "Binaries", "Win64")          # under 
 HUB = "PortalHub"
 HUB_SCRIPTS = ("main.lua", "config.lua", "manual_exits.lua", "slots.lua")
 NEXUS_UE4SS = "UE4SS for Abiotic Factor (Nexus Mods), 1.25.0 or later"
+UE4SS_NEXUS_URL = "https://www.nexusmods.com/abioticfactor/mods/35"
+# TODO(CRD-015, LuciDin): paste the Portal Hub's own Nexus page here once it exists, e.g.
+#   PORTAL_HUB_NEXUS_URL = "https://www.nexusmods.com/abioticfactor/mods/123"
+# then rebuild the exe (build_exe.bat, or tools/release/build_release.py builds it). Empty = the steps say "search Nexus Mods".
+PORTAL_HUB_NEXUS_URL = ""
 # UE4SS loads through a proxy DLL beside the game's exe; the Abiotic Factor build uses dwmapi.dll.
 PROXIES = ("dwmapi.dll", "xinput1_3.dll", "dxgi.dll", "d3d11.dll", "version.dll", "winmm.dll")
 
@@ -25,6 +30,11 @@ RECOMMENDED_SHA = "d4aebbf0"                     # v3.0.1-1212-gd4aebbf0 = Nexus
 RECOMMENDED_BUILT = 1793882343                   # its UE4SS.dll link time (5 November 2026, UTC)
 OLD_SHAS = {"c838a8ac": "the July 2026 build"}  # the build before; "Ref was not function" was seen on it
 RECOMMENDED_TEXT = "v3.0.1-1212 (Nexus 1.25.0)"
+def portal_hub_page():
+    """Where to get the Portal Hub, for the install steps: its Nexus page, or a search hint while the URL is not set."""
+    return "its Nexus Mods page: " + PORTAL_HUB_NEXUS_URL if PORTAL_HUB_NEXUS_URL else "Nexus Mods (search for \"Portal Hub\" under Abiotic Factor)"
+
+
 LOG_RX = re.compile(r"UE4SS - v(\d+)\.(\d+)\.(\d+)([^\r\n]*?) - Git SHA #([0-9a-fA-F]+)")
 
 
@@ -314,9 +324,9 @@ def check_install(game):
         r.state = "missing"
         r.headline = "Portal Hub is not fully installed: missing " + "; ".join(missing) + "."
         if "UE4SS" in missing or any(m.startswith("UE4SS's loader") for m in missing):
-            r.todo.append(f"Install {NEXUS_UE4SS} into the game's Binaries\\Win64 folder.")
+            r.todo.append(f"Install {NEXUS_UE4SS} into the game's Binaries\\Win64 folder: {UE4SS_NEXUS_URL}")
         if any("PortalHub" in m for m in missing):
-            r.todo.append("Install the Portal Hub mod from Nexus Mods (its PortalHub folder goes in Win64\\ue4ss\\Mods).")
+            r.todo.append("Install the Portal Hub mod from " + portal_hub_page() + " (its PortalHub folder goes in Win64\\ue4ss\\Mods).")
         r.todo.append("Then click RE-CHECK. Nothing is saved until the hub is installed.")
         return r
 
@@ -327,7 +337,7 @@ def check_install(game):
                      None: "UE4SS has no mods.txt."}[r.enabled])
         r.todo.append(f"Open Win64\\ue4ss\\Mods\\{where} and set the line  PortalHub : 1  (above the Keybinds line).")
     if r.ue4ss["state"] == "outdated":
-        r.todo.append(f"Update UE4SS: install {NEXUS_UE4SS}.")
+        r.todo.append(f"Update UE4SS: install {NEXUS_UE4SS}: {UE4SS_NEXUS_URL}")
     elif r.ue4ss["state"] == "unknown":
         r.todo.append(f"If the hub misbehaves, install {NEXUS_UE4SS}.")
     if warn:
