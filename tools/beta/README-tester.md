@@ -40,7 +40,9 @@ Open `<game>\AbioticFactor\Binaries\Win64\ue4ss\Mods\mods.txt` in Notepad and ad
 
 - **Run 1:** `PortalHub : 0` (hub off). With the run-1 pack you can leave the PortalHub line out for now.
 - **Run 2:** change it to `PortalHub : 1`, then restart the game. Before run 2, open the config editor (`PortalHubConfig.bat`) and set
-  up a config that is deliberately **different** from the host's (the host will tell you what to pick).
+  up a config that is deliberately **different** from the host's (the host will tell you what to pick). **Keep the four test worlds
+  (World A-D) in your config**, with their paks installed: when you join, your hub loads the host's custom worlds on your machine,
+  and it can only load worlds your own config lists. The full pack's starting config already has them.
 
 If you have other UE4SS mods (cheats, item spawners), please switch them off (`: 0`) for these runs, so the logs only show ours.
 

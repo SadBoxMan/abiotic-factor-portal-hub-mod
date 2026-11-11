@@ -7,7 +7,7 @@ LuciDin's Drive (he uploads). Each build also writes `Beta\<name>-files.txt` (ev
 | Pack | Zip | Contents |
 |---|---|---|
 | Run 1 | `CordonaBeta-run1-2026-11-10.zip` (19.2 MB, 1030 files) | probe, worlds A-D, config editor, README, licence; no Portal Hub |
-| Full | `CordonaBeta-full-2026-11-10.zip` | the same plus `Mods\PortalHub\` (built after CRD-027 and CRD-028 commit) |
+| Full | `CordonaBeta-full-2026-11-10.zip` (19.3 MB, 1034 files) | the same plus `Mods\PortalHub\` from 2745f2d (CRD-027 + CRD-028); built 10 November |
 
 ## What is in the zip, where it comes from, and its licence
 
@@ -21,7 +21,7 @@ LuciDin's Drive (he uploads). Each build also writes `Beta\<name>-files.txt` (ev
 | `PortalHubConfig/PortalHubConfig.exe` | `tools/PortalHubConfig/dist/` (built 10 November 01:02 by `build_exe.bat`, PyInstaller 6.22.3, after the last source edit) | our program, CC0; the PyInstaller bootloader is GPL with an exception that allows any licence for the bundled program |
 | `PortalHubConfig/_internal/icons/*.png` (20) | `tools/PortalHubConfig/icons/` (fetched by `Get-WorldIcons.ps1` from the game wiki) | **the game developers' art, outside CC0**; shown for recognition only (same files as in the public repo) |
 | `PortalHubConfig/_internal/` (the rest, ~990 files) | Python 3.12 runtime collected by PyInstaller: `python312.dll`, `base_library.zip`, Tcl/Tk 8.6 (`tcl86t.dll`, `tk86t.dll`, `_tcl_data`, `_tk_data`, `tcl8`), Pillow (`PIL`), OpenSSL (`libcrypto-3`, `libssl-3`), libffi, zlib, `VCRUNTIME140.dll`, the Universal CRT (`ucrtbase.dll`, `api-ms-win-*.dll`) | third-party, all redistributable with an app: PSF licence, Tcl/Tk BSD-style, Pillow MIT-CMU, OpenSSL Apache 2.0, libffi MIT, zlib licence, Microsoft's Visual C++ / UCRT redistributable terms |
-| `Mods/PortalHub/Scripts/main.lua` (full only) | `mod/PortalHub/Scripts/main.lua` at the commit named in the handoff, with `local DEV_KEYS = true` changed to `false` in the packaged copy only | ours, CC0 |
+| `Mods/PortalHub/Scripts/main.lua` (full only) | `mod/PortalHub/Scripts/main.lua` at 2745f2d, with `local DEV_KEYS = true` changed to `false` in the packaged copy only | ours, CC0 |
 | `Mods/PortalHub/Scripts/slots.lua`, `manual_exits.lua` (full only) | `mod/PortalHub/Scripts/` (`manual_exits.lua` identical to the installed one, 10 November) | ours, CC0 |
 | `Mods/PortalHub/Scripts/config.lua` (full only) | `tools/beta/config-beta.lua`: the repo template with worlds A-D defined and on C-1 to C-4, other slots free (no Test World) | ours, CC0 |
 

@@ -46,6 +46,14 @@ return {
     -- To switch a world's MHE off, name its arrival pad here, e.g. mhe = { train_start = false },
     -- mhe = {},
 
+    -- Multiplayer: when you join someone else's game, your hub stands down and the host's portals, exits and worlds apply to you ("client
+    -- mode"). Only your hum volume above is used on your machine (and your look, on a host portal that leads where yours in that slot does).
+    -- Custom worlds are loaded on your machine too (the host's never reach you), so list the same worlds as the host, with their paks
+    -- installed: a world loads when the host's portal takes you there, or ahead of time where the host has a portal in a slot that you
+    -- give that world here.
+    -- clientMode = false switches this off, for testing only: your hub then also spawns its own portals beside the host's.
+    -- clientMode = true,
+
     -- Parts of a portal effect to switch off, by look. Example: hide the "Swirl" part (the accretion disk) of the SnowFlurry look:
     --   ["/Game/Particles/Niagara_Portal_SnowFlurry.Niagara_Portal_SnowFlurry"] = { "Swirl" },
     -- SnowFlurry parts: Blackhole, smoke, snowflakes, SnowParticle01, SnowParticle02, Swirl.  The portal part of a look can never be switched off.
