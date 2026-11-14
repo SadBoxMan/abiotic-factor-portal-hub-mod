@@ -2479,7 +2479,7 @@ if DEV_KEYS then
                     log(string.format("DLC test: %s %s: %s (expected %s)", got == want and "PASS" or "FAIL", what, tostring(got), tostring(want)))
                 end
                 local want = { H_Garden_Start = "Stone Garden", H_Japan_Start = "Torii", H_Garden_Entrance = false, H_Japan_Entrance = false,
-                    H_Cabin_Start = false, H_Cabin_Entrance = false, train_start = false, teleporterpad87 = "Stone Garden" }
+                    H_Cabin_Start = false, H_Cabin_Entrance = false, train_start = false }     -- (no player-built pads: their IDs differ per save)
                 local seen = {}
                 for _, t in ipairs(all_pads()) do
                     local id = pad_id(t)

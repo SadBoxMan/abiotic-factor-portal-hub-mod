@@ -161,5 +161,20 @@ never been tried in game. Then the hub test.
 | PAUSE (3rd press), walk in | same | `pretend not owned OFF`, the portals respawn; the pad into Stone Garden says "owned": you stay there |
 | PAUSE (4th press) | same | the test pad is removed |
 
-The first round (14 November, the blanket version) was installed for PAUSE before "allow owners"; its results, if any, are in the log of
-that run. Results of the round above: PENDING.
+The first round (14 November, the blanket version) was installed but never run: "allow owners" came first.
+
+**Results, 14 November.**
+- Survey, ownership readout (15:40, CRD-032 part 2's install, hub d061ced): world, game state, game instance and entitlement table all
+  readable; Stone Garden and Torii both `true` for the session (`HasServerGameEntitlement`) and for this machine (`HasGameEntitlement`);
+  `ServerEntitlements = [SupportersEdition, HomeworldGarden]`; the game's A-1 / A-2 pads active. Only `GetUnlockedEntitlements` didn't
+  read (informative; the hub doesn't use it). No error, clean exit.
+- PAUSE test (17:10, CordonaCorp, hub 3b8fa87 = 14f9e62 + CRD-032's game-thread delay fix e92f782, dev keys on; LuciDin owns both DLCs):
+  at the spawn both owned, all 9 configured portals spawned. Press 1 (pretend not owned): portals respawned, the game's real answer
+  "owned" logged beside "treated as not owned"; walking into the test pad landed LuciDin in Stone Garden and the backstop sent him straight
+  back to the portal room, with the on-screen line. Press 2: the same from Torii (twice). Press 3 (pretend off, owned): no bounce, he stayed
+  in Stone Garden. Press 4: pad removed. 0 "Ref was not function", no error, clean exit, no crash report.
+- The self-check read 13 PASS, 1 FAIL: it expected the player-built pad `teleporterpad87` inside Stone Garden, as in the save the
+  teleporter dump came from, but in this save that ID is a different pad far away (player-built pad IDs differ per save). A test mistake,
+  not the hub's; that expectation is dropped (the self-check now has 13 checks).
+- The non-owner path can only be shown with "pretend not owned" (LuciDin owns both); the mock tests cover the rest (partial ownership,
+  an owner leaving, unreadable = refused). A real check with a host who lacks the DLC and a guest who owns it stays open (optional).

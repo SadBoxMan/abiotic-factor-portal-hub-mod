@@ -371,7 +371,7 @@ h.ex("KEYS.PAUSE()"); h.pump()
 check("1st press: pretend not owned ON, the portals respawn, the config's Stone Garden portal is gone",
       h.said("DLC test: pretend not owned ON", n0) and not h.has("hub_B1") and h.has("hub_A4"))
 check("1st press: the self-check passes on the game's pads and the name rules, nothing fails",
-      h.said("DLC test: self-check: 14 PASS, 0 FAIL", n0) and not h.said("DLC test: FAIL", n0), [l for l in h.logs(n0) if "DLC test" in l])
+      h.said("DLC test: self-check: 13 PASS, 0 FAIL", n0) and not h.said("DLC test: FAIL", n0), [l for l in h.logs(n0) if "DLC test" in l])
 check("... it checked H_Garden_Start inside Stone Garden, H_Japan_Start inside Torii, the Cabin outside",
       h.said("PASS pad H_Garden_Start", n0) and h.said("PASS pad H_Japan_Start", n0) and h.said("PASS pad H_Cabin_Start", n0))
 check("... and logged the game's real answer next to the pretend one",
