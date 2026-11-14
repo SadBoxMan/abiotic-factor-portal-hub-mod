@@ -23,8 +23,9 @@ local SPAWN_DELAY_MS = 4000
 -- The two DLC areas, Stone Garden (H_Garden_*, the game's entitlement row HomeworldGarden) and Torii (H_Japan_*, row SupportersEdition),
 -- are gated by the game's own home pads and level streaming. A hub portal must not get round that: the hub leads into a DLC area only when
 -- this session owns its DLC, by the game's own rule (LuciDin, 13 and 14 November; CRD-033, findings/dlc-ownership-2026-11.md). Ownership is
--- AbioticGameState:HasServerGameEntitlement, the check behind the game's own home portals: server-wide, so in multiplayer the host's DLC
--- (or any present player's, as the game counts it) opens it for everyone, as the game's own portals do. It is read when the portals spawn
+-- AbioticGameState:HasServerGameEntitlement, the check behind the game's own home portals: the session's answer, so the hub opens exactly
+-- where the game's own portals do. In a hosted game that is the host's DLC, for everyone in it (the wiki's Torii and Temple of Stone
+-- pages; the game's per-player lists apply to dedicated servers). Tried in game 14 November (CordonaDlcSurvey). It is read when the portals spawn
 -- and again by the backstop; unreadable counts as not owned. For an area that is not owned, four guards, so hand edits can't get round it:
 --   names  a destination starting with h_garden or h_japan is refused. Always refused, owned or not: the hub's own pad IDs (hub_...: an MHE
 --          stands inside its world) and custom worlds whose ID, loader or level names a DLC area. Compared in lower case, as pad IDs are.
