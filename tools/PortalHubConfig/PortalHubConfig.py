@@ -853,7 +853,7 @@ class App:
         self.form = tk.Frame(side, bg=T["panel"])
         f = self.form
         self.section(f, "DESTINATION", "The arrival pad the portal sends players to (its MyTeleporterID). Must match exactly. "
-                                       "Pick a world from the list, or choose Custom Destination at the bottom to type any pad ID (not the two DLC areas).")
+                                       "Pick a world from the list, or choose Custom Destination at the bottom to type any pad ID (the two DLC areas work only if the DLC is owned).")
         self.dest = Drop(f, self.dest_items, self.pick_dest)
         self.dest.pack(fill="x")
         self.pad_row = tk.Frame(f, bg=T["panel"])
@@ -1104,8 +1104,6 @@ class App:
         d = p.destination.strip()
         if not PAD_ID_RX.match(d):
             return "no valid destination pad ID (letters, numbers, _ and - only)"
-        if hd.is_dlc(d):
-            return "a DLC area (Stone Garden or Torii) as its destination, which isn't allowed"
         if hd.is_reserved(d):
             return "one of the hub's own pads (hub_...) as its destination, which isn't allowed"
         return ""
@@ -1655,18 +1653,28 @@ class App:
             return "Portal Hub isn't installed in the game, so nothing is written. See the install line at the top."
         return ""
 
+    def dlc_note(self):
+        """A warning for portals that lead into a DLC area (CRD-033): the hub opens them only where the session owns that DLC (the game's
+        own check, in game); the editor can't know that, so it allows them and says so."""
+        slots = [s for s in hd.SLOT_IDS if self.portal(s) and hd.is_dlc(self.portal(s).destination)]
+        if not slots:
+            return ""
+        return (f"{', '.join(slots)} {'leads' if len(slots) == 1 else 'lead'} into a DLC area (Stone Garden or Torii): the hub opens "
+                f"{'it' if len(slots) == 1 else 'them'} only if you, or the host in multiplayer, own that DLC.")
+
     def update_state(self):
         probs = self.problems()
         blocked = self.save_blocked()
         self.save_btn.set_enabled(not probs and not blocked)
         dirty = self.cfg.is_dirty() if not probs else True
+        note = self.dlc_note()
         if blocked:
             self.status.configure(fg=T["status_bad"], text="Can't save: " + blocked)
         elif probs:
             self.status.configure(fg=T["status_bad"], text="Can't save yet: " + "  ".join(probs))
         elif dirty:
             self.saved_note = ""
-            self.status.configure(fg=T["fg"], text="Unsaved changes.")
+            self.status.configure(fg=T["warn"] if note else T["fg"], text="Unsaved changes." + (" " + note if note else ""))
         elif self.saved_note:
             self.status.configure(fg=T["status_good"], text=self.saved_note)
         else:

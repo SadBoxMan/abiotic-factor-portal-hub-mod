@@ -83,18 +83,21 @@ def main():
     app.update_state()
     check(app.save_btn.enabled, "savable")
 
-    # custom destination: blocked while empty, and DLC refused
+    # custom destination: blocked while empty
     app.select("B-2")
     app.pick_dest("__custom__")
     root.update()
     check(not app.save_btn.enabled and "B-2" in app.status.cget("text"), "empty custom destination blocks saving")
+    # CRD-033 (LuciDin, 14 November): a DLC destination is allowed with a warning (the hub opens it in game only where the session owns
+    # the DLC; the editor can't know that); the hub's own pads (an MHE stands inside its world) are refused
     app.pad_var.set("h_garden_START")
     root.update()
-    check(not app.save_btn.enabled and "DLC" in app.status.cget("text"), "DLC refused, any case")
-    # CRD-033: any pad ID starting with a DLC area's name, and the hub's own pads (an MHE stands inside its world), are refused too
+    st = app.status.cget("text")
+    check(app.save_btn.enabled and "B-2 leads into a DLC area" in st and "own that DLC" in st and app.status.cget("fg") == gui.T["warn"],
+          "a DLC destination (any case) saves, with an amber warning")
     app.pad_var.set("H_JAPAN_somewhere")
     root.update()
-    check(not app.save_btn.enabled and "DLC" in app.status.cget("text"), "a DLC prefix refused (H_Japan_*)")
+    check(app.save_btn.enabled and "DLC area" in app.status.cget("text"), "a DLC prefix (H_Japan_*) warns the same")
     app.pad_var.set("HUB_mhe_H_Garden_Start")
     root.update()
     check(not app.save_btn.enabled and "hub's own pads" in app.status.cget("text"), "a hub pad ID refused as a destination, any case")

@@ -17,7 +17,7 @@ Key = setmetatable({}, { __index = function(_, k) return k end })
 function RegisterKeyBind(k, fn) KEYS[k] = fn end
 function ExecuteInGameThread(fn) IN_GAME_THREAD = true; fn(); IN_GAME_THREAD = false end
 local NameMT = { __index = { ToString = function(self) return self.s end } }
-local function FName(s) return setmetatable({ s = s }, NameMT) end
+function FName(s) return setmetatable({ s = s }, NameMT) end      -- a UE4SS global, as in the game
 CALLS_OFF_THREAD = 0
 local function obj(t)
     t.IsValid = function() return t.gone ~= true end
@@ -61,6 +61,19 @@ function FindAllOf(n)
     return {}
 end
 function FindFirstOf(n) return nil end
+-- ownership (second run): the session owns Stone Garden only; this machine owns both
+ENT = obj({ kind = "DT_GameEntitlements" })
+local function owns(set) return function(self, h)
+    if not IN_GAME_THREAD then CALLS_OFF_THREAD = CALLS_OFF_THREAD + 1 end
+    assert(h.DataTable == ENT and h.RowName ~= nil, "bad handle"); return set[h.RowName:ToString()] == true end end
+local function arr(items) return { ForEach = function(self, fn) for i, v in ipairs(items) do fn(i, { get = function() return v end }) end end } end
+GS = obj({ HasServerGameEntitlement = owns({ HomeworldGarden = true }), ServerEntitlements = arr({ FName("HomeworldGarden") }) })
+GI = obj({ HasGameEntitlement = owns({ HomeworldGarden = true, SupportersEdition = true }),
+           GetUnlockedEntitlements = function() return arr({ { RowName = FName("HomeworldGarden") }, { RowName = FName("SupportersEdition") } }) end })
+WORLD = obj({ GameState = GS, OwningGameInstance = GI })
+package.preload["UEHelpers"] = function() return { GetWorld = function() return WORLD end } end
+function StaticFindObject(p) if p == "/Game/Blueprints/DataTables/DT_GameEntitlements.DT_GameEntitlements" then return ENT end end
+PADS[2].IsTeleporterActive = true
 '''
 
 res = []
@@ -96,6 +109,12 @@ check("Stone Garden's box holds H_Garden_Start, not the Cabin", "home pads insid
 check("Torii's box from its one valid volume, with H_Japan_Start", "AREA Torii | 1 volume(s) | min 128900.0, 118100.0, 54500.0 | max 142900.0, 132100.0, 59500.0 | home pads inside: H_Japan_Start" in text, text)
 check("home pads listed with their rows; a missing one says not found",
       "home pad H_Garden_Start | at 122890.6, 160239.8, 59350.0 | RequiredDLC HomeworldGarden" in text and "home pad H_Japan_Entrance | at not found" in text)
+check("ownership: the session's answer and this machine's, per DLC",
+      "ownership Stone Garden (HomeworldGarden) | session (HasServerGameEntitlement) true | this machine (HasGameEntitlement) true" in text and
+      "ownership Torii (SupportersEdition) | session (HasServerGameEntitlement) false | this machine (HasGameEntitlement) true" in text, text)
+check("ownership: the lists behind them", "ServerEntitlements = [HomeworldGarden]" in text and "GetUnlockedEntitlements = [HomeworldGarden, SupportersEdition]" in text, text)
+check("ownership: the game's own DLC pads' state (a missing pad says ?)", "H_Garden_Entrance IsTeleporterActive = true" in text and "H_Japan_Entrance IsTeleporterActive = ?" in text, text)
+check("still: every game call on the game thread", g.CALLS_OFF_THREAD == 0)
 check("the file holds the same lines", os.path.exists(OUT) and "AREA Torii" in open(OUT, encoding="utf-8").read())
 print("\n%d/%d passed" % (sum(res), len(res)))
 sys.exit(0 if all(res) else 1)

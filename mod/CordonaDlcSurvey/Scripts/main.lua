@@ -7,8 +7,12 @@
 --   CRD-023, 10 November); none of our mods uses it. US layout: the key left of Enter.
 -- Untried calls, which is why this is its own step: AbioticLevelStreamingVolume:GetActorBounds (out-parameters as tables), reading
 -- RequiredEntitlement / RequiredWorldFlag row handles on volumes and managers, FindAllOf("LevelManagerInstance").
+-- Second run (14 November, LuciDin's "allow owners"): it also reads ownership as the game knows it: the session's answer
+-- (AbioticGameState:HasServerGameEntitlement, the call the hub now makes), this machine's (AbioticGameInstance:HasGameEntitlement), the lists
+-- behind them, and the game's own DLC pads' IsTeleporterActive. Those calls are untried too.
 -- Output: UE4SS.log ([CordonaDlcSurvey] lines) and ue4ss/Mods/CordonaDlcSurvey/survey.txt (overwritten at each press).
 
+local UEHelpers = require("UEHelpers")
 local OUT_PATH = "ue4ss/Mods/CordonaDlcSurvey/survey.txt"      -- relative to UE4SS's working folder (Win64), like the hub's manual_exits.lua
 local DLC_ROWS = { HomeworldGarden = "Stone Garden", SupportersEdition = "Torii" }
 local HOME_PADS = { "H_Garden_Start", "H_Garden_Entrance", "H_Japan_Start", "H_Japan_Entrance", "H_Cabin_Start", "H_Cabin_Entrance" }
@@ -147,6 +151,50 @@ local function survey()
         else
             log("AREA " .. area .. " | no volume with its entitlement and readable bounds")
         end
+    end
+
+    -- 5. ownership, as the game knows it (CRD-033, allow owners): the same call the hub now makes, plus the other readings for comparison.
+    --    Untried calls: AbioticGameState:HasServerGameEntitlement and AbioticGameInstance:HasGameEntitlement with a row-handle struct
+    --    (a table: the entitlement table and a row name), GetUnlockedEntitlements, and reading ServerEntitlements.
+    local world = nil
+    pcall(function() world = UEHelpers.GetWorld() end)
+    local gs, gi, dt = nil, nil, StaticFindObject("/Game/Blueprints/DataTables/DT_GameEntitlements.DT_GameEntitlements")
+    if valid(world) then
+        pcall(function() gs = world.GameState end)
+        pcall(function() gi = world.OwningGameInstance end)
+    end
+    log(string.format("ownership: world %s, game state %s, game instance %s, entitlement table %s", tostring(valid(world)), tostring(valid(gs)),
+        tostring(valid(gi)), tostring(valid(dt))))
+    for row, area in pairs(DLC_ROWS) do
+        local server, mine = "?", "?"
+        if valid(gs) and valid(dt) then
+            local ok, r = pcall(function() return gs:HasServerGameEntitlement({ DataTable = dt, RowName = FName(row) }) end)
+            server = ok and tostring(r) or ("error: " .. tostring(r):match("^[^\r\n]*"))
+        end
+        if valid(gi) and valid(dt) then
+            local ok, r = pcall(function() return gi:HasGameEntitlement({ DataTable = dt, RowName = FName(row) }) end)
+            mine = ok and tostring(r) or ("error: " .. tostring(r):match("^[^\r\n]*"))
+        end
+        log(string.format("ownership %s (%s) | session (HasServerGameEntitlement) %s | this machine (HasGameEntitlement) %s", area, row, server, mine))
+    end
+    if valid(gs) then
+        local list = {}
+        local ok = pcall(function() gs.ServerEntitlements:ForEach(function(_, e) list[#list + 1] = str(e:get()) end) end)
+        log("ownership: game state ServerEntitlements = " .. (ok and ("[" .. table.concat(list, ", ") .. "]") or "unreadable"))
+    end
+    if valid(gi) then
+        local list = {}
+        local ok = pcall(function()
+            local arr = gi:GetUnlockedEntitlements()
+            arr:ForEach(function(_, e) local v = e:get(); list[#list + 1] = str(v.RowName or v) end)
+        end)
+        log("ownership: game instance GetUnlockedEntitlements = " .. (ok and ("[" .. table.concat(list, ", ") .. "]") or "unreadable"))
+    end
+    for _, id in ipairs({ "H_Garden_Entrance", "H_Japan_Entrance" }) do
+        local t = pads[id]
+        local on = "?"
+        if valid(t) then pcall(function() on = tostring(t.IsTeleporterActive) end) end
+        log("ownership: the game's own pad " .. id .. " IsTeleporterActive = " .. on)
     end
 
     local f = io.open(OUT_PATH, "w")

@@ -1,16 +1,16 @@
-# The hub never leads into the two DLC worlds (CRD-033). Stone Garden (H_Garden_*, entitlement row HomeworldGarden) and Torii (H_Japan_*,
-# row SupportersEdition) are gated by the game's own home pads and level streaming; a hub portal to them would let a player without the DLC in.
-# LuciDin's ruling (13 November): the mod must not let players bypass the paid DLC. His design choices the same night: keep the blanket block
-# (refused whether or not the DLC is owned; owners still have the game's own portals on A-1 and A-2), and close every hand-edit route he could
-# be shown, with four guards in main.lua:
-#   names  any destination starting with h_garden / h_japan (any case), any of the hub's own pad IDs (hub_..., portalroom_...), and custom
-#          worlds whose ID, loader or level names a DLC area
-#   spots  manual portal spots, MHEs, the Failsafe Exit, custom-world origins and arrivals (config.lua or the loader Blueprint) and vignette
-#          exit pads inside a DLC area
-#   pads   a destination pad that stands inside a DLC area (a player-built portal there)
-#   use    a player who lands inside a DLC area after using a hub pad is sent straight back (the backstop)
-# Also: a refused entry does not take its slot, the locked slots A-1 / A-2 and the game's own pads are untouched, NUMPAD 1 brings nothing back,
-# the Cabin (story-gated, not DLC) still works.
+# The hub leads into the two DLC worlds only where the session owns the DLC (CRD-033). Stone Garden (H_Garden_*, entitlement row
+# HomeworldGarden) and Torii (H_Japan_*, row SupportersEdition) are gated by the game's own home pads and level streaming; a hub portal must
+# not get round that. LuciDin's ruling (13 November): the mod must not let players bypass the paid DLC; close every hand-edit route; and
+# (14 November) owners may have hub portals there, by the game's own check (AbioticGameState:HasServerGameEntitlement, server-wide, as the
+# game's own portals use it). Four guards in main.lua, for an area that is not owned:
+#   names  any destination starting with h_garden / h_japan (any case). Always, owned or not: the hub's own pad IDs (hub_..., portalroom_...)
+#          and custom worlds whose ID, loader or level names a DLC area
+#   spots  manual portal spots, MHEs and the Failsafe Exit inside the area (custom-world origins, arrivals and vignette exits: always)
+#   pads   a destination pad that stands inside the area (a player-built portal there)
+#   use    a player who lands inside the area after using a hub pad is sent straight back (the backstop; it asks again, so an owner leaving
+#          the session closes it)
+# Also: owners get their portals, a session's ownership is asked at the spawn (unreadable = not owned), the dev key PAUSE (pretend not
+# owned), a refused entry does not take its slot, the locked slots A-1 / A-2 and the game's own pads are untouched, NUMPAD 1, the Cabin.
 #   python test_hub_dlc_block.py [path to a main.lua, default the repo's]
 import sys, os, math
 sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa fallback (pip install --target %TEMP%\pylib lupa)
@@ -51,7 +51,17 @@ local padClass = obj({ kind = "pad" })
 local homePad = obj({})
 local baseFind, baseAll = StaticFindObject, FindAllOf
 LOADER_CDO = nil       -- set to a table to give the test world's loader Blueprint settings (ArriveSpot, ...)
+-- DLC ownership as the game answers it (AbioticGameState:HasServerGameEntitlement): OWNED[row] = true; NO_GAME_STATE = true: no game state
+OWNED, ASKED, NO_GAME_STATE = {}, {}, false
+ENT_TABLE = obj({ kind = "DT_GameEntitlements" })
+local gameState = obj({ HasServerGameEntitlement = function(self, h)
+    assert(h.DataTable == ENT_TABLE and h.RowName ~= nil, "bad entitlement handle")
+    ASKED[#ASKED + 1] = h.RowName:ToString()
+    return OWNED[h.RowName:ToString()] == true
+end })
+setmetatable(WORLD, { __index = function(t, k) if k == "GameState" and not NO_GAME_STATE then return gameState end end })
 function StaticFindObject(p)
+    if p == "/Game/Blueprints/DataTables/DT_GameEntitlements.DT_GameEntitlements" then return ENT_TABLE end
     if p == "/Game/Blueprints/Environment/Teleporters/BP_Teleporter_ParentBP.BP_Teleporter_ParentBP_C" then return padClass end
     if p == "/Game/Mods/CordonaTest/BP_CordonaTestLoader.Default__BP_CordonaTestLoader_C" and LOADER_CDO then return obj(LOADER_CDO) end
     return baseFind(p)
@@ -181,7 +191,7 @@ print("=== control: a plain world and the Cabin (story-gated by SnowglobeComplet
 h = Hub(portals(entry("A-4", "train_start"), entry("B-1", "H_Cabin_Start")))
 check("the Train on A-4 gets hub_A4", h.has("hub_A4"))
 check("the Cabin on B-1 is not a DLC world: hub_B1 is spawned and leads to H_Cabin_Start", h.has("hub_B1") and h.dest("hub_B1") == "H_Cabin_Start")
-check("no DLC line logged (past the load line, which names the dev key)", not any("DLC" in l and "] loaded - " not in l for l in h.logs()), [l for l in h.logs() if "DLC" in l])
+check("no DLC refusal logged", not h.said("cannot be a destination") and not h.said("inside a DLC area"), [l for l in h.logs() if "DLC" in l])
 
 print("=== names: each DLC pad id and any other h_garden / h_japan name, in any letter case: refused, no pad")
 for dest in ("H_Garden_Start", "H_Garden_Entrance", "H_Japan_Start", "H_Japan_Entrance",
@@ -211,7 +221,7 @@ check("no 'already used' line for B-1", not h.said("B-1 is already used"))
 print("=== the locked slots A-1 (Stone Garden) and A-2 (Torii) stay the game's, whatever config.lua puts there")
 h = Hub(portals(entry("A-1", "H_Garden_Start"), entry("A-2", "train_start"), entry("A-4", "train_start")))
 check("A-1 and A-2 are skipped as game portals, no hub_A1 or hub_A2",
-      sum("holds a game portal, skipped" in l for l in h.logs()) == 2 and not h.has("hub_A1") and not h.has("hub_A2"), h.logs())
+      h.said("slot A-1 holds a game portal, skipped") and h.said("slot A-2 holds a game portal, skipped") and not h.has("hub_A1") and not h.has("hub_A2"), h.logs())
 check("the game's own A-1 / A-2 pads still lead into their worlds, active (the game gates them); A-4 works", game_pads_untouched(h) and h.has("hub_A4"))
 
 print("=== exit mode \"manual\" to a DLC world: refused before any manual portal is placed")
@@ -308,28 +318,86 @@ h.pump()
 shown = list(h.ev("SHOWN").values())
 check("the local player standing in Torii after hub_B1 sees why", any("Torii is DLC: the Portal Hub doesn't lead there" in s for s in shown), shown)
 
-print("=== dev key PAUSE (DEV_KEYS only, cut from the packaged hub): the DLC guard test for LuciDin's own run")
-h = Hub(portals(entry("A-4", "train_start")), top="PAWN.GetActorForwardVector = function() return { X = 1, Y = 0, Z = 0 } end")
-check("PAUSE is bound (dev key)", h.ev("KEYS.PAUSE ~= nil"))
+print("=== owners (LuciDin, 14 November): where the session owns a DLC, the hub may lead there; the game's own check decides")
+OWN_BOTH = "OWNED.HomeworldGarden = true; OWNED.SupportersEdition = true"
+h = Hub(portals(entry("A-4", "H_Garden_Start"), entry("B-1", "h_japan_start", ', exits = "dynamic"')), top=OWN_BOTH)
+check("at load nothing can be asked yet: the DLC entries wait for the spawn", h.said("ownership is checked when the portals spawn"), h.logs())
+check("at the spawn: both owned, logged", h.said("DLC: Stone Garden is owned in this session") and h.said("DLC: Torii is owned in this session"))
+check("hub_A4 leads into Stone Garden, hub_B1 into Torii", h.has("hub_A4") and h.dest("hub_A4") == "H_Garden_Start" and h.has("hub_B1") and h.dest("hub_B1") == "h_japan_start")
+check("the game was asked with its own rows and table (HomeworldGarden, SupportersEdition)",
+      set(h.ev("ASKED").values()) == {"HomeworldGarden", "SupportersEdition"})
+check("the game's own DLC pads are untouched", game_pads_untouched(h))
+h.ex("B = player('B')"); h.use("B", "hub_A4")
+check("an owner's player who takes hub_A4 into Stone Garden stays there (no backstop move)", h.moves("B") == 0 and h.ev("dist(B, %f, %f, %f)" % (GARDEN[0] + 200, GARDEN[1], GARDEN[2])) < 1)
+h = Hub(portals(entry("A-4", "H_Garden_Start"), entry("B-1", "H_Japan_Start")), top="OWNED.HomeworldGarden = true")
+check("only Stone Garden owned: hub_A4 into Stone Garden, Torii refused", h.has("hub_A4") and not h.has("hub_B1")
+      and h.refused("H_Japan_Start") and h.said("Torii is not owned in this session"), h.logs())
+h = Hub(portals(entry("A-4", "hub_mhe_train_start"), entry("B-1", "H_Garden_Copy")), top=OWN_BOTH, worlds=world("H_Garden_Copy"),
+        mhe="{ train_start = { 336500, 8000, 880, 45 } }")
+check("owned or not, a hub pad ID is still refused", not h.has("hub_A4") and h.said("is one of the hub's own pads"))
+check("owned or not, a custom world named after a DLC area is still refused", not h.has("hub_B1") and h.said("worlds: 'H_Garden_Copy' is named after a DLC area; refused"))
+h = Hub(portals(entry("A-4", "train_start", ', exits = "manual"')), top=OWN_BOTH,
+        mhe="{ train_start = %s, H_Garden_Start = %s, failsafe = %s, fog_start = { 120000, -30000, 500, 0 } }" % (lua_spot(near(GARDEN)), lua_spot(near(GARDEN, 900)), lua_spot(near(TORII))))
+check("owned: a manual portal spot in Stone Garden is used (hub_A4_manual placed)", h.has("hub_A4_manual") and h.dest("hub_A4") == "hub_A4_manual")
+check("owned: Stone Garden's own MHE is placed and leads to H_Garden_Entrance", h.has("hub_mhe_H_Garden_Start") and h.dest("hub_mhe_H_Garden_Start") == "H_Garden_Entrance")
+fs = h.ev("at_of('hub_failsafe')") if h.has("hub_failsafe") else None
+check("owned: a Failsafe Exit in Torii is used as recorded", fs is not None and abs(fs.X - TORII[0]) < 3000 and not h.said("recorded Failsafe Exit is inside"))
+h = Hub(portals(entry("B-1", "teleporterpad87")), top=OWN_BOTH)
+check("owned: a player-built portal inside Stone Garden may be a destination", h.has("hub_B1") and h.dest("hub_B1") == "teleporterpad87")
+
+print("=== the owner leaves: the backstop asks again and sends players back")
+h = Hub(portals(entry("A-4", "H_Garden_Start")), top=OWN_BOTH)
+check("owned at the spawn: hub_A4 leads into Stone Garden", h.has("hub_A4"))
+h.ex("OWNED = {}; B = player('B')")
+n0 = h.n()
+h.use("B", "hub_A4")
+check("not owned any more: B is sent back to the front of hub_A4", h.at_front("B", "A-4") and h.moves("B") == 1, h.logs(n0))
+check("logged: Stone Garden not owned (a player landed in it)", h.said("Stone Garden is not owned in this session: the hub never leads there (a player landed in Stone Garden)", n0), h.logs(n0))
+h.ex("KEYS.NUM_ONE()"); h.pump()
+check("NUMPAD 1 after that: hub_A4 is refused now", not h.has("hub_A4") and h.refused("H_Garden_Start"))
+h.ex("OWNED.HomeworldGarden = true; KEYS.NUM_ONE()"); h.pump()
+check("an owner joins, NUMPAD 1: hub_A4 is back", h.has("hub_A4") and h.dest("hub_A4") == "H_Garden_Start")
+
+print("=== ownership that can't be read counts as not owned")
+h = Hub(portals(entry("A-4", "H_Garden_Start")), top=OWN_BOTH + "; NO_GAME_STATE = true")
+check("no game state: not readable, refused", not h.has("hub_A4") and h.said("Stone Garden is not readable, so treated as not owned"), h.logs())
+
+print("=== dev key PAUSE (DEV_KEYS only, cut from the packaged hub): the DLC guard test for LuciDin's own run, as an owner of both DLCs")
+h = Hub(portals(entry("A-4", "train_start"), entry("B-1", "H_Garden_Start")),
+        top="PAWN.GetActorForwardVector = function() return { X = 1, Y = 0, Z = 0 } end; OWNED.HomeworldGarden = true; OWNED.SupportersEdition = true")
+check("PAUSE is bound (dev key); as an owner, the config's Stone Garden portal is spawned", h.ev("KEYS.PAUSE ~= nil") and h.has("hub_B1"))
 n0 = h.n()
 h.ex("KEYS.PAUSE()"); h.pump()
+check("1st press: pretend not owned ON, the portals respawn, the config's Stone Garden portal is gone",
+      h.said("DLC test: pretend not owned ON", n0) and not h.has("hub_B1") and h.has("hub_A4"))
 check("1st press: the self-check passes on the game's pads and the name rules, nothing fails",
       h.said("DLC test: self-check: 14 PASS, 0 FAIL", n0) and not h.said("DLC test: FAIL", n0), [l for l in h.logs(n0) if "DLC test" in l])
 check("... it checked H_Garden_Start inside Stone Garden, H_Japan_Start inside Torii, the Cabin outside",
       h.said("PASS pad H_Garden_Start", n0) and h.said("PASS pad H_Japan_Start", n0) and h.said("PASS pad H_Cabin_Start", n0))
+check("... and logged the game's real answer next to the pretend one",
+      h.said("the game says Stone Garden (HomeworldGarden) is owned; the hub treats it as not owned", n0), [l for l in h.logs(n0) if "the game says" in l])
 check("1st press: a test pad hub_dlctest leads into Stone Garden, 3 m in front of the player",
       h.has("hub_dlctest") and h.dest("hub_dlctest") == "H_Garden_Start" and abs(h.ev("at_of('hub_dlctest').X") - (-10000 + 300)) < 1)
 h.ex("B = player('B')")
 h.use("B", "hub_dlctest")
-check("walking into it: the game takes B into Stone Garden, the backstop sends B to the portal room (the front of the first hub portal)",
-      h.at_front("B", "A-4") and h.moves("B") == 1)
+check("walking into it (pretend): the backstop sends B to the portal room (the front of the first hub portal)", h.at_front("B", "A-4") and h.moves("B") == 1)
 h.ex("KEYS.PAUSE()"); h.pump()
 check("2nd press: one test pad, now into Torii", h.dest("hub_dlctest") == "H_Japan_Start"
       and h.ev("(function() local n = 0; for _, p in ipairs(PADS) do if p:IsValid() and p.MyTeleporterID and p.MyTeleporterID:ToString() == 'hub_dlctest' then n = n + 1 end end; return n end)()") == 1)
 h.ex("B.moves = 0"); h.use("B", "hub_dlctest")
-check("walking into it: back from Torii too", h.at_front("B", "A-4") and h.moves("B") == 1)
+check("walking into it (pretend): back from Torii too", h.at_front("B", "A-4") and h.moves("B") == 1)
+n1 = h.n()
 h.ex("KEYS.PAUSE()"); h.pump()
-check("3rd press: the test pad is gone", not h.has("hub_dlctest"))
+check("3rd press: pretend OFF, the portals respawn and the config's Stone Garden portal is back", h.said("pretend not owned OFF", n1) and h.has("hub_B1"))
+check("3rd press: the test pad leads into Stone Garden, owned", h.dest("hub_dlctest") == "H_Garden_Start" and h.said("owned: walk in and you should stay", n1))
+h.ex("B.moves = 0"); h.use("B", "hub_dlctest")
+check("walking into it as an owner: B stays in Stone Garden", h.moves("B") == 0 and h.ev("dist(B, %f, %f, %f)" % (GARDEN[0] + 200, GARDEN[1], GARDEN[2])) < 1)
+h.ex("KEYS.PAUSE()"); h.pump()
+check("4th press: the test pad is gone, pretend stays off", not h.has("hub_dlctest") and h.has("hub_B1"))
+h = Hub(portals(entry("A-4", "train_start")), top="PAWN.GetActorForwardVector = function() return { X = 1, Y = 0, Z = 0 } end")
+h.ex("B = player('B')"); h.ex("for i = 1, 3 do KEYS.PAUSE() end"); h.pump()
+h.use("B", "hub_dlctest")
+check("without the DLC, 3rd press: the test pad into Stone Garden still sends B back", h.at_front("B", "A-4") and h.moves("B") == 1)
 
 print("=== the surveyed DLC boxes leave every shipped MHE and the failsafe alone (manual_exits.lua as committed, CRD-031)")
 SHIPPED_MHE = os.path.join(HUB, "manual_exits.lua").replace("\\", "/")

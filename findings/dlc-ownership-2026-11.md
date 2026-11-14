@@ -34,11 +34,24 @@ game's `Win64` folder). Only the game's own objects were read. No third-party mo
     held 1 s, then let fall, as the exit moves do. A log line says so, and this machine's own player gets an on-screen line. It catches
     what the others can't see beforehand: a destination pad that wasn't loaded at spawn time, or one built later. The game's own pads,
     its home portals included, are never touched.
-- The config editor refuses the same names (`hubdata.is_dlc` by prefix, `is_reserved`, `names_dlc_map`).
-- Tests: `tools/dev/tests/test_hub_dlc_block.py` (84 checks), `test_gui.py` (9 new checks),
-  `tools/dev/tests/test_dlc_survey.py` (the survey mod, 24 checks).
-- `main.lua` is close to Lua's limit of 200 local variables in one function: the main chunk had room for 10 more before and after this
-  change (the guards live in one table). New top-level code should go into tables too.
+- **14 November: owners may have hub portals there (LuciDin).** He pointed out that players without the DLC can visit the DLC areas a host
+  owns (the game's own rule), so the guards are for sessions without the DLC: a single-player world or a host that doesn't own it. Now
+  each guard applies only to an area whose DLC the session doesn't own:
+  - **Ownership** is the game's own check, `AbioticGameState:HasServerGameEntitlement({ DataTable = DT_GameEntitlements, RowName = row })`,
+    with the rows the game's home pads name (`HomeworldGarden`, `SupportersEdition`). It is server-wide (any present player who owns it,
+    as the game counts it), the same rule as the game's A-1 / A-2 portals, so the hub never gives more than the game does. The game state
+    is read from the world (`world.GameState`); no object search.
+  - It is read when the portals spawn (the config is read again whenever the answer changes) and again by the backstop when someone lands
+    in an area, so an owner who leaves closes the area at once. An owner who joins opens it at the next spawn (NUMPAD 1 or the next load).
+    Unreadable counts as not owned.
+  - **Still refused for everyone:** the hub's own `hub_*` IDs as destinations, and custom worlds that name or sit on a DLC map (origin,
+    arrival, vignette exit). Owners don't need those.
+  - **The editor** can't know ownership offline: a DLC destination saves, with an amber warning ("only if you, or the host in multiplayer,
+    own that DLC"). The `hub_*` and custom-world refusals stay.
+  - **Dev key PAUSE** got a "pretend not owned" switch, so an owner can test both sides (below).
+- Tests: `tools/dev/tests/test_hub_dlc_block.py` (109 checks), `test_gui.py` (71), `tools/dev/tests/test_dlc_survey.py` (28).
+- `main.lua` is close to Lua's limit of 200 local variables in one function: 13 free in the main chunk, before and after this work (the
+  guards live in one table). New top-level code should go into tables too.
 
 ## How the game knows DLC ownership
 
@@ -81,6 +94,9 @@ would land a player who doesn't own the DLC on the game's own pad inside the wor
 
 ## Routes into a DLC world, and what stops each
 
+The "Now" column is for a session that doesn't own that DLC; with the DLC owned, only the always-refused routes stay closed (the hub's
+own IDs, custom worlds on a DLC map).
+
 | Route (hand edits a curious user could make) | Before CRD-033 | Now |
 |---|---|---|
 | A portal in `config.lua` to any of the four pads, in any letter case | Refused | Refused (names) |
@@ -120,7 +136,7 @@ Torii in x and y but about 500 m lower (its arrival pad is 593 m from the Torii 
 shipped MHEs or the failsafe falls inside. The two player-built pads in LuciDin's save (`teleporterpad1`, `teleporterpad87`) are inside
 Stone Garden. The survey's untried calls worked: `GetActorBounds` filled its out-parameters, and the row handles read as text.
 
-## If "allow when owned" is ever wanted (not built)
+## Notes kept from before "allow owners" was built
 
 - Check with `AbioticGameState:HasServerGameEntitlement(handle)`: the same rule the game's home pads use. The handle is
   `{ DataTable = <DT_GameEntitlements>, RowName = FName("HomeworldGarden" | "SupportersEdition") }`, or the game pad's own `RequiredDLC`
@@ -129,21 +145,21 @@ Stone Garden. The survey's untried calls worked: `GetActorBounds` filled its out
   Blueprint function, so the same hook path as AttemptTeleport) could re-check the pads. AttemptTeleport's hook runs after the teleport,
   so it can't refuse a use beforehand.
 - Every one of these calls is untried in game: each would go on its own test step. If the answer can't be read, refuse.
-- The editor would have to stop refusing DLC pads for owners.
+- (Built 14 November as above, without the OnServerEntitlementsUpdated hook: the backstop asks again instead.)
 
 ## In game
 
-The guards don't depend on owning the DLC, so LuciDin (who owns both) can test them as they are: no ownership spoof is needed. What a
-player without the DLC would meet is exactly what an owner meets: no hub route in. The one part that can't be shown by refusing is the
-backstop, so a dev key stands in for "a route the guards missed": **PAUSE** (hub, `DEV_KEYS` only; the release builder cuts the whole
-`if DEV_KEYS then` block, so it never ships; Pause has no default binding in the game).
+Two steps, after CRD-032 part 2's soak has the install back. The survey's ownership readout comes first, because the ownership call has
+never been tried in game. Then the hub test.
 
 | Key | Run it in | What it logs |
 |---|---|---|
-| PAUSE (1st press) | CordonaCorp or Mod Testing, portal room | `DLC test: PASS/FAIL ...` for each home pad, `train_start` and the name rules against the real game (the surveyed boxes must hold `H_Garden_Start` and `H_Japan_Start` and nothing in the portal room or the Cabin), then `self-check: N PASS, 0 FAIL`; a test pad `hub_dlctest` 3 m ahead leads into Stone Garden |
-| walk into the pad | same | `DLC: ... landed inside Stone Garden ... after using hub_dlctest; sent back`; on screen: "Stone Garden is DLC: the Portal Hub doesn't lead there" |
+| `'` (survey, switched on for the run) | CordonaCorp or Mod Testing, anywhere in the Facility | `ownership Stone Garden (HomeworldGarden) | session ... | this machine ...`, the same for Torii, the lists behind them, and the game's own DLC pads' `IsTeleporterActive`. For an owner of both, all `true` |
+| PAUSE (1st press) | portal room | `pretend not owned ON`, the portals respawn; the self-check (`self-check: 14 PASS, 0 FAIL`, and "the game says ... owned; the hub treats it as not owned"); a test pad 3 m ahead into Stone Garden |
+| walk into the pad | same | sent straight back: `DLC: ... landed inside Stone Garden ... sent back`, on screen "Stone Garden is DLC: the Portal Hub doesn't lead there" |
 | PAUSE (2nd press), walk in | same | the same for Torii |
-| PAUSE (3rd press) | same | the test pad is removed |
+| PAUSE (3rd press), walk in | same | `pretend not owned OFF`, the portals respawn; the pad into Stone Garden says "owned": you stay there |
+| PAUSE (4th press) | same | the test pad is removed |
 
-Plus a config check: a hand-added line such as `{ slot = "C-4", destination = "H_Garden_Pond" }` or `destination = "hub_mhe_train_start"`
-in a copy of `config.lua` (after copying LuciDin's own aside) is refused at load. Results: PENDING.
+The first round (14 November, the blanket version) was installed for PAUSE before "allow owners"; its results, if any, are in the log of
+that run. Results of the round above: PENDING.

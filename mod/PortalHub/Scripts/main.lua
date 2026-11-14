@@ -21,16 +21,27 @@ local HUM_MANUAL = Config.humManual or 0.5
 local SPAWN_DELAY_MS = 4000
 
 -- The two DLC areas, Stone Garden (H_Garden_*, the game's entitlement row HomeworldGarden) and Torii (H_Japan_*, row SupportersEdition),
--- are gated by the game's own home pads and level streaming. A hub portal would bypass that, so the hub never leads into them, whether the
--- DLC is owned or not (LuciDin, 13 November; CRD-033, findings/dlc-ownership-2026-11.md). Four guards, so that hand edits can't get round it:
---   names  a destination starting with h_garden or h_japan, or naming one of the hub's own pads (hub_...: an MHE stands inside its world),
---          is refused; so is a custom world whose ID, loader or level names a DLC area. Compared in lower case, as the game's pad IDs are.
---   spots  a manual portal's spot, an MHE, the Failsafe Exit or a custom world's origin or arrival inside a DLC area is refused.
---   pads   a hub portal whose destination pad stands inside a DLC area (a player-built portal, for example) is not spawned.
---   use    a player who lands inside a DLC area after using a hub pad is sent straight back (the backstop for anything the rest missed).
--- The config editor refuses the same names (hubdata.is_dlc, is_reserved, names_dlc_map).
+-- are gated by the game's own home pads and level streaming. A hub portal must not get round that: the hub leads into a DLC area only when
+-- this session owns its DLC, by the game's own rule (LuciDin, 13 and 14 November; CRD-033, findings/dlc-ownership-2026-11.md). Ownership is
+-- AbioticGameState:HasServerGameEntitlement, the check behind the game's own home portals: server-wide, so in multiplayer the host's DLC
+-- (or any present player's, as the game counts it) opens it for everyone, as the game's own portals do. It is read when the portals spawn
+-- and again by the backstop; unreadable counts as not owned. For an area that is not owned, four guards, so hand edits can't get round it:
+--   names  a destination starting with h_garden or h_japan is refused. Always refused, owned or not: the hub's own pad IDs (hub_...: an MHE
+--          stands inside its world) and custom worlds whose ID, loader or level names a DLC area. Compared in lower case, as pad IDs are.
+--   spots  a manual portal's spot, an MHE or the Failsafe Exit inside the area is refused (a custom world's origin, arrival or exit there:
+--          always).
+--   pads   a hub portal whose destination pad stands inside the area (a player-built portal, for example) is not spawned.
+--   use    a player who lands inside the area after using a hub pad is sent straight back (the backstop for anything the rest missed, and
+--          for an owner who left the session).
+-- The config editor refuses the always-refused names and warns about DLC destinations (it can't know ownership: hubdata.is_dlc).
 local DLC = {     -- everything the four guards need, in one table (main.lua is near Lua's limit of 200 locals in one function)
     prefixes = { "h_garden", "h_japan" },
+    byPrefix = { h_garden = "Stone Garden", h_japan = "Torii" },
+    rows = { ["Stone Garden"] = "HomeworldGarden", Torii = "SupportersEdition" },     -- DT_GameEntitlements rows, as the game's home pads name them
+    tablePath = "/Game/Blueprints/DataTables/DT_GameEntitlements.DT_GameEntitlements",
+    owned = {},                                  -- area -> true at the last check (DLC.check_owned); anything else counts as not owned
+    checked = false,                             -- false until the first check (at mod load nothing can be asked yet)
+    pretend = false,                             -- dev key PAUSE: act as if this session owned no DLC, to try the guards as an owner
     hubPrefixes = { "hub_", "portalroom_" },     -- the hub's own pad IDs (ID_PREFIX, LEGACY_PREFIXES below), in lower case
     worlds = {},                                 -- custom worlds refused for a DLC area (resolve_worlds): their portals are refused too
     backstopMs = { 100, 600, 1500 },             -- when the backstop looks at a player after a hub pad use (DLC.backstop)
@@ -74,6 +85,54 @@ function DLC.area_at(p)
             return a.name
         end
     end
+    return nil
+end
+-- the DLC area a pad name belongs to (H_Garden_* -> Stone Garden), or nil
+function DLC.area_of_name(s)
+    if type(s) ~= "string" then return nil end
+    s = s:lower()
+    for p, area in pairs(DLC.byPrefix) do
+        if s:sub(1, #p) == p then return area end
+    end
+    return nil
+end
+-- Does this session own an area's DLC? The game's own server-wide check, with a handle into its entitlement table (a plain struct: the
+-- table object and a row name). true / false, or nil when it can't be asked (no world or game state yet, the call failed).
+function DLC.read_owned(area)
+    local row = DLC.rows[area]
+    if not row then return nil end
+    local ok, r = pcall(function()
+        local world = UEHelpers.GetWorld()
+        if not (world and world:IsValid()) then return nil end
+        local gs = world.GameState
+        if not (gs and gs:IsValid()) then return nil end
+        local dt = StaticFindObject(DLC.tablePath)
+        if not (dt and dt:IsValid()) then return nil end
+        return gs:HasServerGameEntitlement({ DataTable = dt, RowName = FName(row) })
+    end)
+    if ok and type(r) == "boolean" then return r end
+    return nil
+end
+-- Refresh DLC.owned for both areas (host: when the portals spawn, and in the backstop). A line is logged whenever the answer changes.
+function DLC.check_owned(why)
+    for area in pairs(DLC.rows) do
+        local v = nil
+        if not DLC.pretend then v = DLC.read_owned(area) end
+        local now = v == true
+        if DLC.owned[area] ~= now or not DLC.checked then
+            print("[PortalHub] DLC: " .. area .. " is " .. (now and "owned in this session: hub portals may lead there" or
+                ((DLC.pretend and "treated as not owned (dev test)" or (v == nil and "not readable, so treated as not owned" or "not owned in this session"))
+                .. ": the hub never leads there")) .. " (" .. why .. ")\n")
+        end
+        DLC.owned[area] = now
+    end
+    DLC.checked = true
+end
+function DLC.open(area) return area ~= nil and DLC.owned[area] == true end
+-- the area a point stands in, but only if that area is closed to the hub (its DLC not owned), or nil
+function DLC.closed_at(p)
+    local area = DLC.area_at(p)
+    if area and not DLC.open(area) then return area end
     return nil
 end
 
@@ -176,8 +235,9 @@ local function resolve_config()
             log("config entry " .. i .. ": slot " .. p.slot .. " holds a game portal, skipped")
         elseif used[p.slot] then
             log("config entry " .. i .. ": slot " .. p.slot .. " is already used, skipped")
-        elseif DLC.name(p.destination) then
-            log("config entry " .. i .. ": " .. p.destination .. " is a DLC area and cannot be a destination, skipped")
+        elseif DLC.name(p.destination) and not DLC.open(DLC.area_of_name(p.destination)) then
+            log("config entry " .. i .. ": " .. p.destination .. " is a DLC area and cannot be a destination, skipped ("
+                .. (DLC.checked and (DLC.area_of_name(p.destination) .. " is not owned in this session") or "ownership is checked when the portals spawn") .. ")")
         elseif DLC.hub_name(p.destination) then
             log("config entry " .. i .. ": " .. p.destination .. " is one of the hub's own pads and cannot be a destination, skipped")
         elseif type(p.destination) == "string" and DLC.worlds[p.destination] then
@@ -217,7 +277,7 @@ local function resolve_config()
                         log("config entry " .. i .. ": manual is ignored: a hub portal has no spot of its own; edit the MHE of " .. p.destination .. " in manual_exits.lua")
                     end
                     manual = spot(MANUAL_EXITS[p.destination])
-                    local area = manual and DLC.area_at(manual)
+                    local area = manual and DLC.closed_at(manual)
                     if area then
                         log("config entry " .. i .. ": the manual portal spot of " .. p.destination .. " (manual_exits.lua) is inside a DLC area (" .. area
                             .. "); the hub never leads there; using \"game\"")
@@ -994,7 +1054,7 @@ end
 local function spawn_entry(world, class, e, spots)
     -- CRD-033: a destination pad standing inside a DLC area (a player-built portal there, for example) gets no hub portal. A pad that is not
     -- loaded now can't be checked; the backstop in on_attempt covers it.
-    local area = spots and DLC.area_at(spots[e.dest:lower()])
+    local area = spots and DLC.closed_at(spots[e.dest:lower()])
     if area then
         log(string.format("%s: '%s' -> %s: that pad stands inside a DLC area (%s); the hub never leads there, not spawned", e.slot.id, e.name, e.dest, area))
         return false
@@ -2023,6 +2083,7 @@ function DLC.backstop(char, used)
                 if not (char and char:IsValid()) then return end
                 local at = char:K2_GetActorLocation()
                 local area = DLC.area_at(at)
+                if area then DLC.check_owned("a player landed in " .. area); area = DLC.closed_at(at) end     -- an owner may have left meanwhile
                 if not area then
                     if step < #DLC.backstopMs then look() end
                     return
@@ -2097,7 +2158,7 @@ local function mhe_id(world) return ID_PREFIX .. "mhe_" .. world end
 local function spawn_failsafe(world, class)
     local spot, yaw, from = nil, nil, "recorded"
     local f = MANUAL_EXITS.failsafe
-    local area = type(f) == "table" and DLC.area_at(f) or nil
+    local area = type(f) == "table" and DLC.closed_at(f) or nil
     if area then log("MHE: the recorded Failsafe Exit is inside a DLC area (" .. area .. "); using the fallback spot instead") end
     if not area and type(f) == "table" and tonumber(f[1]) and tonumber(f[2]) and tonumber(f[3]) then
         spot, yaw = { X = tonumber(f[1]), Y = tonumber(f[2]), Z = tonumber(f[3]) }, tonumber(f[4]) or 0.0
@@ -2128,8 +2189,8 @@ local function spawn_mhes(world, class)
     end
     local byMhe, needFailsafe, n = {}, false, 0
     for w, m in pairs(MANUAL_EXITS) do
-        local area = type(m) == "table" and DLC.area_at(m) or nil
-        if w ~= "failsafe" and (DLC.name(w) or area) then     -- CRD-033: no hub pad stands inside a DLC area
+        local area = type(m) == "table" and DLC.closed_at(m) or nil
+        if w ~= "failsafe" and ((DLC.name(w) and not DLC.open(DLC.area_of_name(w))) or area) then     -- CRD-033: no hub pad inside a closed DLC area
             log("MHE: " .. tostring(w) .. (area and (" stands inside a DLC area (" .. area .. ")") or " is a DLC area") .. "; the hub places no pad there, not spawned")
         elseif w ~= "failsafe" and type(m) == "table" and tonumber(m[1]) and tonumber(m[2]) and tonumber(m[3]) and off[w] ~= false
                 and not mode4[w] and not worldDefs[w] then
@@ -2307,8 +2368,11 @@ spawn_all = function()
     state.spawns = (state.spawns or 0) + 1        -- a spawn that was scheduled before this one is not needed (see schedule_spawn)
     install_hook()
     local mheChanged, mheCount = load_manual_exits()
-    if mheChanged then
-        log("manual_exits.lua changed (" .. mheCount .. " MHE(s)); reading the portals again")
+    local before = DLC.checked and (tostring(DLC.owned["Stone Garden"]) .. tostring(DLC.owned.Torii)) or nil
+    DLC.check_owned("the portals spawn")          -- CRD-033: DLC destinations are allowed only where this session owns the DLC
+    local dlcChanged = before ~= (tostring(DLC.owned["Stone Garden"]) .. tostring(DLC.owned.Torii))
+    if mheChanged or dlcChanged then
+        log((mheChanged and ("manual_exits.lua changed (" .. mheCount .. " MHE(s))") or "DLC ownership known or changed") .. "; reading the portals again")
         resolve_config()
     end
     forget_old_map()        -- before the portals spawn: a portal to a world of the old map must start off
@@ -2382,16 +2446,27 @@ if DEV_KEYS then
             show(hubExit.spoof and "Hub Exits test: you now count as Player 2" or "Hub Exits test: you are yourself again")
         end)
     end)
-    -- PAUSE: DLC guard test (CRD-033; dev only, this whole block is cut from the packaged hub). The guards don't depend on owning the DLC, so
-    -- this works for an owner too. Each press first logs a self-check (where the game's own pads stand against the DLC boxes, and the name
-    -- rules), then steps a test pad 3 m in front of the player: 1st press leads into Stone Garden, 2nd into Torii, 3rd removes it. The pad
-    -- stands in for a route the guards missed (its name skips the name rule): walking into it, the game takes the player into the area, and
-    -- the backstop must send them straight back to the portal room with an on-screen line. Pause is free in the game (no default binding).
-    local dlcTest = { step = 0, targets = { { "H_Garden_Start", "Stone Garden" }, { "H_Japan_Start", "Torii" } } }
+    -- PAUSE: DLC guard test (CRD-033; dev only, this whole block is cut from the packaged hub). Four presses, in a cycle:
+    --   1  "pretend not owned" on (the hub treats both DLCs as not owned, the portals respawn), a self-check in the log (where the game's own
+    --      pads stand against the DLC boxes, the name rules, and the game's real ownership answer), and a test pad 3 m ahead into Stone Garden
+    --   2  the same, with the test pad into Torii
+    --   3  "pretend" off (the real answer again, the portals respawn), the test pad into Stone Garden
+    --   4  the test pad is removed
+    -- The pad stands in for a route the guards missed (its name skips the name rule). Walking in, the game takes the player into the area;
+    -- on 1 and 2 the backstop must send them straight back to the portal room with an on-screen line, on 3 an owner stays (a player without
+    -- the DLC is sent back). Pause is free in the game (no default binding).
+    local dlcTest = { step = 0, targets = { { "H_Garden_Start", "Stone Garden" }, { "H_Japan_Start", "Torii" }, { "H_Garden_Start", "Stone Garden" } } }
     RegisterKeyBind(Key.PAUSE, function()
         ExecuteInGameThread(function()
             local ok, err = pcall(function()
                 if is_client() then log("DLC test: host only") return end
+                dlcTest.step = dlcTest.step % 4 + 1
+                local pretend = dlcTest.step <= 2
+                if pretend ~= DLC.pretend or dlcTest.step == 1 then
+                    DLC.pretend = pretend
+                    log("DLC test: pretend not owned " .. (pretend and "ON" or "OFF") .. "; respawning the portals")
+                    spawn_all()
+                end
                 local pass, fail = 0, 0
                 local function expect(what, got, want)
                     if got == want then pass = pass + 1 else fail = fail + 1 end
@@ -2415,12 +2490,16 @@ if DEV_KEYS then
                 expect("name rule DLC.hub_name('HUB_mhe_x')", DLC.hub_name("HUB_mhe_x"), true)
                 expect("name rule DLC.names_map('/Game/Mods/Th_Gardens/L')", DLC.names_map("/Game/Mods/Th_Gardens/L"), false)
                 log(string.format("DLC test: self-check: %d PASS, %d FAIL", pass, fail))
+                for area, row in pairs(DLC.rows) do      -- the game's real answer (HasServerGameEntitlement), whatever "pretend" says
+                    local real = DLC.read_owned(area)
+                    log(string.format("DLC test: the game says %s (%s) is %s; the hub treats it as %s", area, row,
+                        real == nil and "not readable" or (real and "owned" or "not owned"), DLC.open(area) and "owned" or "not owned"))
+                end
                 for _, t in ipairs(all_pads()) do
                     if pad_id(t) == "hub_dlctest" then pcall(function() t:K2_DestroyActor() end) end
                 end
-                dlcTest.step = dlcTest.step % 3 + 1
                 local target = dlcTest.targets[dlcTest.step]
-                if not target then show("DLC test: test pad removed") return end
+                if not target then show("DLC test: test pad removed; pretend is off") return end
                 local pawn = local_pawn()
                 local world = UEHelpers.GetWorld()
                 local class = StaticFindObject(TELEPORTER_CLASS)
@@ -2434,8 +2513,11 @@ if DEV_KEYS then
                 pad.IsTeleporterActive = true
                 pcall(function() pad:OnRep_IsTeleporterActive() end)
                 apply_design(pad, DEFAULT_DESIGN)
-                log(string.format("DLC test: test pad hub_dlctest at %.0f, %.0f, %.0f leads into %s (%s); walk in: the backstop should send you back", at.X, at.Y, at.Z, target[2], target[1]))
-                show("DLC test: the pad ahead leads into " .. target[2] .. ". Walk in; you should come straight back.")
+                local open = DLC.open(target[2])
+                log(string.format("DLC test: test pad hub_dlctest at %.0f, %.0f, %.0f leads into %s (%s); %s", at.X, at.Y, at.Z, target[2], target[1],
+                    open and "owned: walk in and you should stay" or "not owned: walk in and the backstop should send you back"))
+                show("DLC test: the pad ahead leads into " .. target[2] .. (open and " (owned). Walk in; you should stay." or
+                    " (treated as not owned). Walk in; you should come straight back."))
             end)
             if not ok then log("DLC test failed: " .. tostring(err)) end
         end)

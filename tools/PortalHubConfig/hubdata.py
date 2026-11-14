@@ -140,9 +140,9 @@ DESTINATIONS = [
 ]
 KNOWN_BY_ID = {d[1]: d for d in DESTINATIONS}
 
-# Stone Garden (H_Garden_*) and Torii (H_Japan_*) are DLC-gated in the game (entitlement rows HomeworldGarden and SupportersEdition) and a
-# hub portal would bypass that, so any pad ID starting with their names is refused, owned or not (LuciDin, 13 November; CRD-033). The hub
-# refuses the same. Matched case-insensitively, as the game's pad IDs are.
+# Stone Garden (H_Garden_*) and Torii (H_Japan_*) are DLC-gated in the game (entitlement rows HomeworldGarden and SupportersEdition). The hub
+# leads there only where the session owns that DLC, by the game's own check (LuciDin, 14 November; CRD-033). The editor can't know that, so
+# a destination starting with their names is allowed with a warning (App.dlc_note). Matched case-insensitively, as the game's pad IDs are.
 DLC_PREFIXES = ("h_garden", "h_japan")
 DLC_PADS = {"h_garden_start", "h_garden_entrance", "h_japan_start", "h_japan_entrance"}     # the four the game has
 
