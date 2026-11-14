@@ -102,8 +102,8 @@ fills the portal room. Each pack's zip has its own README with the details.
 | Pack | Download | What it is |
 |---|---|---|
 | 1, Demo | `PortalHub-1.0.0-Pack1-Demo.zip` | The flagship sample: nine varied optional worlds, no major story spoilers, every portal leading back through its world's Manual Hub Exit |
-| 2, Story | `PortalHub-1.0.0-Pack2-Story.zip` | Story-based (when it is released) |
-| 3, Builder Worlds | `PortalHub-1.0.0-Pack3-Builder-Worlds.zip` | Builder worlds (when it is released) |
+| 2, Story | `PortalHub-1.0.0-Pack2-Story.zip` | Nine worlds from the story, in story order (Far Garden to Shadowgate); contains story spoilers |
+| 3, Builder Worlds | `PortalHub-1.0.0-Pack3-Builder-Worlds.zip` | Five worlds for building: The World in the Mirror, Furniture Store, The Pool Room, Dunkeltaler Forest, Some Distant Shore |
 | 4, Custom Worlds | `PortalHub-1.0.0-Pack4-Custom-Worlds.zip` | Demos the 2.0 teaser worlds (World A-D) and includes them (when it is released) |
 
 **To use a pack:** back up `Mods\PortalHub\Scripts\config.lua`, copy the pack's preset (in its `Presets` folder) over it, keeping the

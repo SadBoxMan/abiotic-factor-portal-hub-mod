@@ -7,8 +7,8 @@ does nothing on its own.
 | Pack | Preset file | What it is |
 |---|---|---|
 | 1, Demo | `Presets\pack1-demo.lua` | The flagship sample: nine varied optional worlds (Dunkeltaler Forest, Flathill, Royal Range, Rise, The World in the Mirror, Furniture Store, The Pool Room, Some Distant Shore, The Train), no major story spoilers. Every portal leads back through its world's Manual Hub Exit |
-| 2, Story | `Presets\pack2-story.lua` | Story-based |
-| 3, Builder Worlds | `Presets\pack3-builder-worlds.lua` | Builder worlds |
+| 2, Story | `Presets\pack2-story.lua` | Nine worlds from the story, in story order: Far Garden, Flathill, The Train, Furniture Store, The Mycofields, Canaan, Voussoir, Village Den da'ko Yeer, Shadowgate. Contains story spoilers |
+| 3, Builder Worlds | `Presets\pack3-builder-worlds.lua` | Five worlds for building: The World in the Mirror, Furniture Store, The Pool Room, Dunkeltaler Forest, Some Distant Shore (four slots left empty) |
 | 4, Custom Worlds | `Presets\pack4-custom-worlds.lua` | Demos the 2.0 teaser worlds (World A-D), which come with it |
 
 This zip holds one of them; its `Presets` folder shows which. The others are separate downloads on the mod page.
