@@ -138,14 +138,14 @@ player's own machine.
 
 ## 10. Known issues
 
-- **UE4SS can stop all delayed actions** in rare cases. The log says "Ref was not function" and the hub stops reacting, even to NUMPAD 1.
 - **After Restart All Mods, restart the game before you play on.** Restart All Mods is fine for trying out config changes, but on
   UE4SS 1.25.0 it can leave a mod's old hooks or timers behind, and the game may crash later, even an hour on. The hub takes its own hook
-  off when mods restart; other mods may not.
-  Restart the game. It was seen once on UE4SS 1.25.0, two minutes after a Restart All Mods.
-- **Rare crashes inside UE4SS** were seen in long test sessions while worlds were loading, with several mods installed. The hub now does
-  as little as it can at those moments; whether it played a part is still being tested. If the game crashes, a crash report in
-  `%LOCALAPPDATA%\AbioticFactor\Saved\Crashes\` and UE4SS's `UE4SS.log` help us find out.
+  off when mods restart and runs all its timed work on the game thread; other mods may not.
+- **"Ref was not function" in UE4SS's log** means UE4SS lost a queued action. In our tests it came right after a Restart All Mods. If the
+  hub portals are missing, press NUMPAD 1 in the portal room; if the hub stops reacting, restart the game.
+- **Rare crashes inside UE4SS** were seen in long test sessions with several mods installed. One cause was found and fixed in the hub (its
+  timers ran Lua on a second thread at the same time as the game); a long test after the fix, with 11 Restart All Mods, had none. If the
+  game crashes, a crash report in `%LOCALAPPDATA%\AbioticFactor\Saved\Crashes\` and UE4SS's `UE4SS.log` help us find out.
 - **Loading a save made inside a custom world** may put you on its arrival pad rather than where you saved.
 - **Not yet tried in the game:** the **hub** exit mode, the **Buffs** switch, and the true-exit buffs of worlds other than Far Garden.
   The Botanical Wing's return trip is untested (its two pads are the game's own link between the two halves).

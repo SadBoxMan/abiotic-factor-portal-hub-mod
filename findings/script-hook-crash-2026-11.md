@@ -118,7 +118,62 @@ UE4SS 1.25.0 with its stock mods on: CheatManagerEnabler, ConsoleCommands, Conso
 | Setup | When | World hops | Pad uses / MHEs | Restart All Mods | Crashes | Notes |
 |---|---|---|---|---|---|---|
 | Step 1: hub only (CRD-032 build, `main.lua` SHA-1 d0ecf8b5, DEV_KEYS off), tracker on; config `8d2e40f7` (Rise B-1, Botanical Wing (Future) B-2, North Pole B-4 manual; World A-D on C-1 to C-4) | 14 Nov 02:00-02:04, Mod Testing | 7 round trips: Rise, Botanical Wing (Future), North Pole | 7 manual-portal uses back to the hub | 4 | 0 | **Smooth** (LuciDin), against the stutter of the same hub-only setup before the fix (13 Nov 18:05). Each restart logged `unloading: AttemptTeleport hook N unregistered` (hooks 5, 10, 15, 20) right after UE4SS's own `Unregistering script hook with id: N`; the new hook came back each time and the next pad use worked. No `Ref was not function`, no tracker error. **`ModRef.OnUnload` and `UnregisterHook` work in game.** |
+| Ladder (a): hub only, the hub that ships (d061ced: CRD-032 fix + CRD-033's DLC guards, DEV_KEYS off, SHA-1 2d1229b2), tracker on; config `8d2e40f7`; DLC survey off, probe off, no lab | 14 Nov 13:19-13:58, Mod Testing | Every portal world once (Rise, Botanical Wing (Future), North Pole, World A-D), then a hop between restarts; 35 min of play before the restarts, 8.9 GB at 33 min | 8 back to the hub: manual portals of Rise, Botanical Wing (Future), North Pole (2 each), MHEs of Signal and Fog to the Failsafe Exit | 8 (13:54-13:55) | 0 | **No stutter, no hang** (LuciDin). All 8 restarts logged `unloading: AttemptTeleport hook N unregistered` (5 to 40 in fives) right after UE4SS's own line, and the hub loaded again with a new hook each time. No `Ref was not function`, no Lua error, no new crash report. The game log was closed normally at 13:58. Logs kept in `Cordona Game Backups\2026-11-14_CRD-032-ladder\`. |
+| Ladder (b): hub (as (a)) + lab (959e5c5 + CRD-032's unload hunk, SHA-1 712f1bfd), F7 on at 14:03; config `8d2e40f7`; probe off | 14 Nov 14:00-15:20, Mod Testing (LuciDin away 14:03-15:13: 70 min idle, autosaves only) | World A-D and back, North Pole and back (its MHE re-recorded at 15:14 with F2 + INSERT, kept); not the planned 30 min of hops | 10 pad uses logged by the lab; 5 back to the hub | 4 (15:13:44-15:14:03), then a 5th at 15:20:52 | **1, during the 5th restart** | Restarts 1-4: both mods unregistered their hooks (hub 5/11/17, lab 6/12/18). **After restart 4, `Ref was not function`** (15:14:04.335, 0.5 s after "All mods re-installed"): the hub's delayed portal spawn was lost (the four world-settings lines of the same moment were logged, `spawn_all` never came), so the hub portals stayed away until NUMPAD 1 (15:14:16), which spawned them and registered the hub's hook (24) **after** the lab's (23): the first time the lab, not the hub, owned AttemptTeleport's hook list. Other delayed actions kept working (the lab's 5 s hook, world readiness, pad logging). **Crash at the 5th restart (15:20:52, 80 min after launch):** UE4SS logged every mod's stop up to PortalHub and the hub's `unloading: AttemptTeleport hook 24 unregistered`, then nothing (the log lags, so the lab's stop may be missing). Dump (cdb, nearest exports): UE4SS's own event-loop thread, `UE4SSProgram::delete_mod` > the Lua mod's uninstall > Lua's state close (Lua library frames) > a UE4SS C function that takes argument 1 as an object and calls its virtual destructor, with a null object: access violation reading 0x0. That is a garbage-collection finalizer meeting an empty object while a mod's Lua state is closed, after our unload callback had finished. Crash folder, dump and both logs in `Cordona Game Backups\2026-11-14_CRD-032-ladder\crash_run_b_1520\`. |
+| (Before the re-run) CRD-033's ownership readout, as an untried-call step: hub of (a), lab, DLC survey (14f9e62) on | 14 Nov 15:39-15:40, Mod Testing | none | none | 0 | 0 | `HasServerGameEntitlement` true for Stone Garden and Torii on the game thread, no error (CRD-033's verdict: clean). |
+| **Re-run after the fix: hub + lab + probe**, hub e92f782 with DEV_KEYS off (SHA-1 e5fdc32f; 14f9e62 + the game-thread delays), lab 59f55ba3, probe 56ab6252 (CordonaProbe 1), F7; config `8d2e40f7`, then **LuciDin's own edit at 15:56:23** (`72a3c448`: 9 portals instead of 7, applied with a Restart All Mods); new North Pole MHE (`manual_exits` 3544b049) | 14 Nov 15:53-16:24, Mod Testing, active play | Rise, Botanical Wing (Future), North Pole, Signal, Distant Shore, Fog, World A-D, the Stone Garden and Torii pads (owned) | 80 pad uses logged by the lab; 28 back to the hub by manual portals and 1 by an MHE (Fog, to the Failsafe Exit); 48 probe button events; NUMPAD 1 three times | **11** (2 at 15:56 for the config change, then 9 from 16:22:14 to 16:23:54, a hop between each) | **0** | Every restart: the probe (4 hooks), the hub and the lab unregistered their hooks, and **the hub's delayed portal spawn ran 0.5 s after each one** ("9 of 9 configured portal(s) spawned"), the step run (b) lost. No `Ref was not function`, no `[DelayedAction]` error, no tracker error, no Lua error, no new crash report; game log without a fatal line; 9.0 GB at the end. CRD-033's ownership check logged both areas owned at each spawn. |
 
-**Still to run:** the longer ladder (hub alone, hub + lab with F7, hub + lab + probe), each a long session with many hops, MHEs and a
-Failsafe Exit, then Restart All Mods several times. The three crashes came 20-60 minutes into long sessions, so a 4-minute run says the
-fix works, not that the crash rate is zero.
+### Run (b)'s crash: what the source says (14 November)
+
+Read from the same UE4SS commit (d4aebbf0): `LuaMadeSimple.hpp`, `LuaMadeSimple.cpp`, `LuaMod.cpp`.
+
+- **The crashing function is LuaMadeSimple's automatic `__gc`:** `static_cast<ObjectType*>(lua_touserdata(L, 1))->~ObjectType()`. The
+  instructions in the dump match it exactly (`lua_touserdata(L, 1)`, then a virtual destructor call through the vtable with no free).
+  `lua_touserdata` returns null only when its argument is not a userdata, so Lua's state close finalized **a value that was not one of
+  UE4SS's objects but carried one of their metatables**: a sign that this Lua state was already damaged, not a fault in the close itself.
+- **The same state had shown damage 7 minutes earlier.** "Ref was not function" at 15:14:04 was logged as `Error: ...` with "No
+  traceback", the form the game-thread action runner uses (the async runner writes `[DelayedAction] ...`). So a game-thread action's
+  registry slot held something other than the function stored there: the registry had been written twice at once.
+- **Where two threads write one Lua state at once.** `ExecuteWithDelay` and `LoopAsync` queue the callback for the mod's **async thread**,
+  which runs it on `async_lua`, a Lua thread of the mod's own state, every 5 ms, **holding no lock against the game thread**. Game-thread
+  Lua (hooks, `ExecuteInGameThread` actions, `NotifyOnNewObject` callbacks) runs on `m_hook_lua`, another thread of the same state. A Lua
+  state is not thread-safe: its registry, allocator and garbage collector are shared by all its threads. UE4SS guards part of it
+  (`ExecuteInGameThread` takes `m_thread_actions_mutex` before its `luaL_ref`, with the comment "when async thread and game thread both
+  access the same hook_lua state"), but `ExecuteWithDelay`'s own `make_ref` takes no lock, the async callback's Lua runs unguarded, and the game-thread runner
+  (`process_simple_actions`) holds the mutex only while it takes the queue: it runs each action and `luaL_unref`s its slot without it.
+- **Our mods use exactly that pattern:** `ExecuteWithDelay(ms, function() ExecuteInGameThread(fn) end)`, 12 times in the hub (its tracker
+  and world poll loops re-arm one every 2 s and 500 ms, so the race window is open all session), 9 in the lab, 1 in the probe. Each one
+  runs a little Lua on the async thread and writes the registry from both threads.
+- **The safe calls exist in this UE4SS:** `ExecuteInGameThreadWithDelay(ms, fn)` and `LoopInGameThreadWithDelay`, queued under the
+  mutex and run by the engine-tick hook on the game thread. With them, none of our Lua would ever run on the async thread.
+- **Fits the other sightings:** the October "Ref was not function, then every delayed action gone" losses, the 6 November sighting two
+  minutes after a restart, and crashes 1 and 2 (a hook's Lua state already garbage) are all what this race can produce; restarts make it
+  likelier (bursts of re-arming from several threads at once). Not proven for those (no heap in the dumps), but it is the first mechanism
+  found that damages a state with no restart and no third-party mod.
+- **Our unload callback is not implicated:** the damage showed at 15:14, the crash at 15:20 when that state was closed.
+
+**Fix (e92f782, LuciDin's go):** one helper used everywhere instead of `ExecuteWithDelay(ms, function() ExecuteInGameThread(fn) end)`:
+`ExecuteInGameThreadWithDelay(ms, fn)` when it exists, the old pair otherwise (an older UE4SS). Hub (`state.later`, all 12 calls including
+CRD-033's DLC backstop chain and the delayed portal spawn that run (b) lost), lab and probe (`later`). Test:
+`test_game_thread_delays.py` (24; 7 fail on the old files); `hub_mock` knows the game-thread delays. (The hub's loops re-arm every 500 ms,
+the tracker, and 250 ms, the world check, not every 2 s as written above.)
+
+**What still runs our Lua off the game thread (UE4SSProgram.cpp, same commit):**
+- **Key binds.** `RegisterKeyBind` callbacks run on UE4SS's event-loop thread (`UE4SSProgram::update` > `m_input_handler.process_event()`),
+  but holding both `m_game_thread_execution_mutex` and `m_thread_actions_mutex`. The engine-tick and ProcessEvent hooks, which run every
+  `ExecuteInGameThread` and game-thread delayed action, hold the first for their whole run, so a key press never overlaps those. It can
+  still overlap a **Blueprint hook callback** (our AttemptTeleport post-hooks, the probe's Button_Generic) or a **`NotifyOnNewObject`
+  callback**, which take neither lock. Our binds run one line there (`ExecuteInGameThread(fn)`), so the window is a key press landing on the
+  same instant as a pad use or a watched object appearing: rare, against the old async race's every 250-500 ms with no lock at all. NUMPAD
+  1/2 ship. Not fixable from Lua short of polling keys from the game thread.
+- **The main chunk at Restart All Mods** runs on the event-loop thread with no lock (`queue_reinstall_mods` > `start_lua_mods`). Once it has
+  registered a `NotifyOnNewObject` or queued an `ExecuteInGameThread`, the game thread may run that callback while the rest of the chunk is
+  still running. Only at restarts, for the last few statements of the chunk.
+
+**Ladder verdict (14 November).** Hub alone, on 0b9a141's fix: clean (40 min, 8 restarts). Hub + lab: "Ref was not function" after a
+restart, then a crash closing that damaged Lua state at the next one; the source pointed at our `ExecuteWithDelay` timers running Lua on
+UE4SS's async thread beside the game thread. After e92f782 (game-thread delays), hub + lab + probe: clean (30 min of active play, 80 pad
+uses, 11 restarts). The dispatcher ruled the combined run enough (it is the case that crashed); CRD-029's fresh-install test runs the
+shipping hub alone from the release zip. **Left:** the two narrow windows above (a key press during a hook callback; the main chunk at a
+restart), both inside UE4SS's design and not reachable from Lua; and one clean 30-minute run is evidence, not proof, against a crash
+that came every one to three long sessions. The README still tells players to restart the game after Restart All Mods.
