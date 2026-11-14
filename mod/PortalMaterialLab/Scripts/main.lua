@@ -26,6 +26,12 @@
 
 
 local function log(msg) print("[MaterialLab] " .. msg .. "\n") end
+-- Delays run on the game thread (CRD-032): ExecuteWithDelay's callback runs on UE4SS's async thread in this mod's Lua state, unlocked
+-- against the game thread's callbacks. ExecuteInGameThreadWithDelay (UE4SS 1.25.0) avoids that; an older UE4SS gets the old pair.
+local function later(ms, fn)
+    ms = math.floor(ms)
+    if ExecuteInGameThreadWithDelay then ExecuteInGameThreadWithDelay(ms, fn) else ExecuteWithDelay(ms, function() ExecuteInGameThread(fn) end) end
+end
 
 local function short(path) return (path:gsub("^.*/", ""):gsub("%..*$", "")) end
 
@@ -786,8 +792,8 @@ local function borrow_lighting()
     fx_status("  before")
     transition_to(pc, "HGarden", "HGarden", "Test World")
     fx_status("  right after")
-    ExecuteWithDelay(2000, function() ExecuteInGameThread(function() fx_status("  2 s later") end) end)
-    ExecuteWithDelay(6000, function() ExecuteInGameThread(function() fx_status("  6 s later") end) end)
+    later(2000, function() fx_status("  2 s later") end)
+    later(6000, function() fx_status("  6 s later") end)
 end
 
 local function release_test_level()
@@ -802,7 +808,7 @@ local function release_test_level()
     if saved.day and saved.night then transition_to(pc, saved.day, saved.night, "") end
     saved = nil
     fx_status("  after")
-    ExecuteWithDelay(2000, function() ExecuteInGameThread(function() fx_status("  2 s later"); vignette_status("  2 s later") end) end)
+    later(2000, function() fx_status("  2 s later"); vignette_status("  2 s later") end)
 end
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -1088,7 +1094,7 @@ local function step_lighting(delta)
     pcall(function() pc.Pawn:Client_DisplayWarningMessage(FText(string.format("Lighting %d/%d: %s", browse.i, #rows, r)), 1, false) end)
     if transition_to(pc, r, r, string.format("%s (%d/%d)", r, browse.i, #rows)) then
         log("  " .. fx_row_values(r))
-        ExecuteWithDelay(2000, function() ExecuteInGameThread(function() fx_status("  2 s later") end) end)
+        later(2000, function() fx_status("  2 s later") end)
     end
 end
 
@@ -1209,7 +1215,7 @@ local function leyak_force()
     pcall(function() d.DirectorDebugOn = true end)
     local ok, err = pcall(function() d:Server_ForceSpawn() end)
     log("  DirectorDebugOn set; Server_ForceSpawn(): " .. tostring(ok) .. (ok and "" or (" (" .. one_line(err) .. ")")))
-    ExecuteWithDelay(3000, function() ExecuteInGameThread(function() leyak_survey("3 s after the force spawn") end) end)
+    later(3000, function() leyak_survey("3 s after the force spawn") end)
 end
 
 RegisterKeyBind(Key.SUBTRACT, function() ExecuteInGameThread(function() leyak_survey() end) end)
@@ -1404,7 +1410,7 @@ local function kill_player()
         if i > #steps then log("kill: still alive after every step, health " .. total_health(pawn)) return end
         local ok, err = pcall(steps[i][2])
         log(string.format("kill: %s: %s, health %s%s", steps[i][1], tostring(ok), total_health(pawn), ok and "" or (" (" .. one_line(err) .. ")")))
-        ExecuteWithDelay(1000, function() ExecuteInGameThread(function() step(i + 1) end) end)
+        later(1000, function() step(i + 1) end)
     end
     step(1)
 end
@@ -1618,9 +1624,9 @@ local function pad_used(pad)
     log(string.format("pad use: %s -> %s, active %s, sets flag %s, gives buffs %s", id, dest, active, row,
         not okB and "?" or (#buffs == 0 and "none" or table.concat(buffs, ", "))))
     if row == "None" or row == "?" then return end
-    ExecuteWithDelay(1500, function() ExecuteInGameThread(function()
+    later(1500, function()
         log(string.format("pad use: 1.5 s after %s, flag %s set in this save: %s", id, row, tostring(contains(saved_flags(), row))))
-    end) end)
+    end)
 end
 
 -- INSERT: a Hub Exit preview. A teleporter pad at the last F2 spot (feet, facing the saved yaw) that leads to the last hub-room portal used, so
@@ -1923,16 +1929,28 @@ local function hub_exit_preview()
     end
 end
 
+-- The ids RegisterHook returns are kept so ModRef.OnUnload can take the hook off before Restart All Mods closes this Lua state (CRD-032):
+-- the hub usually hooks AttemptTeleport first, and UE4SS drops a Blueprint function's hooks only with the mod that hooked it first.
 local function hook_pads()
     if padUse.hooked then return end
-    local ok, err = pcall(function() RegisterHook(TELEPORT_FN, function(self) pad_used(self:get()) end) end)
+    local ok, pre, post = pcall(RegisterHook, TELEPORT_FN, function(self) pad_used(self:get()) end)
     padUse.hooked = ok
-    log(ok and "pad use: logging every pad use" or ("pad use: hook failed: " .. one_line(err)))
+    if ok and type(pre) == "number" and type(post) == "number" then padUse.hookIds = { pre, post } end
+    log(ok and "pad use: logging every pad use" or ("pad use: hook failed: " .. one_line(pre)))
 end
+local function unhook_pads()
+    if not padUse.hookIds then return end
+    local ids = padUse.hookIds
+    padUse.hookIds, padUse.hooked = nil, false
+    local ok, err = pcall(UnregisterHook, TELEPORT_FN, ids[1], ids[2])
+    log(ok and ("unloading: pad-use hook " .. ids[1] .. " unregistered") or ("unloading: pad-use hook could not be unregistered: " .. one_line(err)))
+end
+if not pcall(function() ModRef.OnUnload = unhook_pads end) then log("unload callback not available in this UE4SS") end
 
-local function hook_pads_soon() ExecuteWithDelay(5000, function() ExecuteInGameThread(hook_pads) end) end
+local function hook_pads_soon() later(5000, hook_pads) end
 NotifyOnNewObject(HOMEWORLD_PAD, hook_pads_soon)
-if valid(FindFirstOf("BP_Teleporter_HomeWorld_C")) then hook_pads_soon() end
+-- on Restart All Mods this file runs on UE4SS's own thread while the game runs: the object search waits for the game thread (CRD-032)
+ExecuteInGameThread(function() if valid(FindFirstOf("BP_Teleporter_HomeWorld_C")) then hook_pads_soon() end end)
 
 -- F7: infinite health for testing (CRD-031; the lab never ships). Sets the player character's own Invincible flag. While on, it is checked
 -- every 2 s on the game thread and set again if a new character lacks it (after a load or a respawn). No hook and no async loop: a
@@ -1962,7 +1980,7 @@ local function invincible_check(gen)
         local ok = set_invincible(pawn, true)
         log("infinite health: set again on the current character (" .. tostring(ok) .. ")")
     end
-    ExecuteWithDelay(2000, function() ExecuteInGameThread(function() invincible_check(gen) end) end)
+    later(2000, function() invincible_check(gen) end)
 end
 local function toggle_invincible()
     local pawn = current_pawn()

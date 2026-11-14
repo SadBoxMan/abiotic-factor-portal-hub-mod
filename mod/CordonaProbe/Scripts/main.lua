@@ -27,6 +27,12 @@ local ROLE_NAMES = { [0] = "None", [1] = "SimulatedProxy", [2] = "AutonomousProx
 local probe = { buttons = {}, presses = 0, hooked = {}, notes = {} }
 
 local function log(msg) print("[CordonaProbe] " .. msg .. "\n") end
+-- Delays run on the game thread (CRD-032): ExecuteWithDelay's callback runs on UE4SS's async thread in this mod's Lua state, unlocked
+-- against the game thread's callbacks. ExecuteInGameThreadWithDelay (UE4SS 1.25.0) avoids that; an older UE4SS gets the old pair.
+local function later(ms, fn)
+    ms = math.floor(ms)
+    if ExecuteInGameThreadWithDelay then ExecuteInGameThreadWithDelay(ms, fn) else ExecuteWithDelay(ms, function() ExecuteInGameThread(fn) end) end
+end
 
 local function valid(o) return o ~= nil and type(o) ~= "number" and type(o) ~= "string" and type(o) ~= "boolean" and o:IsValid() end
 
@@ -348,9 +354,9 @@ NotifyOnNewObject(HOMEWORLD_CLASS, function()
     if probe.pendingHomeworld then return end
     probe.pendingHomeworld = true
     ExecuteInGameThread(function() log_identity("a Homeworld pad appeared") end)
-    ExecuteWithDelay(SPAWN_DELAY_MS, function()
+    later(SPAWN_DELAY_MS, function()
         probe.pendingHomeworld = false
-        ExecuteInGameThread(function() log_identity("portal-spawn time, " .. SPAWN_DELAY_MS .. " ms after the Homeworld pad"); install_hooks() end)
+        log_identity("portal-spawn time, " .. SPAWN_DELAY_MS .. " ms after the Homeworld pad"); install_hooks()
     end)
 end)
 

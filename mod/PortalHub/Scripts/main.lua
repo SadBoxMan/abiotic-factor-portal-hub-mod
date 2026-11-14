@@ -137,6 +137,13 @@ function DLC.closed_at(p)
 end
 
 local state = { entries = {}, dests = {}, byId = {}, byManual = {}, byMhe = {}, hubMode = {}, acts = {}, hooked = false, pending = false }
+-- Every delayed action goes through state.later (CRD-032). ExecuteWithDelay runs its callback on UE4SS's async thread, in this mod's own Lua
+-- state, with no lock against the game thread's callbacks: two threads in one Lua state can damage it ("Ref was not function", crashes).
+-- ExecuteInGameThreadWithDelay (UE4SS 1.25.0) waits and runs on the game thread only; an older UE4SS gets the old pair.
+function state.later(ms, fn)
+    ms = math.floor(ms)
+    if ExecuteInGameThreadWithDelay then ExecuteInGameThreadWithDelay(ms, fn) else ExecuteWithDelay(ms, function() ExecuteInGameThread(fn) end) end
+end
 local is_client             -- true on a joining player's machine (client mode, CRD-027); defined with the presence tracker below
 local spawn_all             -- spawns the hub portals (defined at the end; the tracker also calls it, CRD-028)
 
@@ -976,12 +983,12 @@ local function run_world_checks()
         if worldLoop.gen ~= gen then return end
         worldLoop.lastTick = os.clock()
         if world_checks_tick() then
-            ExecuteWithDelay(WORLD_POLL_MS, function() ExecuteInGameThread(loop) end)
+            state.later(WORLD_POLL_MS, loop)
         else
             worldLoop.running = false
         end
     end
-    ExecuteWithDelay(WORLD_POLL_MS, function() ExecuteInGameThread(loop) end)
+    state.later(WORLD_POLL_MS, loop)
 end
 
 local function start_world(world, def)
@@ -1835,9 +1842,9 @@ local function start_tracker()
         presence.lastTick = os.clock()
         local ok, err = pcall(track_tick)
         if not ok then note("tracker error: " .. tostring(err):match("^[^\r\n]*")) end
-        ExecuteWithDelay(TRACK_MS, function() ExecuteInGameThread(loop) end)
+        state.later(TRACK_MS, loop)
     end
-    ExecuteWithDelay(TRACK_MS, function() ExecuteInGameThread(loop) end)
+    state.later(TRACK_MS, loop)
     log("tracker: watching " .. (function() local n = 0; for _ in pairs(worldDefs) do n = n + 1 end; return n end)() .. " custom world area(s)")
 end
 
@@ -1906,7 +1913,7 @@ local function hub_pad_exit(hubId)
 end
 
 local function check_after_move(char, used, hub, target)
-    ExecuteWithDelay(LAND_CHECK_MS, function() ExecuteInGameThread(function()
+    state.later(LAND_CHECK_MS, function()
         local ok, err = pcall(function()
             if not (char and char:IsValid()) then log("hub exits: check after " .. used .. ": the player is gone") return end
             local m = metres(char:K2_GetActorLocation(), target)
@@ -1914,7 +1921,7 @@ local function check_after_move(char, used, hub, target)
                 m < 10 and " (at the hub portal)" or " (NOT at the hub portal: moved away, fell, or the move was undone)"))
         end)
         if not ok then log("hub exits: check failed: " .. tostring(err)) end
-    end) end)
+    end)
 end
 
 -- Move a player who just used a world exit on to a hub portal, once the game's own teleport has put them down.
@@ -1933,18 +1940,18 @@ local function send_to_hub(char, exitPad, used, hub, farM)
                 used, when, from.X, from.Y, from.Z, hub))
         end)
         if not ok then log("hub exits: move failed: " .. tostring(err)) return end
-        ExecuteWithDelay(HOLD_MS, function() ExecuteInGameThread(function()
+        state.later(HOLD_MS, function()
             pcall(function() char.CharacterMovement:SetMovementMode(3, 0) end)      -- MOVE_Falling: lands and walks again
-        end) end)
+        end)
         check_after_move(char, used, hub, target)
     end
     if moved() then
-        ExecuteWithDelay(100, function() ExecuteInGameThread(function() go("before the hook ran") end) end)
+        state.later(100, function() go("before the hook ran") end)
         return
     end
     local step = 1
     local function again()
-        ExecuteWithDelay(WAIT_STEPS_MS[step], function() ExecuteInGameThread(function()
+        state.later(WAIT_STEPS_MS[step], function()
             local ok, isMoved = pcall(moved)
             if ok and isMoved then go(string.format("%.2f s after the hook", os.clock() - t0)) return end
             step = step + 1
@@ -1953,7 +1960,7 @@ local function send_to_hub(char, exitPad, used, hub, farM)
                 return
             end
             again()
-        end) end)
+        end)
     end
     again()
 end
@@ -2078,7 +2085,7 @@ function DLC.backstop(char, used)
     local step = 0
     local function look()
         step = step + 1
-        ExecuteWithDelay(DLC.backstopMs[step] - (DLC.backstopMs[step - 1] or 0), function() ExecuteInGameThread(function()
+        state.later(DLC.backstopMs[step] - (DLC.backstopMs[step - 1] or 0), function()
             local ok, err = pcall(function()
                 if not (char and char:IsValid()) then return end
                 local at = char:K2_GetActorLocation()
@@ -2092,16 +2099,16 @@ function DLC.backstop(char, used)
                 if not target then log("DLC: " .. player_key(char) .. " landed inside " .. area .. " after " .. used .. ", and there is no hub portal to send them to") return end
                 send_player(char, target, yaw)
                 pcall(function() char.CharacterMovement:SetMovementMode(0, 0) end)      -- MOVE_None: held until the floor is there
-                ExecuteWithDelay(HOLD_MS, function() ExecuteInGameThread(function()
+                state.later(HOLD_MS, function()
                     pcall(function() char.CharacterMovement:SetMovementMode(3, 0) end)  -- MOVE_Falling: lands and walks again
-                end) end)
+                end)
                 log(string.format("DLC: %s landed inside %s (%.0f, %.0f, %.0f) after using %s; sent back to the portal room. The hub never leads into a DLC area.",
                     player_key(char), area, at.X, at.Y, at.Z, used))
                 local me = local_pawn()
                 if me and obj_key(me) == obj_key(char) then show(area .. " is DLC: the Portal Hub doesn't lead there. Use the game's own portal.", MSG_YELLOW) end
             end)
             if not ok then log("DLC backstop failed: " .. tostring(err)) end
-        end) end)
+        end)
     end
     look()
 end
@@ -2319,12 +2326,12 @@ local function watch_client_pads()
         client.pending, client.pendingAt = true, os.clock()
         client.gen = client.gen + 1
         local gen = client.gen
-        ExecuteWithDelay(CLIENT_REFRESH_MS, function() ExecuteInGameThread(function()
+        state.later(CLIENT_REFRESH_MS, function()
             if gen ~= client.gen then return end
             client.pending = false
             local ok, err = pcall(function() if is_client() then client_refresh() end end)
             if not ok then log("client mode: refresh failed: " .. tostring(err):match("^[^\r\n]*")) end
-        end) end)
+        end)
     end)
     log("client mode: watching for hub portals that arrive from the host")
 end
@@ -2396,13 +2403,11 @@ schedule_spawn = function(delay_ms)
     if state.pending then return end
     state.pending = true
     local before = state.spawns or 0
-    ExecuteWithDelay(delay_ms, function()
+    state.later(delay_ms, function()
         state.pending = false
-        ExecuteInGameThread(function()
-            -- the hub portals were spawned while this one waited (the tracker, CRD-028, or NUMPAD 1): spawning again would only replace them
-            if (state.spawns or 0) ~= before then log("the hub portals were spawned in the meantime; not spawning them again") return end
-            spawn_all()
-        end)
+        -- the hub portals were spawned while this one waited (the tracker, CRD-028, or NUMPAD 1): spawning again would only replace them
+        if (state.spawns or 0) ~= before then log("the hub portals were spawned in the meantime; not spawning them again") return end
+        spawn_all()
     end)
 end
 

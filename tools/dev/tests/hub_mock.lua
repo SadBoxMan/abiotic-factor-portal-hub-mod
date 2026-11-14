@@ -124,7 +124,26 @@ ModifierKey = Key
 GAME_THREAD = 0
 function ExecuteInGameThread(fn) GAME_THREAD = GAME_THREAD + 1; local ok, err = pcall(fn); GAME_THREAD = GAME_THREAD - 1; if not ok then error(err, 0) end end
 QUEUE = {}
-function ExecuteWithDelay(ms, fn) QUEUE[#QUEUE + 1] = fn end
+-- ASYNC_DELAYS counts ExecuteWithDelay calls (its callback runs on UE4SS's async thread); GAME_DELAYS counts the game-thread delays, queued
+-- in the same QUEUE and pumped the same way (CRD-032: our mods use ExecuteInGameThreadWithDelay when UE4SS has it)
+ASYNC_DELAYS, GAME_DELAYS = 0, 0
+function ExecuteWithDelay(ms, fn) ASYNC_DELAYS = ASYNC_DELAYS + 1; QUEUE[#QUEUE + 1] = fn end
+function ExecuteInGameThreadWithDelay(ms, fn)
+    assert(math.type(ms) == "integer", "ExecuteInGameThreadWithDelay: delay must be an integer")
+    GAME_DELAYS = GAME_DELAYS + 1
+    QUEUE[#QUEUE + 1] = function() ExecuteInGameThread(fn) end
+end
+-- like UE4SS, a game-thread loop runs every pump until CancelDelayedAction(handle)
+CANCELLED = {}
+function LoopInGameThreadWithDelay(ms, fn)
+    assert(math.type(ms) == "integer", "LoopInGameThreadWithDelay: delay must be an integer")
+    GAME_DELAYS = GAME_DELAYS + 1
+    local handle = GAME_DELAYS
+    local function again() if CANCELLED[handle] then return end; ExecuteInGameThread(fn); QUEUE[#QUEUE + 1] = again end
+    QUEUE[#QUEUE + 1] = again
+    return handle
+end
+function CancelDelayedAction(handle) CANCELLED[handle] = true end
 function pump() local q = QUEUE; QUEUE = {}; for _, fn in ipairs(q) do fn() end end
 
 package.preload["UEHelpers"] = function() return { GetWorld = function() return WORLD end, FindOrAddFName = FName } end
