@@ -3,6 +3,7 @@
 Ported from PortalHubConfig.ps1. Destination names and order follow the wiki's list of portal worlds; pad IDs and looks
 were matched to the game's data (DT_Levels and the teleporter dump).
 """
+import re
 
 # The 12 portal-room slots, in room order. A = top level, B = middle, C = bottom. Three hold the game's own portals.
 ROWS = "ABC"
@@ -139,12 +140,29 @@ DESTINATIONS = [
 ]
 KNOWN_BY_ID = {d[1]: d for d in DESTINATIONS}
 
-# Their entrance pads are DLC-gated in the game and a hub portal would bypass that. Matched case-insensitively.
-DLC_PADS = {"h_garden_start", "h_garden_entrance", "h_japan_start", "h_japan_entrance"}
+# Stone Garden (H_Garden_*) and Torii (H_Japan_*) are DLC-gated in the game (entitlement rows HomeworldGarden and SupportersEdition) and a
+# hub portal would bypass that, so any pad ID starting with their names is refused, owned or not (LuciDin, 13 November; CRD-033). The hub
+# refuses the same. Matched case-insensitively, as the game's pad IDs are.
+DLC_PREFIXES = ("h_garden", "h_japan")
+DLC_PADS = {"h_garden_start", "h_garden_entrance", "h_japan_start", "h_japan_entrance"}     # the four the game has
 
 
 def is_dlc(pad):
-    return pad.strip().lower() in DLC_PADS
+    return pad.strip().lower().startswith(DLC_PREFIXES)
+
+
+def names_dlc_map(path):
+    """True if a package path has a part (between / or .) starting with a DLC area's name, like /Game/Maps/H_Garden."""
+    return any(part.lower().startswith(DLC_PREFIXES) for part in re.split(r"[/.]", path.strip()))
+
+
+# The hub's own pads (hub portals, manual portals, MHEs, the Failsafe Exit; portalroom_ from the old proof of concept) are never a destination:
+# an MHE stands inside its world, so leading to one would be a way into any world, a DLC one too (CRD-033). Case-insensitive.
+RESERVED_PREFIXES = ("hub_", "portalroom_")
+
+
+def is_reserved(pad):
+    return pad.strip().lower().startswith(RESERVED_PREFIXES)
 
 
 # Hub Exits (CRD-012): what a base-game world's own exits do for a hub portal leading to it. exitMode (top of config.lua) is the

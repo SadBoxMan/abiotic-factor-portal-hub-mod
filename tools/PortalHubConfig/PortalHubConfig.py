@@ -698,8 +698,10 @@ def world_problems(worlds):
             err.append("Enter a world ID.")
         elif not PAD_ID_RX.match(w.id):
             err.append("The world ID can use letters, numbers, _ and - only.")
-        elif w.id.startswith("hub_"):
+        elif hd.is_reserved(w.id):
             err.append("IDs starting with hub_ are reserved for the hub's own portals.")
+        elif hd.is_dlc(w.id):
+            err.append("IDs starting with H_Garden or H_Japan are the game's DLC areas; pick your own.")
         elif w.id in hd.KNOWN_BY_ID:
             err.append("That ID is one of the game's own pads; pick your own.")
         elif any(k != i and o.id.lower() == w.id.lower() for k, o in enumerate(worlds)):
@@ -710,6 +712,8 @@ def world_problems(worlds):
             err.append("Loader class should end in _C, like BP_MyWorldLoader_C.")
         if not path_rx.match(w.level):
             err.append("Level: enter the map's package path, like /Game/Mods/MyWorld/Maps/MyWorld_L0.")
+        if any(hd.names_dlc_map(p) for p in (w.asset, w.cls, w.level)):
+            err.append("The loader or level names a DLC area (H_Garden or H_Japan), which the hub refuses.")
         if w.bad:
             err.append(w.bad)
         else:
@@ -1115,7 +1119,9 @@ class App:
         if not PAD_ID_RX.match(d):
             return "no valid destination pad ID (letters, numbers, _ and - only)"
         if hd.is_dlc(d):
-            return "a DLC area (Temple of Stone or Torii) as its destination, which isn't allowed"
+            return "a DLC area (Stone Garden or Torii) as its destination, which isn't allowed"
+        if hd.is_reserved(d):
+            return "one of the hub's own pads (hub_...) as its destination, which isn't allowed"
         return ""
 
     # ------------- selection and the side panel

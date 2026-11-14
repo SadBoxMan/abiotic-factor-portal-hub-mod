@@ -20,9 +20,60 @@ local HUM_FLOOR = Config.humFloor or 0.15
 local HUM_MANUAL = Config.humManual or 0.5
 local SPAWN_DELAY_MS = 4000
 
--- The two DLC areas (Temple of Stone / Garden, Torii / Japan) are DLC-gated by the game's own entrance pads; a hub portal would
--- bypass that, so these pad IDs are refused as destinations (the config editor refuses them too). Compared in lower case.
-local BLOCKED_DESTINATIONS = { h_garden_start = true, h_garden_entrance = true, h_japan_start = true, h_japan_entrance = true }
+-- The two DLC areas, Stone Garden (H_Garden_*, the game's entitlement row HomeworldGarden) and Torii (H_Japan_*, row SupportersEdition),
+-- are gated by the game's own home pads and level streaming. A hub portal would bypass that, so the hub never leads into them, whether the
+-- DLC is owned or not (LuciDin, 13 November; CRD-033, findings/dlc-ownership-2026-11.md). Four guards, so that hand edits can't get round it:
+--   names  a destination starting with h_garden or h_japan, or naming one of the hub's own pads (hub_...: an MHE stands inside its world),
+--          is refused; so is a custom world whose ID, loader or level names a DLC area. Compared in lower case, as the game's pad IDs are.
+--   spots  a manual portal's spot, an MHE, the Failsafe Exit or a custom world's origin or arrival inside a DLC area is refused.
+--   pads   a hub portal whose destination pad stands inside a DLC area (a player-built portal, for example) is not spawned.
+--   use    a player who lands inside a DLC area after using a hub pad is sent straight back (the backstop for anything the rest missed).
+-- The config editor refuses the same names (hubdata.is_dlc, is_reserved, names_dlc_map).
+local DLC = {     -- everything the four guards need, in one table (main.lua is near Lua's limit of 200 locals in one function)
+    prefixes = { "h_garden", "h_japan" },
+    hubPrefixes = { "hub_", "portalroom_" },     -- the hub's own pad IDs (ID_PREFIX, LEGACY_PREFIXES below), in lower case
+    worlds = {},                                 -- custom worlds refused for a DLC area (resolve_worlds): their portals are refused too
+    backstopMs = { 100, 600, 1500 },             -- when the backstop looks at a player after a hub pad use (DLC.backstop)
+    margin = 2000,                               -- 20 m around each box
+    -- Boxes around the two areas (min and max corner), from the game's own DLC-gated streaming volumes (AbioticLevelStreamingVolume with a
+    -- RequiredEntitlement; CordonaDlcSurvey). Hardcoded, so the check needs no game call.
+    areas = {     -- PENDING SURVEY: provisional boxes, 250 m around each area's own arrival pad
+        { name = "Stone Garden", lo = { 122890.6 - 25000, 160239.8 - 25000, 59350.0 - 25000 }, hi = { 122890.6 + 25000, 160239.8 + 25000, 59350.0 + 25000 } },
+        { name = "Torii", lo = { 135877.3 - 25000, 125090.2 - 25000, 57019.9 - 25000 }, hi = { 135877.3 + 25000, 125090.2 + 25000, 57019.9 + 25000 } },
+    },
+}
+
+function DLC.starts(s, prefixes)
+    if type(s) ~= "string" then return false end
+    s = s:lower()
+    for _, p in ipairs(prefixes) do
+        if s:sub(1, #p) == p then return true end
+    end
+    return false
+end
+function DLC.name(s) return DLC.starts(s, DLC.prefixes) end
+function DLC.hub_name(s) return DLC.starts(s, DLC.hubPrefixes) end
+-- does a package or class path name a DLC area in one of its parts (between / and .), like /Game/Maps/H_Garden? Not inside a word: Th_Gardens is fine.
+function DLC.names_map(path)
+    if type(path) ~= "string" then return false end
+    for part in path:gmatch("[^/%.]+") do
+        if DLC.name(part) then return true end
+    end
+    return false
+end
+-- the DLC area a point (a table with X, Y, Z) stands in, or nil
+function DLC.area_at(p)
+    if type(p) ~= "table" then return nil end
+    local x, y, z = tonumber(p.X or p[1]), tonumber(p.Y or p[2]), tonumber(p.Z or p[3])
+    if not (x and y and z) then return nil end
+    for _, a in ipairs(DLC.areas) do
+        if x >= a.lo[1] - DLC.margin and x <= a.hi[1] + DLC.margin and y >= a.lo[2] - DLC.margin and y <= a.hi[2] + DLC.margin
+                and z >= a.lo[3] - DLC.margin and z <= a.hi[3] + DLC.margin then
+            return a.name
+        end
+    end
+    return nil
+end
 
 local state = { entries = {}, dests = {}, byId = {}, byManual = {}, byMhe = {}, hubMode = {}, acts = {}, hooked = false, pending = false }
 local is_client             -- true on a joining player's machine (client mode, CRD-027); defined with the presence tracker below
@@ -123,8 +174,12 @@ local function resolve_config()
             log("config entry " .. i .. ": slot " .. p.slot .. " holds a game portal, skipped")
         elseif used[p.slot] then
             log("config entry " .. i .. ": slot " .. p.slot .. " is already used, skipped")
-        elseif type(p.destination) == "string" and BLOCKED_DESTINATIONS[p.destination:lower()] then
+        elseif DLC.name(p.destination) then
             log("config entry " .. i .. ": " .. p.destination .. " is a DLC area and cannot be a destination, skipped")
+        elseif DLC.hub_name(p.destination) then
+            log("config entry " .. i .. ": " .. p.destination .. " is one of the hub's own pads and cannot be a destination, skipped")
+        elseif type(p.destination) == "string" and DLC.worlds[p.destination] then
+            log("config entry " .. i .. ": " .. p.destination .. " is a custom world refused for a DLC area (see the worlds line above), skipped")
         elseif type(p.destination) ~= "string" or p.destination == "" then
             log("config entry " .. i .. ": missing destination, skipped")
         else
@@ -160,7 +215,12 @@ local function resolve_config()
                         log("config entry " .. i .. ": manual is ignored: a hub portal has no spot of its own; edit the MHE of " .. p.destination .. " in manual_exits.lua")
                     end
                     manual = spot(MANUAL_EXITS[p.destination])
-                    if not manual then
+                    local area = manual and DLC.area_at(manual)
+                    if area then
+                        log("config entry " .. i .. ": the manual portal spot of " .. p.destination .. " (manual_exits.lua) is inside a DLC area (" .. area
+                            .. "); the hub never leads there; using \"game\"")
+                        manual, mode = nil, "game"
+                    elseif not manual then
                         log("config entry " .. i .. ": exits = \"manual\", but " .. p.destination .. " has no manual portal yet (manual_exits.lua); using \"game\"")
                         mode = "game"
                     end
@@ -306,13 +366,25 @@ local WORLD_POLL_MS = 250
 local WORLD_MAX_TRIES = 720      -- about 3 minutes
 
 local function resolve_worlds()
-    worldDefs = {}
+    worldDefs, DLC.worlds = {}, {}
     for id, w in pairs(Config.worlds or {}) do
         local ok = type(id) == "string" and id ~= "" and type(w) == "table"
         ok = ok and type(w.loaderAsset) == "string" and type(w.loaderClass) == "string" and type(w.level) == "string"
         ok = ok and type(w.origin) == "table" and #w.origin >= 3
         ok = ok and (w.arrive == nil or (type(w.arrive) == "table" and #w.arrive >= 3))     -- optional: ArriveSpot on the loader Blueprint
+        local dlc = nil                                  -- CRD-033: a world that names or stands in a DLC area is refused, and so are its portals
         if ok then
+            local o = { tonumber(w.origin[1]) or 0, tonumber(w.origin[2]) or 0, tonumber(w.origin[3]) or 0 }
+            local a = w.arrive and { o[1] + (tonumber(w.arrive[1]) or 0), o[2] + (tonumber(w.arrive[2]) or 0), o[3] + (tonumber(w.arrive[3]) or 0) }
+            if DLC.name(id) then dlc = "is named after a DLC area"
+            elseif DLC.names_map(w.loaderAsset) or DLC.names_map(w.loaderClass) or DLC.names_map(w.level) then dlc = "names a DLC area in its loader or level"
+            elseif DLC.area_at(o) then dlc = "has its origin inside a DLC area (" .. DLC.area_at(o) .. ")"
+            elseif a and DLC.area_at(a) then dlc = "arrives inside a DLC area (" .. DLC.area_at(a) .. ")" end
+        end
+        if dlc then
+            DLC.worlds[id] = true
+            log("worlds: '" .. tostring(id) .. "' " .. dlc .. "; refused (the hub never leads into a DLC area)")
+        elseif ok then
             -- optional: lighting = { sun = n, sunColor = { r, g, b }, sunPitch = deg, sky = n, fog = n }  (only the keys you give are changed)
             local lighting = nil
             if type(w.lighting) == "table" then
@@ -437,7 +509,25 @@ local function default_return(def)
 end
 
 local function spawn_arrival_pad(world, def)
-    for _, t in ipairs(all_pads()) do
+    -- CRD-033: the spot may come from the loader Blueprint (apply_world_settings), so it is checked here too, as is a pad that already has
+    -- this ID (a player-built portal, for example). A world caught here keeps its hub portals off (set_portals_active).
+    local spot = { X = def.origin[1] + def.arrive[1], Y = def.origin[2] + def.arrive[2], Z = def.origin[3] + def.arrive[3] }
+    local area = DLC.area_at(spot)
+    local pads = all_pads()
+    if not area then
+        for _, t in ipairs(pads) do
+            if pad_id(t) == def.id then
+                local ok, l = pcall(function() return t:K2_GetActorLocation() end)
+                area = ok and DLC.area_at(l) or nil
+            end
+        end
+    end
+    if area then
+        if def.dlcArea ~= area then log("worlds: " .. def.id .. " arrives inside a DLC area (" .. area .. "); no arrival pad, its hub portals stay off") end
+        def.dlcArea = area
+        return nil
+    end
+    for _, t in ipairs(pads) do
         if pad_id(t) == def.id then                     -- already there: make sure its exit leads somewhere
             local back = default_return(def)
             local cur = nil
@@ -677,6 +767,8 @@ local function spawn_exit_pad(world, def)
     local class = StaticFindObject(TELEPORTER_CLASS)
     if not (class and class:IsValid()) then return nil end
     local loc = { X = def.origin[1] + def.exit[1], Y = def.origin[2] + def.exit[2], Z = def.origin[3] + def.exit[3] }
+    local area = DLC.area_at(loc)          -- CRD-033: its ID could be named as a destination, so no exit pad inside a DLC area either
+    if area then log("vignette: the exit of " .. def.id .. " is inside a DLC area (" .. area .. "); the hub places no pad there, not spawned") return nil end
     local pad = world:SpawnActor(class, loc, { Pitch = 0.0, Yaw = def.exit[4], Roll = 0.0 })
     if not (pad and pad:IsValid()) then log("vignette: could not spawn the exit pad for " .. def.id) return nil end
     pad.MyTeleporterID = FName(exit_pad_id(def))
@@ -719,6 +811,7 @@ local function spawn_zones(world, def)
 end
 
 local function set_portals_active(id, on)
+    if on and worldDefs[id] and worldDefs[id].dlcArea then on = false end      -- CRD-033: it arrives inside a DLC area (spawn_arrival_pad)
     for _, e in ipairs(state.entries) do
         if e.world and e.world.id == id and e.actor and e.actor:IsValid() then
             pcall(function() e.actor.IsTeleporterActive = on; e.actor:OnRep_IsTeleporterActive() end)
@@ -882,14 +975,35 @@ local function spawn_manual(world, class, e)
         e.dest, e.id, e.manualBuffs and " (gives the true exit's buffs)" or ""))
 end
 
-local function spawn_entry(world, class, e)
+-- Where each loaded pad stands, by its ID in lower case (pad IDs ignore case): read once per spawn_all, for the DLC check in spawn_entry.
+-- The hub's own pads are left out (their names are refused as destinations anyway).
+function DLC.pad_spots()
+    local spots = {}
+    for _, t in ipairs(all_pads()) do
+        local id = pad_id(t)
+        if id and not is_hub_id(id) then
+            local ok, l = pcall(function() return t:K2_GetActorLocation() end)
+            if ok and l then spots[id:lower()] = { X = l.X, Y = l.Y, Z = l.Z } end
+        end
+    end
+    return spots
+end
+
+local function spawn_entry(world, class, e, spots)
+    -- CRD-033: a destination pad standing inside a DLC area (a player-built portal there, for example) gets no hub portal. A pad that is not
+    -- loaded now can't be checked; the backstop in on_attempt covers it.
+    local area = spots and DLC.area_at(spots[e.dest:lower()])
+    if area then
+        log(string.format("%s: '%s' -> %s: that pad stands inside a DLC area (%s); the hub never leads there, not spawned", e.slot.id, e.name, e.dest, area))
+        return false
+    end
     local loc, yaw = Slots.pose(e.slot)
     local actor = world:SpawnActor(class, loc, { Pitch = 0.0, Yaw = yaw, Roll = 0.0 })
     if not actor or not actor:IsValid() then log(e.slot.id .. ": SpawnActor failed") return false end
     actor.MyTeleporterID = FName(e.id)
     actor.DestinationTeleporterID = FName(e.manualId or e.dest)
-    local waiting = e.world and not (worldState[e.world.id] and worldState[e.world.id].status == "ready")
-    actor.IsTeleporterActive = not waiting          -- a portal to a custom world stays off until that world has loaded
+    local waiting = e.world and (e.world.dlcArea or not (worldState[e.world.id] and worldState[e.world.id].status == "ready"))
+    actor.IsTeleporterActive = not waiting          -- a portal to a custom world stays off until that world has loaded (or for good: CRD-033)
     pcall(function() actor:OnRep_IsTeleporterActive() end)
     e.actor = actor
     apply_design(actor, e.design)
@@ -1885,6 +1999,50 @@ local function hub_exit_use(pad, char)
     if first and char then send_to_hub(char, pad, mine, hub, how == "distance" and FIND_FAR_M or nil) end
 end
 
+-- The DLC backstop (CRD-033): whatever a hub pad leads to, a player it puts inside a DLC area is sent straight back, to the front of the hub
+-- portal they used (for a manual portal, its hub portal; otherwise the portal room). The game's teleport may land a moment after the hook
+-- runs, so the player is looked at a few times (DLC.backstopMs after the use), and left alone once seen outside the areas at the last look.
+-- Only the host's hook gets here (on_attempt), and only for the hub's own pads: the game's own pads, its home portals included, are the game's.
+function DLC.backstop_target(used)
+    local e = state.byId[used] or state.byManual[used]
+    if e then
+        local loc, yaw = hub_pad_exit(e.id)
+        if loc then return loc, yaw end
+    end
+    return portal_room_exit()
+end
+
+function DLC.backstop(char, used)
+    local step = 0
+    local function look()
+        step = step + 1
+        ExecuteWithDelay(DLC.backstopMs[step] - (DLC.backstopMs[step - 1] or 0), function() ExecuteInGameThread(function()
+            local ok, err = pcall(function()
+                if not (char and char:IsValid()) then return end
+                local at = char:K2_GetActorLocation()
+                local area = DLC.area_at(at)
+                if not area then
+                    if step < #DLC.backstopMs then look() end
+                    return
+                end
+                local target, yaw = DLC.backstop_target(used)
+                if not target then log("DLC: " .. player_key(char) .. " landed inside " .. area .. " after " .. used .. ", and there is no hub portal to send them to") return end
+                send_player(char, target, yaw)
+                pcall(function() char.CharacterMovement:SetMovementMode(0, 0) end)      -- MOVE_None: held until the floor is there
+                ExecuteWithDelay(HOLD_MS, function() ExecuteInGameThread(function()
+                    pcall(function() char.CharacterMovement:SetMovementMode(3, 0) end)  -- MOVE_Falling: lands and walks again
+                end) end)
+                log(string.format("DLC: %s landed inside %s (%.0f, %.0f, %.0f) after using %s; sent back to the portal room. The hub never leads into a DLC area.",
+                    player_key(char), area, at.X, at.Y, at.Z, used))
+                local me = local_pawn()
+                if me and obj_key(me) == obj_key(char) then show(area .. " is DLC: the Portal Hub doesn't lead there. Use the game's own portal.", MSG_YELLOW) end
+            end)
+            if not ok then log("DLC backstop failed: " .. tostring(err)) end
+        end) end)
+    end
+    look()
+end
+
 local function on_attempt(self, inPlayer)
     local pad = self:get()
     if is_client() then          -- CRD-027: the host's hub sees every player's pad use; a client's would only fight it. Logged, to learn when it fires.
@@ -1897,6 +2055,8 @@ local function on_attempt(self, inPlayer)
         local char = nil
         if inPlayer then pcall(function() char = inPlayer:get() end) end
         hub_exit_use(pad, char)
+        local id = pad_id(pad)
+        if char and id and is_hub_id(id) then DLC.backstop(char, id) end
     end)
     if not ok then log("hub exits failed: " .. tostring(err)) end
 end
@@ -1935,12 +2095,15 @@ local function mhe_id(world) return ID_PREFIX .. "mhe_" .. world end
 local function spawn_failsafe(world, class)
     local spot, yaw, from = nil, nil, "recorded"
     local f = MANUAL_EXITS.failsafe
-    if type(f) == "table" and tonumber(f[1]) and tonumber(f[2]) and tonumber(f[3]) then
+    local area = type(f) == "table" and DLC.area_at(f) or nil
+    if area then log("MHE: the recorded Failsafe Exit is inside a DLC area (" .. area .. "); using the fallback spot instead") end
+    if not area and type(f) == "table" and tonumber(f[1]) and tonumber(f[2]) and tonumber(f[3]) then
         spot, yaw = { X = tonumber(f[1]), Y = tonumber(f[2]), Z = tonumber(f[3]) }, tonumber(f[4]) or 0.0
     else
         local s0, y0 = portal_room_exit()
         if not s0 then log("MHE: no Failsafe Exit recorded and no slot to fall back on; not spawned") return false end
-        spot, yaw, from = { X = s0.X, Y = s0.Y, Z = s0.Z - EXIT_UP }, y0, "not recorded yet: in front of the first hub portal"
+        spot, yaw, from = { X = s0.X, Y = s0.Y, Z = s0.Z - EXIT_UP }, y0,
+            (area and "recorded spot refused: " or "not recorded yet: ") .. "in front of the first hub portal"
     end
     local rad = math.rad(yaw)
     local loc = { X = spot.X - math.cos(rad) * EXIT_FORWARD, Y = spot.Y - math.sin(rad) * EXIT_FORWARD, Z = spot.Z + FAILSAFE_LIFT }
@@ -1963,7 +2126,10 @@ local function spawn_mhes(world, class)
     end
     local byMhe, needFailsafe, n = {}, false, 0
     for w, m in pairs(MANUAL_EXITS) do
-        if w ~= "failsafe" and type(m) == "table" and tonumber(m[1]) and tonumber(m[2]) and tonumber(m[3]) and off[w] ~= false
+        local area = type(m) == "table" and DLC.area_at(m) or nil
+        if w ~= "failsafe" and (DLC.name(w) or area) then     -- CRD-033: no hub pad stands inside a DLC area
+            log("MHE: " .. tostring(w) .. (area and (" stands inside a DLC area (" .. area .. ")") or " is a DLC area") .. "; the hub places no pad there, not spawned")
+        elseif w ~= "failsafe" and type(m) == "table" and tonumber(m[1]) and tonumber(m[2]) and tonumber(m[3]) and off[w] ~= false
                 and not mode4[w] and not worldDefs[w] then
             local home = type(w) == "string" and w:match("^H_(.+)_Start$")     -- the game's homes have their own hub-room portal
             local dest = first[w] or (home and ("H_" .. home .. "_Entrance")) or FAILSAFE_ID
@@ -2150,8 +2316,9 @@ spawn_all = function()
         start_tracker()
     end
     local added = 0
+    local spots = DLC.pad_spots()
     for _, e in ipairs(state.entries) do
-        if spawn_entry(world, class, e) then added = added + 1 end
+        if spawn_entry(world, class, e, spots) then added = added + 1 end
     end
     apply_hum(added)
     spawn_mhes(world, class)
@@ -2213,5 +2380,63 @@ if DEV_KEYS then
             show(hubExit.spoof and "Hub Exits test: you now count as Player 2" or "Hub Exits test: you are yourself again")
         end)
     end)
+    -- PAUSE: DLC guard test (CRD-033; dev only, this whole block is cut from the packaged hub). The guards don't depend on owning the DLC, so
+    -- this works for an owner too. Each press first logs a self-check (where the game's own pads stand against the DLC boxes, and the name
+    -- rules), then steps a test pad 3 m in front of the player: 1st press leads into Stone Garden, 2nd into Torii, 3rd removes it. The pad
+    -- stands in for a route the guards missed (its name skips the name rule): walking into it, the game takes the player into the area, and
+    -- the backstop must send them straight back to the portal room with an on-screen line. Pause is free in the game (no default binding).
+    local dlcTest = { step = 0, targets = { { "H_Garden_Start", "Stone Garden" }, { "H_Japan_Start", "Torii" } } }
+    RegisterKeyBind(Key.PAUSE, function()
+        ExecuteInGameThread(function()
+            local ok, err = pcall(function()
+                if is_client() then log("DLC test: host only") return end
+                local pass, fail = 0, 0
+                local function expect(what, got, want)
+                    if got == want then pass = pass + 1 else fail = fail + 1 end
+                    log(string.format("DLC test: %s %s: %s (expected %s)", got == want and "PASS" or "FAIL", what, tostring(got), tostring(want)))
+                end
+                local want = { H_Garden_Start = "Stone Garden", H_Japan_Start = "Torii", H_Garden_Entrance = false, H_Japan_Entrance = false,
+                    H_Cabin_Start = false, H_Cabin_Entrance = false, train_start = false, teleporterpad87 = "Stone Garden" }
+                local seen = {}
+                for _, t in ipairs(all_pads()) do
+                    local id = pad_id(t)
+                    if id and want[id] ~= nil and not seen[id] then
+                        seen[id] = true
+                        local okL, l = pcall(function() return t:K2_GetActorLocation() end)
+                        if okL and l then expect("pad " .. id .. string.format(" at %.0f, %.0f, %.0f", l.X, l.Y, l.Z), DLC.area_at(l) or false, want[id]) end
+                    end
+                end
+                for id in pairs(want) do if not seen[id] then log("DLC test: (pad " .. id .. " is not loaded here, skipped)") end end
+                for _, c in ipairs({ { "H_Garden_Pond", true }, { "h_JAPAN_start", true }, { "hub_mhe_train_start", false }, { "train_start", false } }) do
+                    expect("name rule DLC.name('" .. c[1] .. "')", DLC.name(c[1]), c[2])
+                end
+                expect("name rule DLC.hub_name('HUB_mhe_x')", DLC.hub_name("HUB_mhe_x"), true)
+                expect("name rule DLC.names_map('/Game/Mods/Th_Gardens/L')", DLC.names_map("/Game/Mods/Th_Gardens/L"), false)
+                log(string.format("DLC test: self-check: %d PASS, %d FAIL", pass, fail))
+                for _, t in ipairs(all_pads()) do
+                    if pad_id(t) == "hub_dlctest" then pcall(function() t:K2_DestroyActor() end) end
+                end
+                dlcTest.step = dlcTest.step % 3 + 1
+                local target = dlcTest.targets[dlcTest.step]
+                if not target then show("DLC test: test pad removed") return end
+                local pawn = local_pawn()
+                local world = UEHelpers.GetWorld()
+                local class = StaticFindObject(TELEPORTER_CLASS)
+                if not (pawn and world and world:IsValid() and class and class:IsValid()) then log("DLC test: no player, world or pad class yet") return end
+                local l, f, r = pawn:K2_GetActorLocation(), pawn:GetActorForwardVector(), pawn:K2_GetActorRotation()
+                local at = { X = l.X + f.X * 300, Y = l.Y + f.Y * 300, Z = l.Z - 90 }      -- 3 m ahead, about at the feet
+                local pad = world:SpawnActor(class, at, { Pitch = 0.0, Yaw = r.Yaw + 180, Roll = 0.0 })
+                if not (pad and pad:IsValid()) then log("DLC test: could not spawn the test pad") return end
+                pad.MyTeleporterID = FName("hub_dlctest")
+                pad.DestinationTeleporterID = FName(target[1])
+                pad.IsTeleporterActive = true
+                pcall(function() pad:OnRep_IsTeleporterActive() end)
+                apply_design(pad, DEFAULT_DESIGN)
+                log(string.format("DLC test: test pad hub_dlctest at %.0f, %.0f, %.0f leads into %s (%s); walk in: the backstop should send you back", at.X, at.Y, at.Z, target[2], target[1]))
+                show("DLC test: the pad ahead leads into " .. target[2] .. ". Walk in; you should come straight back.")
+            end)
+            if not ok then log("DLC test failed: " .. tostring(err)) end
+        end)
+    end)
 end
-log("loaded - NUMPAD 1 respawn portals, NUMPAD 2 remove them" .. (DEV_KEYS and ", END pretend to be Player 2 (Hub Exits test)" or ""))
+log("loaded - NUMPAD 1 respawn portals, NUMPAD 2 remove them" .. (DEV_KEYS and ", END pretend to be Player 2 (Hub Exits test), PAUSE DLC guard test" or ""))

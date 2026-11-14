@@ -132,7 +132,8 @@ player's own machine.
   custom world's exit says "No Exit Found" for about 2.6 seconds after such a load, until the hub portals spawn.
 - **Saves:** the hub adds its own flags to a save (a custom world's completion). Removing the hub leaves a few harmless unused names.
   Your save's own progress is not changed.
-- **DLC areas:** the Temple of Stone and Torii pads can't be used as destinations. Buy the DLC to visit them the game's way.
+- **DLC areas:** Stone Garden and Torii need their DLC (Torii is part of the Supporter Edition). The hub never makes a portal to them,
+  even if you own them (`config.lua` and the editor both refuse it): use the game's own portals on A-1 and A-2.
 
 ## 10. Known issues
 

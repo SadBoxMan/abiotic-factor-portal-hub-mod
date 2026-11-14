@@ -63,8 +63,12 @@ with open(os.path.join(br.ROOT, "mod", "PortalHub", "Scripts", "main.lua"), "rb"
 pk = br.strip_dev_keys(repo).decode("utf-8")
 check(br.dev_key_problems(pk) == [], "packaged repo main.lua: no dev-key problem")
 check(br.key_binds(pk) == ["NUM_ONE", "NUM_TWO"], "packaged repo main.lua binds NUMPAD 1 and 2 only")
-check(set(br.key_binds(repo.decode("utf-8"))) - set(br.key_binds(pk)) == {"END"}, "only END was removed")
-check(len(pk.splitlines()) == len(repo.decode("utf-8").splitlines()) - 7, "exactly the 8-line block became one line")
+check(set(br.key_binds(repo.decode("utf-8"))) - set(br.key_binds(pk)) == {"END", "PAUSE"},
+      "only the dev keys were removed (END: Player 2 pretend; PAUSE: the DLC guard test, CRD-033)")
+_rl = repo.decode("utf-8").splitlines()
+_s = _rl.index("if DEV_KEYS then")
+_block = next(i for i in range(_s + 1, len(_rl)) if _rl[i] == "end") - _s + 1
+check(len(pk.splitlines()) == len(_rl) - (_block - 1) and "hub_dlctest" not in pk, "exactly the dev-key block became one line (the DLC test pad with it)")
 
 # --- forbidden names, read from a mock External Mods folder (the real names are never written here)
 with tempfile.TemporaryDirectory() as d:

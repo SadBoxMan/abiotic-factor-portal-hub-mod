@@ -91,6 +91,13 @@ def main():
     app.pad_var.set("h_garden_START")
     root.update()
     check(not app.save_btn.enabled and "DLC" in app.status.cget("text"), "DLC refused, any case")
+    # CRD-033: any pad ID starting with a DLC area's name, and the hub's own pads (an MHE stands inside its world), are refused too
+    app.pad_var.set("H_JAPAN_somewhere")
+    root.update()
+    check(not app.save_btn.enabled and "DLC" in app.status.cget("text"), "a DLC prefix refused (H_Japan_*)")
+    app.pad_var.set("HUB_mhe_H_Garden_Start")
+    root.update()
+    check(not app.save_btn.enabled and "hub's own pads" in app.status.cget("text"), "a hub pad ID refused as a destination, any case")
     app.pad_var.set("my_own_pad")
     root.update()
     check(app.save_btn.enabled and app.cfg.portals["B-2"].destination == "my_own_pad", "typed pad accepted")
@@ -221,6 +228,21 @@ def main():
     answers.append("reload")
     app.save()
     check(not app.cfg.is_dirty(), "reload after outside edit")
+
+    # CRD-033: custom worlds that name a DLC area or a hub pad are refused; a name that only contains one inside a word is not
+    from luaconfig import World
+
+    def werr(**kw):
+        w = World(id=kw.get("id", "my_world"), asset=kw.get("asset", "/Game/Mods/MyWorld/BP_Loader"), cls=kw.get("cls", "BP_Loader_C"),
+                  level=kw.get("level", "/Game/Mods/MyWorld/Maps/MyWorld_L0"), origin=[2000000.0, 0.0, 0.0])
+        return " ".join(gui.world_problems([w])[0][0])
+    check(werr() == "", "a plain custom world has no errors")
+    check("reserved" in werr(id="HUB_world"), "a world ID starting with hub_ (any case) is refused")
+    check("DLC" in werr(id="h_garden_copy"), "a world ID starting with H_Garden is refused")
+    check("DLC" in werr(level="/Game/Maps/Homeworlds/H_Japan"), "a level path naming H_Japan is refused")
+    check("DLC" in werr(asset="/Game/Mods/X/H_Garden_Loader", cls="H_Garden_Loader_C"), "a loader naming H_Garden is refused")
+    check(werr(level="/Game/Mods/Th_Gardens/Maps/Th_Gardens_L0") == "", "Th_Gardens is not a DLC name")
+    check(hd.names_dlc_map("/Game/Maps/H_Garden.H_Garden") and not hd.names_dlc_map("/Game/Mods/MyH_Garden/L"), "path parts, not substrings")
 
     # the remove-world prompt warns and removes
     app.select("C-1")
