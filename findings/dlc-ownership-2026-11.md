@@ -35,7 +35,7 @@ game's `Win64` folder). Only the game's own objects were read. No third-party mo
     what the others can't see beforehand: a destination pad that wasn't loaded at spawn time, or one built later. The game's own pads,
     its home portals included, are never touched.
 - The config editor refuses the same names (`hubdata.is_dlc` by prefix, `is_reserved`, `names_dlc_map`).
-- Tests: `tools/dev/tests/test_hub_dlc_block.py` (83 checks; the guards and the dev test below are new), `test_gui.py` (9 new checks),
+- Tests: `tools/dev/tests/test_hub_dlc_block.py` (84 checks), `test_gui.py` (9 new checks),
   `tools/dev/tests/test_dlc_survey.py` (the survey mod, 24 checks).
 - `main.lua` is close to Lua's limit of 200 local variables in one function: the main chunk had room for 10 more before and after this
   change (the guards live in one table). New top-level code should go into tables too.
@@ -104,9 +104,21 @@ volumes and level managers), and `AbioticCharacter:RejectDLCTeleport` most likel
 
 ## The DLC areas
 
-PENDING: boxes from the `CordonaDlcSurvey` run (`mod/CordonaDlcSurvey/`, key `'`, read-only, its own test step). The survey lists every
-`AbioticLevelStreamingVolume` and `LevelManagerInstance` with a `RequiredEntitlement` or `RequiredWorldFlag`, each volume's box
-(`GetActorBounds`), the six home pads, and the box around each DLC area. The hub keeps those two boxes, plus 20 m, as `DLC.areas`.
+Read by the `CordonaDlcSurvey` run on 14 November, 12:05 (CordonaCorp, game v1.5.0; `mod/CordonaDlcSurvey/`, key `'`, read-only). Of the
+game's 223 `AbioticLevelStreamingVolume`s, three carry a gate, each with one `LevelManagerInstance` of its own:
+
+| Volume | Gate | Box centre | Half-size (x, y, z) |
+|---|---|---|---|
+| `AbioticLevelStreamingVolume_155` | entitlement `HomeworldGarden` (Stone Garden) | 127267, 157550, 59059 | 12000, 11000, 8000 |
+| `AbioticLevelStreamingVolume_109` | entitlement `SupportersEdition` (Torii) | 126883, 121733, 60453 | 12000, 11000, 4000 |
+| `AbioticLevelStreamingVolume_156` | world flag `SnowglobeComplete` (the Cabin) | 127267, 112062, -1477 | 12000, 11000, 8000 |
+
+Each DLC box holds its area's arrival pad (`H_Garden_Start`, `H_Japan_Start`). The hub keeps the two DLC boxes as `DLC.areas`, with a 100 m
+margin, since a streaming volume only triggers the load and the level may reach a little past it. Clearance: the Cabin's area lies under
+Torii in x and y but about 500 m lower (its arrival pad is 593 m from the Torii box), the nearest recorded MHE (Canaan, `salem_begin`) is
+785 m away, and the nearest other pads (Rise, Praetorium, Albatross) are over 1 km away. `test_hub_dlc_block.py` checks that none of the 22
+shipped MHEs or the failsafe falls inside. The two player-built pads in LuciDin's save (`teleporterpad1`, `teleporterpad87`) are inside
+Stone Garden. The survey's untried calls worked: `GetActorBounds` filled its out-parameters, and the row handles read as text.
 
 ## If "allow when owned" is ever wanted (not built)
 

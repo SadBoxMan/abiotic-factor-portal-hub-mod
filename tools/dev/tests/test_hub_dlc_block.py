@@ -331,6 +331,13 @@ check("walking into it: back from Torii too", h.at_front("B", "A-4") and h.moves
 h.ex("KEYS.PAUSE()"); h.pump()
 check("3rd press: the test pad is gone", not h.has("hub_dlctest"))
 
+print("=== the surveyed DLC boxes leave every shipped MHE and the failsafe alone (manual_exits.lua as committed, CRD-031)")
+SHIPPED_MHE = os.path.join(HUB, "manual_exits.lua").replace("\\", "/")
+h = Hub(portals(entry("A-4", "train_start")), top="MHE_T = dofile(%r)" % SHIPPED_MHE)
+n_mhe = h.ev("(function() local n = 0; for k, v in pairs(MHE_T) do if k ~= 'failsafe' and type(v) == 'table' then n = n + 1 end end; return n end)()")
+check("none of the %d shipped MHEs or the failsafe is refused as inside a DLC area" % n_mhe,
+      n_mhe >= 20 and not h.said("inside a DLC area") and not h.said("is a DLC area"), [l for l in h.logs() if "DLC" in l])
+
 print("=== NUMPAD 1 (respawn everything from the config read at load) brings no DLC portal back")
 h = Hub(portals(entry("A-4", "train_start"), entry("B-1", "h_garden_start")))
 check("at load: refused with the DLC line", h.refused("h_garden_start"))

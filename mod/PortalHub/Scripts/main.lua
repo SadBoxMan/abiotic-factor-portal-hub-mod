@@ -34,12 +34,14 @@ local DLC = {     -- everything the four guards need, in one table (main.lua is 
     hubPrefixes = { "hub_", "portalroom_" },     -- the hub's own pad IDs (ID_PREFIX, LEGACY_PREFIXES below), in lower case
     worlds = {},                                 -- custom worlds refused for a DLC area (resolve_worlds): their portals are refused too
     backstopMs = { 100, 600, 1500 },             -- when the backstop looks at a player after a hub pad use (DLC.backstop)
-    margin = 2000,                               -- 20 m around each box
-    -- Boxes around the two areas (min and max corner), from the game's own DLC-gated streaming volumes (AbioticLevelStreamingVolume with a
-    -- RequiredEntitlement; CordonaDlcSurvey). Hardcoded, so the check needs no game call.
-    areas = {     -- PENDING SURVEY: provisional boxes, 250 m around each area's own arrival pad
-        { name = "Stone Garden", lo = { 122890.6 - 25000, 160239.8 - 25000, 59350.0 - 25000 }, hi = { 122890.6 + 25000, 160239.8 + 25000, 59350.0 + 25000 } },
-        { name = "Torii", lo = { 135877.3 - 25000, 125090.2 - 25000, 57019.9 - 25000 }, hi = { 135877.3 + 25000, 125090.2 + 25000, 57019.9 + 25000 } },
+    margin = 10000,                              -- 100 m around each box: a streaming volume only triggers the load, the level may reach past it
+    -- Boxes around the two areas (min and max corner): the game's own DLC-gated streaming volumes (AbioticLevelStreamingVolume_155,
+    -- RequiredEntitlement HomeworldGarden; _109, SupportersEdition), read by CordonaDlcSurvey on 14 November (v1.5.0). One volume each, and
+    -- each holds its area's arrival pad. Hardcoded, so the check needs no game call. Clearance with the margin: the Cabin's area lies under
+    -- Torii in X/Y but some 500 m lower (its pad is 593 m from the Torii box); the nearest MHE (salem_begin) is 785 m away.
+    areas = {
+        { name = "Stone Garden", lo = { 115267.3, 146550.4, 51058.6 }, hi = { 139267.3, 168550.4, 67058.6 } },
+        { name = "Torii", lo = { 114882.5, 110733.3, 56452.5 }, hi = { 138882.5, 132733.3, 64452.5 } },
     },
 }
 
