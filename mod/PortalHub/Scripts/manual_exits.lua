@@ -26,7 +26,7 @@ return {
     ["signal_start"] = { -239942, -70810, -17205, 73 },    -- MHE recorded 2026-11-13 22:07
     ["tile_entrance"] = { 345526, -182669, -71, 273 },    -- MHE recorded 2026-11-13 22:22
     ["train_start"] = { 333394, 13460, 872, 359 },    -- MHE recorded 2026-11-09 20:12
-    ["V_Snowglobe_Start"] = { 192442, 30733, 1039, 168 },    -- MHE recorded 2026-11-14 15:14
+    ["V_Snowglobe_Start"] = { 190427, 30239, 1179, 34 },    -- MHE recorded 2026-11-13 22:05
     ["VWinter_Start"] = { 131582, -90581, 58712, 334 },    -- MHE recorded 2026-11-13 22:13
     ["wall_start"] = { -335025, 331123, 11999, 338 },    -- MHE recorded 2026-11-11 00:47
     ["warehouse_start"] = { 343263, -113998, 2, 272 },    -- MHE recorded 2026-11-10 23:24
