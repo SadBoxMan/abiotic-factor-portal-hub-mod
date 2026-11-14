@@ -136,29 +136,34 @@ def main():
     root.update()
     check(app.save_btn.enabled, "turned off again: savable")
 
-    # exit modes: per portal (1-4), manual buffs only with MANUAL, none for custom worlds
+    # exit modes (CRD-034): M.H.E. / GAME / HUB / DYNAMIC per portal, no DEFAULT; picking a world sets M.H.E.; none for custom worlds
+    check(list(app.exit_seg.labels) == ["manual", "game", "hub", "dynamic"] and app.exit_seg.labels["manual"].cget("text") == "M.H.E.",
+          "picker: M.H.E. first, no DEFAULT")
     app.select("B-1")
-    check(app.exit_seg.value == "" and app.exit_seg.enabled and "Default: GAME" in app.exit_note.cget("text"), "new portal follows the default")
-    check(not app.buff_btn.enabled, "buffs off limits outside MANUAL")
+    check(app.cfg.portals["B-1"].exits == "manual" and app.exit_seg.value == "manual" and app.exit_seg.enabled, "picking a world set M.H.E.")
+    check("No MHE is recorded" in app.exit_note.cget("text"), "M.H.E. without a recorded MHE warns")
+    app.pick_exit("game")
+    check(not app.buff_btn.enabled, "buffs off limits outside M.H.E.")
     app.pick_exit("manual")
-    check("No MHE is recorded" in app.exit_note.cget("text"), "MANUAL without a recorded MHE warns")
     app.toggle_manual_buffs()
     app.pick_exit("hub")
-    check(app.cfg.portals["B-1"].exits == "hub" and not app.cfg.portals["B-1"].manual_buffs, "leaving MANUAL drops the buffs")
+    check(app.cfg.portals["B-1"].exits == "hub" and not app.cfg.portals["B-1"].manual_buffs, "leaving M.H.E. drops the buffs")
+    check(app.cfg.portals["B-2"].exits == "game" and app.portal("B-2").destination == "my_own_pad", "a typed pad starts at GAME")
     app.select("A-4")
+    app.pick_dest("train_start")
+    app.pick_exit("dynamic")
     app.pick_dest("anteverse_a_start")
-    app.pick_exit("manual")
-    check("No MHE" not in app.exit_note.cget("text") and app.buff_btn.enabled, "MANUAL with a recorded MHE")
+    check(app.cfg.portals["A-4"].exits == "manual" and app.exit_seg.value == "manual", "every world pick resets the mode to M.H.E.")
+    check("No MHE" not in app.exit_note.cget("text") and app.buff_btn.enabled, "M.H.E. with a recorded MHE")
     app.toggle_manual_buffs()
 
-    # the HUB EXITS tab: global mode and MHE switches
+    # the HUB EXITS tab: MHE switches only (no DEFAULT EXIT MODE any more)
     app.show_tab("exits")
     root.update()
-    app.pick_global_exit("dynamic")
-    check(app.cfg.exit_mode == "dynamic" and app.global_seg.value == "dynamic", "global mode picked")
+    check(not hasattr(app, "global_seg") and not hasattr(app.cfg, "exit_mode"), "no global exit mode in the editor")
     rows = dict((pad, title) for title, pad in app.mhe_rows())
     check(len(rows) == len(hd.DESTINATIONS) and "failsafe" not in rows, "one row per base-game world")
-    check(app.mhe_status("anteverse_a_start").startswith("used by the MANUAL portal in A-4"), "mode-4 portal uses the MHE")
+    check(app.mhe_status("anteverse_a_start").startswith("used by the M.H.E. portal in A-4"), "mode-4 portal uses the MHE")
     check(app.mhe_status("train_start").startswith("leads to the Failsafe Exit"), "no hub portal: Failsafe Exit")
     check(app.mhe_status("fog_start") == "no MHE recorded yet", "unrecorded world")
     app.toggle_mhe("fog_start")
@@ -195,7 +200,8 @@ def main():
     check("C-2" not in c.portals and "#FF2020" not in [q.light_hex for q in c.portals.values()], "the wiped slot left nothing behind")
     check(c.portals["B-1"].exits == "hub" and not c.portals["B-1"].manual_buffs, "B-1 exit mode written")
     check(c.portals["A-4"].exits == "manual" and c.portals["A-4"].manual_buffs, "A-4 manual with buffs written")
-    check(c.exit_mode == "dynamic" and c.mhe_off == {"train_start"}, "exitMode and mhe written")
+    check(c.portals["B-2"].exits == "game" and c.portals["B-2"].exits_in_file, "B-2 GAME written explicitly")
+    check(c.mhe_off == {"train_start"} and "exitMode" not in text(path), "mhe written, no exitMode")
     check("hubExit" not in text(path), "no old hubExits fields")
     check(c.worlds[0].id == "plain_start" and c.worlds[0].arrive is None, "world written without arrive")
     check(c.hum_mode == "manual" and c.hum_manual == 40, "hum written")
@@ -247,11 +253,27 @@ def main():
     # the remove-world prompt warns and removes
     app.select("C-1")
     app.pick_dest("plain_start")
+    check(app.cfg.portals["C-1"].exits == "" and not app.exit_seg.enabled, "a custom world has no exit mode")
     app.show_tab("worlds")
     app.world_i = 0
     answers.append(1)
     app.remove_world()
     check(not app.cfg.worlds, "world removed")
+
+    # an old config with a global exitMode (CRD-034): mapped into the portals with no mode, shown, written on edit; the line stays
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write('return {\n    exitMode = "hub",\n    portals = {\n        { slot = "A-3", name = "Train", destination = "train_start" },\n'
+                '        { slot = "A-4", name = "Garden", destination = "anteverse_a_start", exits = "game" },\n    },\n}\n')
+    app.do_reload()
+    app2 = app
+    root.update()
+    app2.select("A-3")
+    check(app2.exit_seg.value == "hub" and app2.cfg.portals["A-4"].exits == "game", "old exitMode shown on the portal with no mode")
+    check(not app2.cfg.is_dirty(), "mapping alone changes nothing")
+    app2.name_var.set("The Train")
+    app2.save()
+    out = text(path)
+    check('exitMode = "hub",' in out and 'name = "The Train", destination = "train_start", exits = "hub" }' in out, "mapped mode written on edit")
     root.destroy()
     shutil.rmtree(d)
     print(f"{checks} checks, {fails} failed")

@@ -45,9 +45,9 @@ Double-click `PortalHubConfig.bat`. The editor finds the game through Steam (or 
 UE4SS, the hub's files and the `mods.txt` line. If something is missing it says what to do, and it won't edit anything until the hub
 is installed. It only ever edits the hub's `config.lua`.
 
-- **Slots:** click an open slot to give it a world, a look, a light colour and brightness, and an exit mode. A-1, A-2 and B-3 are the
-  game's own Stone Garden, Torii and Cabin portals and are locked.
-- **Hub Exits tab:** the default exit mode for every portal, and an on/off switch for each world's Manual Hub Exit.
+- **Slots:** click an open slot to give it a world, a look, a light colour and brightness, and an exit mode (M.H.E., GAME, HUB or
+  DYNAMIC; picking a world sets M.H.E.). A-1, A-2 and B-3 are the game's own Stone Garden, Torii and Cabin portals and are locked.
+- **Hub Exits tab:** an on/off switch for each world's Manual Hub Exit.
 - **Custom Worlds tab:** connect a world that comes in its own pak (advanced, see section 7).
 - **Save**, then restart the game to apply it. **Restart All Mods** in the UE4SS window works for a quick try (see Known issues).
 
@@ -67,9 +67,9 @@ The hub always takes you **into** a world. Each portal's exit mode says what hap
 | **dynamic** | Per player: if you came in through the hub portal, you leave to it. If you came the game's way, you leave the game's way. |
 | **manual** | This hub portal leads to the world's **Manual Hub Exit** (below). The world's own exits stay the game's. |
 
-Set it per portal in the editor (or `exits = "hub"` on a portal in `config.lua`), or for every portal at once on the Hub Exits tab
-(`exitMode`). **manual** is per portal only. With **manual**, the **Buffs** switch also gives you the buffs of the world's true exit at
-the Manual Hub Exit. It is off by default because it makes the game much easier.
+Set it per portal in the editor, where **manual** is called **M.H.E.** and is what picking a world starts with (or `exits = "hub"` on a
+portal in `config.lua`; a portal with no `exits` uses **game**). With **manual**, the **Buffs** switch also gives you the buffs of the
+world's true exit at the Manual Hub Exit. It is off by default because it makes the game much easier.
 
 ## 5. Manual Hub Exits and the Failsafe Exit
 

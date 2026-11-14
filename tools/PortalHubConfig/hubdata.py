@@ -165,11 +165,15 @@ def is_reserved(pad):
     return pad.strip().lower().startswith(RESERVED_PREFIXES)
 
 
-# Hub Exits (CRD-012): what a base-game world's own exits do for a hub portal leading to it. exitMode (top of config.lua) is the
-# default for every portal and takes modes 1-3; exits on a portal overrides it and is the only way to pick mode 4. Numbers 1-4 work too.
+# Hub Exits (CRD-012): what a base-game world's own exits do for a hub portal leading to it (exits on the portal; numbers 1-4 work too).
+# The editor picks the mode per portal only (CRD-034): picking a world sets M.H.E., and a portal with no exits shows GAME. The hub still
+# reads a global exitMode (modes 1-3); the editor no longer writes it, and maps an old one into the portals that have no mode of their own.
 EXIT_MODES = ["game", "hub", "dynamic", "manual"]
-GLOBAL_EXIT_MODES = EXIT_MODES[:3]
-DEFAULT_EXIT_MODE = "game"
+GLOBAL_EXIT_MODES = EXIT_MODES[:3]          # what an old global exitMode may hold (read once, to map it into the portals)
+DEFAULT_EXIT_MODE = "game"                  # a portal with no exits key (and no old exitMode)
+PICK_EXIT_MODE = "manual"                   # what picking a base-game world for a portal sets
+EXIT_PICKER = [("M.H.E.", "manual"), ("GAME", "game"), ("HUB", "hub"), ("DYNAMIC", "dynamic")]
+EXIT_LABEL = {m: label for label, m in EXIT_PICKER}
 EXIT_MODE_HELP = {
     "game": "The world's exits are the game's: the hub portal only takes players in.",
     "hub": "The world's exits take everyone to the hub portal, however they came in.",

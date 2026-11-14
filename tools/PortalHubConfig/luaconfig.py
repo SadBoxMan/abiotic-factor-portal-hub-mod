@@ -397,7 +397,8 @@ class Portal:
     light_hex: str = ""
     brightness: float = 1.0
     enabled: bool = True
-    exits: str = ""                     # exit mode of this portal ("game", "hub", "dynamic", "manual"); "" = the global exitMode
+    exits: str = ""                     # exit mode of this portal ("game", "hub", "dynamic", "manual"); "" = none (custom world, no world)
+    exits_in_file: bool = False         # the entry has its own exits key (else a mode is written the next time the entry is edited)
     manual_buffs: bool = False          # manualBuffs: with exits = "manual", the MHE also gives the true exit's buffs
     item: Item | None = None            # where it sits in the file; None for a portal added in the editor
     extras: list = field(default_factory=list)      # names of other fields in the entry, kept as written
@@ -562,6 +563,7 @@ class HubConfig:
             f = t.get("exits")
             if f and f.value.kind in ("string", "number") and exit_mode(f.value.value):
                 p.exits = exit_mode(f.value.value)
+                p.exits_in_file = True
                 known.add("exits")
             f = t.get("manualBuffs")
             if f and f.value.kind == "bool":
@@ -572,12 +574,22 @@ class HubConfig:
             self._orig_portals[p.slot] = p.snapshot()
 
     def _read_exits(self):
-        """exitMode (the default for every portal, modes 1-3) and mhe (the MHEs switched off: { [arrival pad id] = false })."""
-        self.exit_mode = DEFAULT_EXIT_MODE
+        """Each base-game portal's mode, and mhe (the MHEs switched off: { [arrival pad id] = false }).
+
+        The editor picks modes per portal only (CRD-034). A base-game portal with no exits key shows GAME, or the mode of an old global
+        exitMode (modes 1-3) if the file has one: the hub gives it that mode, so the editor shows the same. That mode is written into
+        the entry the next time it is edited; the exitMode line itself is never written or removed by the editor.
+        """
+        legacy = DEFAULT_EXIT_MODE
         it = self.root.get("exitMode")
         if it and it.value.kind in ("string", "number") and exit_mode(it.value.value) in GLOBAL_EXIT_MODES:
-            self.exit_mode = exit_mode(it.value.value)
-        self._orig_exit_mode = self.exit_mode
+            legacy = exit_mode(it.value.value)
+        custom = {w.id for w in self.worlds}
+        for p in self.portals.values():
+            dest = p.destination.strip()
+            if not p.exits and dest and dest not in custom and "exits" not in p.extras:   # an unreadable exits stays as written
+                p.exits = legacy
+                self._orig_portals[p.slot] = p.snapshot()
         self.mhe_off = set()
         self.mhe_editable = True
         it = self.root.get("mhe")
@@ -703,8 +715,6 @@ class HubConfig:
                     e.set_field(t, "arrive", None if w.arrive is None else lua_nums(w.arrive))
 
     def _write_exits(self, e):
-        if self.exit_mode != self._orig_exit_mode:
-            self._set_top(e, "exitMode", lua_string(self.exit_mode))
         if not self.mhe_editable or self.mhe_off == self._orig_mhe_off:
             return
         block = self._block(e, "mhe")
@@ -722,7 +732,7 @@ class HubConfig:
                 e.add_item(block, f"{lua_key(k)} = false")
 
     def _placeholder(self, key):
-        """A commented-out top-level line such as  -- exitMode = "game",  in the file: (start, end) of its text, or None."""
+        """A commented-out top-level line such as  -- mhe = { ... },  in the file: (start, end) of its text, or None."""
         rx = re.compile(r"^[ \t]*(--[ \t]*" + re.escape(key) + r"[ \t]*=[^\r\n]*)", re.M)
         for m in rx.finditer(self.text, self.root.start, self.root.end):
             return m.start(1), m.end(1)
@@ -793,7 +803,7 @@ class HubConfig:
             e.set_field(t, "lightColor", lua_nums(hex_to_rgb(p.light_hex)) if p.light_hex else None)
         if round(p.brightness, 3) != o[4]:
             e.set_field(t, "lightBrightness", None if abs(p.brightness - 1.0) < 0.0001 else fmt_num(p.brightness))
-        if p.exits != o[5]:
+        if p.exits != o[5] or (p.exits and not p.exits_in_file):     # every edited base-game entry carries its own mode
             e.set_field(t, "exits", lua_string(p.exits) if p.exits else None)
         if p.manual_buffs != o[6]:
             e.set_field(t, "manualBuffs", "true" if p.manual_buffs else None)

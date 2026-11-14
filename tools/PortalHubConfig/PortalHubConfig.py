@@ -895,37 +895,23 @@ class App:
         head.pack(fill="x", pady=(px(9), px(2)))
         lab = tk.Label(head, text="EXIT MODE", bg=T["panel"], fg=T["dim"], font=font(8, True))
         lab.pack(side="left")
-        Tip(lab, "What the world's own exits do for players of this portal (exits in config.lua). DEFAULT follows the mode set on the "
-                 "HUB EXITS tab. MANUAL can only be chosen here. Custom worlds always lead back to the hub, so they have no mode.")
+        Tip(lab, "What the world's own exits do for players of this portal (exits in config.lua). Picking a world sets M.H.E.; "
+                 "a portal with no mode in config.lua shows GAME. Custom worlds always lead back to the hub, so they have no mode.")
         self.buff_btn = Btn(head, "", self.toggle_manual_buffs, small=True)
         self.buff_btn.pack(side="right")
-        Tip(self.buff_btn, "manualBuffs, MANUAL only: the Manual Hub Exit also gives the buffs of the world's true exit. "
+        Tip(self.buff_btn, "manualBuffs, M.H.E. only: the Manual Hub Exit also gives the buffs of the world's true exit. "
                            "Off by default: it makes the game much easier.")
-        self.exit_seg = Segmented(f, [("DEFAULT", "")] + [(m.upper(), m) for m in hd.EXIT_MODES], self.pick_exit, T["panel"])
+        self.exit_seg = Segmented(f, hd.EXIT_PICKER, self.pick_exit, T["panel"])
         self.exit_seg.pack(anchor="w")
         for m, w in self.exit_seg.labels.items():
-            Tip(w, hd.EXIT_MODE_HELP[m] if m else "Use the default mode from the HUB EXITS tab.")
+            Tip(w, hd.EXIT_MODE_HELP[m])
         self.exit_note = tk.Label(f, bg=T["panel"], fg=T["dim"], font=font(9), anchor="w", justify="left", wraplength=px(430))
         self.exit_note.pack(fill="x", pady=(px(4), 0))
 
     def build_hub_exits(self):
         p = self.exits_page
-        top = tk.Frame(p, bg=T["panel"], padx=px(14), pady=px(10), highlightthickness=1, highlightbackground=T["line"])
-        top.pack(fill="x")
-        lab = tk.Label(top, text="DEFAULT EXIT MODE", bg=T["panel"], fg=T["dim"], font=font(8, True), anchor="w")
-        lab.pack(fill="x")
-        Tip(lab, "exitMode in config.lua: what base-game worlds' own exits do, for every hub portal that has no mode of its own.")
-        self.global_seg = Segmented(top, [(m.upper(), m) for m in hd.GLOBAL_EXIT_MODES], self.pick_global_exit, T["panel"])
-        self.global_seg.pack(anchor="w", pady=(px(2), 0))
-        for m, w in self.global_seg.labels.items():
-            Tip(w, hd.EXIT_MODE_HELP[m])
-        self.global_note = tk.Label(top, bg=T["panel"], fg=T["fg"], font=font(9), anchor="w", justify="left", wraplength=px(1100))
-        self.global_note.pack(fill="x", pady=(px(4), 0))
-        tk.Label(top, text="A portal can pick its own mode on the PORTAL ROOM tab; MANUAL is chosen per portal only. "
-                           "Custom worlds always lead back to the hub.", bg=T["panel"], fg=T["dim"], font=font(9), anchor="w").pack(fill="x")
-
         box = tk.Frame(p, bg=T["panel"], padx=px(14), pady=px(10), highlightthickness=1, highlightbackground=T["line"])
-        box.pack(fill="both", expand=True, pady=(px(10), 0))
+        box.pack(fill="both", expand=True)
         lab = tk.Label(box, text="MANUAL HUB EXITS (MHE)", bg=T["panel"], fg=T["dim"], font=font(8, True), anchor="w")
         lab.pack(fill="x")
         Tip(lab, "Spots are recorded in manual_exits.lua next to config.lua (read only here). Switching one off writes mhe = { [pad] = false } into config.lua.")
@@ -1252,6 +1238,8 @@ class App:
         p.typing = False
         if any(w.id == value for w in self.cfg.worlds):     # custom worlds always return to the hub: no exit mode
             p.exits, p.manual_buffs = "", False
+        else:                                               # every base-game world pick starts at M.H.E. (CRD-034)
+            p.exits = hd.PICK_EXIT_MODE
         known = hd.KNOWN_BY_ID.get(value)
         if known:                       # a world brings its name and the look the game uses for it
             p.name = known[2]
@@ -1266,6 +1254,10 @@ class App:
         self.active().destination = self.pad_var.get().strip()
         self.active().typing = True
         p = self.active()
+        if self.is_custom_world(p.destination):
+            p.exits, p.manual_buffs = "", False
+        elif p.destination and not p.exits:                 # a typed pad with no mode yet: GAME, as a portal with no exits
+            p.exits = hd.DEFAULT_EXIT_MODE
         bad = bool(self.dest_problem(p))
         self.dest.set_bad(bad)
         self.pad.set_bad(bad)
@@ -1327,8 +1319,8 @@ class App:
     def show_exits(self, p):
         dest = p.destination.strip() if p else ""
         custom = bool(p) and self.is_custom_world(dest)
-        self.exit_seg.set_enabled(bool(p) and not custom)
-        self.exit_seg.set(p.exits if p else "")
+        self.exit_seg.set_enabled(bool(p) and bool(dest) and not custom)
+        self.exit_seg.set(p.exits if p and dest and not custom else "")
         manual = bool(p) and p.exits == "manual" and not custom
         self.buff_btn.configure(text="BUFFS ON" if p and p.manual_buffs else "BUFFS OFF")
         self.buff_btn.set_enabled(manual)
@@ -1337,9 +1329,10 @@ class App:
             text = "Turn the slot on first."
         elif custom:
             text = "A custom world always leads back to the hub through its arrival pad, so it has no exit mode."
+        elif not dest:
+            text = "Pick a world first."
         elif not p.exits:
-            g = self.cfg.exit_mode
-            text = f"Default: {g.upper()}. {hd.EXIT_MODE_HELP[g]}"
+            text = hd.EXIT_MODE_HELP[hd.DEFAULT_EXIT_MODE]
         else:
             text = hd.EXIT_MODE_HELP[p.exits]
             if manual and dest and dest not in self.mhe_spots:
@@ -1353,7 +1346,7 @@ class App:
             return
         p.exits = mode
         if mode != "manual":
-            p.manual_buffs = False              # only read with MANUAL: no leftover in the file
+            p.manual_buffs = False              # only read with M.H.E.: no leftover in the file
         self.show_exits(p)
         self.changed(p.slot)
 
@@ -1365,11 +1358,6 @@ class App:
             self.changed(p.slot)
 
     # ------------- hub exits tab
-    def pick_global_exit(self, mode):
-        self.cfg.exit_mode = mode
-        self.refresh_hub_exits()
-        self.update_state()
-
     def mhe_rows(self):
         """(title, pad id) for every base-game world in the list, then any other world manual_exits.lua or mhe names."""
         rows = [(d[2], d[1]) for d in hd.DESTINATIONS]
@@ -1387,10 +1375,10 @@ class App:
         if pad in self.cfg.mhe_off:
             return "switched off"
         portals = [self.portal(s) for s in hd.SLOT_IDS if self.portal(s) and self.portal(s).destination.strip() == pad]
-        manual = [q.slot for q in portals if (q.exits or self.cfg.exit_mode) == "manual"]
-        others = [q.slot for q in portals if (q.exits or self.cfg.exit_mode) != "manual"]
+        manual = [q.slot for q in portals if q.exits == "manual"]
+        others = [q.slot for q in portals if q.exits != "manual"]
         if manual:
-            return f"used by the MANUAL portal in {manual[0]}"
+            return f"used by the M.H.E. portal in {manual[0]}"
         if others:
             return f"leads to hub portal {others[0]}"
         if hd.home_title(pad):
@@ -1408,8 +1396,6 @@ class App:
         self.update_state()
 
     def refresh_hub_exits(self):
-        self.global_seg.set(self.cfg.exit_mode)
-        self.global_note.configure(text=hd.EXIT_MODE_HELP[self.cfg.exit_mode])
         notes = []
         if self.mhe_problem:
             notes.append(self.mhe_problem + ".")

@@ -124,7 +124,7 @@ def test_edits():
     def name(c):
         c.portals["A-3"].name = 'New "name"'
     c, out = edited(name)
-    check('title = "keep me" },  -- keep this note' in out and 'name = "New \\"name\\""' in out, "unknown field and note survive a rename")
+    check('title = "keep me", exits = "game" },  -- keep this note' in out and 'name = "New \\"name\\""' in out, "unknown field and note survive a rename")
 
     def light(c):
         p = c.portals["A-4"]
@@ -133,13 +133,14 @@ def test_edits():
         p.design = DEFAULT_DESIGN
     c, out = edited(light)
     check("lightColor" not in out and "lightBrightness" not in out and "design" not in out.split("portals = {")[1], "removing fields")
-    check('destination = "train_start" },' in out, "no stray comma after removing the tail fields")
+    check('destination = "train_start", exits = "game" },' in out, "no stray comma after removing the tail fields (own mode added)")
 
     def add_light(c):
         c.portals["A-3"].light_hex = "#FF2020"
         c.portals["A-3"].brightness = 2.5
     c, out = edited(add_light)
-    check('title = "keep me", lightColor = { 1, 0.125, 0.125 }, lightBrightness = 2.5 },' in out, "adding fields to one-line entry")
+    check('title = "keep me", lightColor = { 1, 0.125, 0.125 }, lightBrightness = 2.5, exits = "game" },' in out,
+          "adding fields to one-line entry (an edited base-game entry also gets its own mode, CRD-034)")
 
     def off(c):
         c.portals["A-4"].enabled = False
@@ -188,6 +189,7 @@ EXITS = '''return {
         { slot = "A-3", name = "One", destination = "signal_start", exits = 4, manualBuffs = true, title = "keep me" },
         { slot = "A-4", name = "Two", destination = "train_start", exits = "HUB" },
         { slot = "B-1", name = "Odd", destination = "fog_start", exits = "sideways" },
+        { slot = "B-2", name = "Plain", destination = "alps_start" },
     },
 }
 '''
@@ -199,44 +201,61 @@ def template():
 
 
 def test_exit_modes():
+    # CRD-034: modes are per portal only; an old global exitMode is mapped into the base-game portals that have no mode of their own
     c = HubConfig(text=EXITS)
-    check(c.exit_mode == "dynamic", "exitMode as a number")
+    check(not hasattr(c, "exit_mode"), "no global exit mode in the model")
     check(c.portals["A-3"].exits == "manual" and c.portals["A-3"].manual_buffs is True, "exits 4 and manualBuffs read")
     check(c.portals["A-4"].exits == "hub", "exits in capitals read")
-    check(c.portals["B-1"].exits == "" and c.portals["B-1"].extras == ["exits"], "an unknown exits value is kept as written")
+    check(c.portals["B-1"].exits == "" and c.portals["B-1"].extras == ["exits"], "an unknown exits value is kept as written, not mapped")
+    check(c.portals["B-2"].exits == "dynamic" and not c.portals["B-2"].exits_in_file, "exitMode = 3 mapped into a portal with no exits")
     check(c.portals["A-3"].extras == ["title"], "exits and manualBuffs are known fields")
     round_trip_same(EXITS, "exits")
-    check(HubConfig(text='return { exitMode = "manual" }').exit_mode == "game", "manual is refused as the global mode")
+    m = HubConfig(text='return { exitMode = "manual", portals = { { slot = "A-3", name = "x", destination = "train_start" } } }')
+    check(m.portals["A-3"].exits == "game", "a global manual is not a mode: the portal shows GAME")
+    check(HubConfig(text='return { portals = { { slot = "A-3", name = "x", destination = "" } } }').portals["A-3"].exits == "",
+          "no world, no mode")
 
     def edit(c):
-        c.exit_mode = "hub"
         c.portals["A-3"].exits = ""
         c.portals["A-3"].manual_buffs = False
         c.portals["A-4"].exits = "manual"
         c.portals["A-4"].manual_buffs = True
+        c.portals["B-2"].name = "Plain too"
         c.portals["C-1"] = Portal(slot="C-1", name="New", destination="alps_start", exits="dynamic")
     c, out = edited(edit, EXITS)
-    check('exitMode = "hub",    -- a number works too' in out, "exitMode edited in place, comment kept")
+    check("exitMode = 3,    -- a number works too" in out, "the exitMode line is never written")
     check('{ slot = "A-3", name = "One", destination = "signal_start", title = "keep me" },' in out, "exits and manualBuffs removed")
     check('exits = "manual", manualBuffs = true }' in out.split('"A-4"')[1].split("\n")[0], "exits set and manualBuffs added")
+    check('{ slot = "B-2", name = "Plain too", destination = "alps_start", exits = "dynamic" },' in out, "the mapped mode is written on edit")
+    check('exits = "sideways"' in out, "the unknown exits value is left alone")
     check('{ slot = "C-1", name = "New", destination = "alps_start", exits = "dynamic" },' in out, "new portal with its exit mode")
     check("hubExits = { train_start = { { 1, 2, 3, 4 } } }," in out, "the old hubExits field is left alone")
     if LUA is not None:
         t = lua(out)
-        check(t["exitMode"] == "hub" and t["portals"][1]["exits"] == "manual" and t["portals"][1]["manualBuffs"] is True, "real Lua agrees")
+        check(t["exitMode"] == 3 and t["portals"][1]["exits"] == "manual" and t["portals"][1]["manualBuffs"] is True, "real Lua agrees")
     c2 = HubConfig(text=out)
     check(c2.portals["A-4"].exits == "manual" and c2.render() == out, "exit modes read back and round trip")
 
-    # the shipped template has  -- exitMode = "game",  commented out: the real line takes its place
-    def on(c):
-        c.exit_mode = "dynamic"
-    c, out = edited(on, template())
-    check('    exitMode = "dynamic",\n' in out and '-- exitMode' not in out, "exitMode written over its commented-out line")
-    check(out.count("\n") == template().count("\n"), "no lines added")
-    c, out = edited(lambda c: setattr(c, "exit_mode", "game"), template())
-    check(out == template(), "the default mode on a file without exitMode writes nothing")
-    c, out = edited(on, SAMPLE)
-    check(out.index('exitMode = "dynamic",') < out.index("portals = {"), "exitMode added above portals when there is no commented line")
+    # no exitMode: a portal with no exits shows GAME and gets exits = "game" once its entry is edited
+    plain = 'return {\n    portals = {\n        { slot = "A-3", name = "x", destination = "train_start" },\n    },\n}\n'
+    check(HubConfig(text=plain).portals["A-3"].exits == "game", "no exits shows GAME")
+    round_trip_same(plain, "plain")
+    c, out = edited(lambda c: setattr(c.portals["A-3"], "name", "y"), plain)
+    check('{ slot = "A-3", name = "y", destination = "train_start", exits = "game" },' in out, "GAME written explicitly on edit")
+
+    # custom worlds have no mode, mapped or not
+    cw = ('return {\n    exitMode = "hub",\n    worlds = {\n        my_world = { loaderAsset = "/Game/Mods/W/BP_L", loaderClass = "BP_L_C", '
+          'level = "/Game/Mods/W/L", origin = { 1, 2, 3 } },\n    },\n    portals = {\n'
+          '        { slot = "A-3", name = "Mine", destination = "my_world" },\n    },\n}\n')
+    c = HubConfig(text=cw)
+    check(c.portals["A-3"].exits == "", "a custom-world portal gets no mapped mode")
+    c, out = edited(lambda c: setattr(c.portals["A-3"], "name", "Mine 2"), cw)
+    check('{ slot = "A-3", name = "Mine 2", destination = "my_world" },' in out, "and none is written")
+
+    # the shipped template no longer mentions exitMode, and editing it never adds one
+    check("exitMode" not in template(), "template has no exitMode line")
+    c, out = edited(lambda c: c.portals.update({"A-3": Portal(slot="A-3", name="T", destination="train_start", exits="manual")}), template())
+    check("exitMode" not in out and 'exits = "manual"' in out, "a portal added to the template carries its own mode, no exitMode")
 
 
 def test_mhe():
@@ -318,12 +337,11 @@ def test_bad_input():
             check(True, "refused")
     c = HubConfig(text="return {}\n")
     c.portals["A-3"] = Portal(slot="A-3", name="x", destination="y", exits="hub")
-    c.exit_mode = "dynamic"
     c.mhe_off.add("y")
     out = c.render()
     if LUA is not None:
         t = lua(out)
-        check(t["portals"][0]["slot"] == "A-3" and t["portals"][0]["exits"] == "hub" and t["exitMode"] == "dynamic"
+        check(t["portals"][0]["slot"] == "A-3" and t["portals"][0]["exits"] == "hub" and "exitMode" not in t
               and t["mhe"]["y"] is False, "blocks added to an empty table")
     check(HubConfig(text=out).portals["A-3"].destination == "y", "reads back")
     # hand-written layouts the editor can't model stay as written
@@ -341,7 +359,6 @@ def test_crlf_and_bom():
     round_trip_same(text, "crlf")
     def add(c):
         c.portals["B-1"] = Portal(slot="B-1", name="Fog", destination="fog_start", exits="manual", manual_buffs=True)
-        c.exit_mode = "hub"
         c.mhe_off.add("fog_start")
     c, out = edited(add, text)
     check(out.count("\n") == out.count("\r\n"), "new lines follow the file's CRLF")

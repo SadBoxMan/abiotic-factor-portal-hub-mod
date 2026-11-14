@@ -12,7 +12,8 @@
 --   lightColor   Optional colour of the pad's own light, { r, g, b } with each value 0 to 1, e.g. { 0.2, 0.9, 0.4 } for green.
 --                It tints the surroundings and works with every look. (The editor offers rainbow presets and a colour picker.)
 --   lightBrightness  Optional multiplier for that light's brightness (1 = the game's normal brightness, 2 = twice as bright).
---   exits        Optional: what the world's own exits do for players of this portal (overrides exitMode below):
+--   exits        Optional, base-game worlds: what the world's own exits do for players of this portal ("game" if left out;
+--                the editor sets "manual" when you pick a world):
 --                  "game" (1)     the world's exits are the game's: the portal only takes players in
 --                  "hub" (2)      the world's exits take everyone to this portal, however they came in
 --                  "dynamic" (3)  someone who came in through this portal leaves to it; someone who came the game's way leaves the game's way
@@ -25,7 +26,7 @@
 -- as destinations; entries that name them are skipped.
 --
 -- Custom worlds (below) always lead back to the portal they were entered by, through their arrival pad; exits does not apply to them.
--- Base-game worlds: see exits above and exitMode below.
+-- Base-game worlds: see exits above.
 
 return {
     -- Hub portal volume (the looping hum of the portals in the portal room):
@@ -36,10 +37,6 @@ return {
     humMode = "dynamic",
     humFloor = 0.15,    -- dynamic: lowest volume, 0 to 1
     humManual = 0.5,    -- manual: volume, 0 to 1
-
-    -- What base-game worlds' own exits do, for every portal at once: "game" (default), "hub" or "dynamic" (see exits above).
-    -- A portal's own exits wins; "manual" can only be chosen per portal.
-    -- exitMode = "game",
 
     -- Manual Hub Exits (MHEs, manual_exits.lua): every world with an MHE also gets that exit portal on its own, leading to the first portal
     -- to that world here (for the game's homes, their own hub-room portal), or, if there is none, to the hub room (the Failsafe Exit).
