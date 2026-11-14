@@ -135,6 +135,9 @@ spoilers), Pack 2 is story, Pack 3 is "Builder Worlds", and Pack 4 demos the cus
 | Pack | File | Made | Slots | Notes |
 |---|---|---|---|---|
 | 1 Demo | `pack1-demo.lua` | 13 Nov 23:17 | A-3 Dunkeltaler, A-4 Flathill, B-1 Royal Range, B-2 Rise, B-4 World in the Mirror, C-1 Furniture Store, C-2 Pool Room, C-3 Some Distant Shore, C-4 the Train; all `manual` | The A-D `worlds` block was dropped (LuciDin); syntax OK; the GUI round trip is byte-identical |
-| 2 Story | | | | |
-| 3 Builder Worlds | | | | |
-| 4 Custom worlds | | | | keeps the A-D block |
+| 2 Story | `pack2-story.lua` | 13 Nov 23:35 | A-3 Far Garden, A-4 Flathill, B-1 the Train, B-2 Furniture Store, B-4 Mycofields, C-1 Canaan, C-2 Voussoir, C-3 Village Den, C-4 Shadowgate; all `manual` | A-D block dropped; committed in 959e5c5 |
+| 3 Builder Worlds | `pack3-builder-worlds.lua` | 13 Nov 23:55 | A-4 World in the Mirror, B-1 Furniture Store, B-4 Pool Room, C-2 Dunkeltaler, C-4 Some Distant Shore; all `manual`; four slots empty | A-D block dropped; committed in ccd0d31 |
+| 4 Custom worlds | `pack4-custom-worlds.lua` | 14 Nov 00:04 | C-1 World A, C-2 World B, C-3 World C, C-4 World D (red, blue, green, yellow) | keeps the A-D block; its zip carries the twelve teaser files |
+
+A test build (`--worktree`, 14 November) made all five zips: main 1047 files, 19.5 MB, no paks; Packs 1-3 with 4 files each; Pack 4 with 16
+(its preset, the twelve World A-D files under `AbioticFactor/Content/Paks/~mods/`, README, licence, file list).
