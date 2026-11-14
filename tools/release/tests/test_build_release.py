@@ -2,6 +2,7 @@
 # own main.lua going through the removal cleanly (exactly one key left out: END). No zip is built here.
 #   python tools\release\tests\test_build_release.py
 import os
+import re
 import sys
 import tempfile
 
@@ -78,19 +79,48 @@ with tempfile.TemporaryDirectory() as d:
 check(br.forbidden_names(os.path.join(tempfile.gettempdir(), "no-such-folder-crd015")) == ["Cordona Local Patches"], "no External Mods: private name only")
 
 # --- allowlist
-ok_paths = ["README.md", "LICENSE.txt", "FILES.txt", "PortalHubConfig.bat", "Presets/config-demo.lua",
-            br.HUB_DST + "main.lua", br.HUB_DST + "manual_exits.lua", br.TEASER_DST + "WorldC_P.utoc",
+ok_paths = ["README.md", "LICENSE.txt", "FILES.txt", "PortalHubConfig.bat",
+            br.HUB_DST + "main.lua", br.HUB_DST + "manual_exits.lua",
             "PortalHubConfig/PortalHubConfig.exe", "PortalHubConfig/_internal/icons/rise.png",
             "tools/PortalHubConfig/PortalHubConfig.py", "tools/PortalHubConfig/icons/rise.png"]
 bad_paths = ["AbioticFactor/Binaries/Win64/ue4ss/Mods/PortalMaterialLab/Scripts/main.lua",
              "AbioticFactor/Binaries/Win64/ue4ss/Mods/CordonaProbe/Scripts/main.lua",
              "AbioticFactor/Binaries/Win64/ue4ss/Mods/PortalHub/Scripts/config.lua.bak",
              br.TEASER_DST + "Test_P.pak", "tools/PortalHubConfig/tests/test_gui.py", "tools/PortalHubConfig/PortalHubConfig.ps1",
-             "tools/PortalHubConfig/__pycache__/x.pyc", "mods.txt", "Mods/PortalLogger/Scripts/main.lua"]
+             "tools/PortalHubConfig/__pycache__/x.pyc", "mods.txt", "Mods/PortalLogger/Scripts/main.lua",
+             # the main download is blank (CRD-031): presets and teaser worlds are optional downloads of their own
+             "Presets/config-demo.lua", "Presets/pack1-demo.lua", br.TEASER_DST + "WorldC_P.utoc",
+             "Optional - 2.0 teaser worlds/AbioticFactor/Content/Paks/~mods/WorldA_P.pak"]
 for p in ok_paths:
     check(br.allowed_path(p), "allowed: " + p)
 for p in bad_paths:
     check(not br.allowed_path(p), "refused: " + p)
+
+# --- preset packs (CRD-031): one optional download per committed pack, pack 1 required, Pack 4 carries the teaser worlds
+check(br.order_presets(["pack3-builder-worlds.lua", "pack1-demo.lua"]) == (["pack1-demo.lua", "pack3-builder-worlds.lua"], []),
+      "presets in pack order, missing packs skipped")
+check(br.order_presets(list(br.PRESET_NAMES)[::-1]) == (list(br.PRESET_NAMES), []), "all four packs")
+check(br.order_presets(["pack1-demo.lua", "notes.txt"]) == (["pack1-demo.lua"], ["notes.txt"]), "an unknown file is reported, not shipped")
+check(br.REQUIRED_PRESET == "pack1-demo.lua" and br.TEASER_PACK == "pack4-custom-worlds.lua", "pack 1 required, pack 4 has the teaser worlds")
+check(len({p[1] for p in br.PACKS}) == 4 and all(p[1].startswith("Pack%d-" % (i + 1)) for i, p in enumerate(br.PACKS)), "four distinct zip names")
+for preset in br.PRESET_NAMES:
+    check(br.allowed_pack_path("Presets/" + preset, preset) and br.allowed_pack_path("README.md", preset), "pack allows its preset: " + preset)
+    others = [n for n in br.PRESET_NAMES if n != preset]
+    check(not any(br.allowed_pack_path("Presets/" + n, preset) for n in others), "pack refuses the other presets: " + preset)
+    check(not br.allowed_pack_path(br.HUB_DST + "main.lua", preset), "pack refuses the hub: " + preset)
+check(br.allowed_pack_path(br.TEASER_DST + "WorldB_P.ucas", br.TEASER_PACK), "Pack 4 allows the teaser worlds")
+check(not br.allowed_pack_path(br.TEASER_DST + "WorldB_P.ucas", br.REQUIRED_PRESET), "Pack 1 refuses the teaser worlds")
+check(not br.allowed_pack_path(br.TEASER_DST + "Test_P.pak", br.TEASER_PACK), "Pack 4 refuses other paks")
+pdir = os.path.join(br.ROOT, "tools", "release", "presets")
+check(os.path.isfile(os.path.join(pdir, "pack1-demo.lua")), "pack1-demo.lua exists")
+check(os.path.isfile(os.path.join(br.ROOT, "tools", "release", "README-presets.md")), "the packs' README exists")
+for n in sorted(os.listdir(pdir)):
+    check(n in br.PRESET_NAMES, "presets folder holds only preset names: " + n)
+    t = open(os.path.join(pdir, n), "rb").read()
+    check(not t.startswith(b"\xef\xbb\xbf") and t.startswith(b"-- Portal Hub preset: Pack "), n + ": no BOM, starts with its header")
+    check(b"made by the author" in t.lower(), n + ": the header says the author made it")
+tmpl = open(os.path.join(br.ROOT, "mod", "PortalHub", "Scripts", "config.lua"), encoding="utf-8").read()
+check(not re.search(r'^\s*\{\s*slot\s*=', tmpl, re.M), "the main download's template config has no portals (blank)")
 
 print("%d checks, %d passed, %d failed" % (passed + failed, passed, failed))
 sys.exit(1 if failed else 0)

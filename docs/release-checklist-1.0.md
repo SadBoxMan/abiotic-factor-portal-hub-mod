@@ -5,15 +5,20 @@ For CRD-015. The builder is `tools/release/build_release.py`; the player README 
 uploads the file and pushes to GitHub. Sessions only build, check and install on his word.
 
 **Scope (LuciDin, 10 November):** 1.0 is the hub for the game's own worlds. The custom-world code stays in, unsupported, and the World
-A-D paks ship as an optional "2.0 teaser" folder. Client mode ships as **experimental** multiplayer. A demo preset (`Presets/config-demo.lua`)
-ships, made by LuciDin in the GUI. The old `PortalHubConfig.ps1` is retired (deleted).
+A-D paks ship as a "2.0 teaser" inside Pack 4. Client mode ships as **experimental** multiplayer. The old `PortalHubConfig.ps1` is retired (deleted).
+**Packaging (LuciDin, 13 November, CRD-031):** the main download is **blank** (the template `config.lua` has no portals); LuciDin's presets
+are **optional downloads, one zip per pack** (`PortalHub-1.0.0-Pack1-Demo.zip` ... `Pack4-Custom-Worlds.zip`), built for every pack
+committed in `tools/release/presets/`; Pack 1 is required, and Pack 4 also carries the teaser worlds.
 
 ## 1. Before Saturday
 
 - [ ] The last two-player test(s) are done and anything that blocks a release is fixed and committed.
-- [ ] Card C decided: the hub's NUMPAD 1 / 2 sit on the game's debug-only camera-shake actions (`DebugCameraShake`,
+- [x] Card C decided (10 November: LuciDin keeps NUMPAD 1 / 2): the hub's NUMPAD 1 / 2 sit on the game's debug-only camera-shake actions (`DebugCameraShake`,
       `DebugDecreaseCameraShake`; not in the Controls list). Accept as is, or move them (then update `KNOWN_BINDS` in the builder and the README).
-- [ ] The demo preset is LuciDin's (`tools/release/config-demo.lua`, not the provisional copy of the beta config).
+- [ ] LuciDin's preset packs are committed in `tools/release/presets/` (Pack 1 Demo done 13 November, CRD-031; Packs 2-4 ship
+      only once committed).
+- [ ] Every portal world has a default MHE in `manual_exits.lua` (CRD-031: 22 worlds + the failsafe, 13 November);
+      `python tools\dev\tests\test_default_mhes.py` passes.
 - [ ] The installed `manual_exits.lua` is copied back into the repo if any MHE was recorded since (`git diff` shows it), and committed.
 - [ ] Every change to ship is committed (the builder reads **HEAD only**; a working-tree file never reaches the zip).
 
@@ -50,9 +55,9 @@ hub. A session installs only on his yes, and says what it changed.
 2. **Copy the installed `manual_exits.lua` back into the repo** if it differs from the repo's (it holds recordings); commit it
    and build again before installing. Never copy over it unseen.
 3. Install from the zip's `PortalHub 1.0.0\AbioticFactor\` exactly as the README says (merge into `<game>`). Keep LuciDin's
-   own `config.lua`, or use the zip's template or the demo preset for a clean check (say which).
-4. Teaser worlds: copy `Optional - 2.0 teaser worlds\AbioticFactor\` in too. The installed `World?_P.*` should already be
-   byte-identical; compare the SHA-1s with `FILES.txt`.
+   own `config.lua`, or use the zip's blank template or a pack's preset for a clean check (say which).
+4. Teaser worlds: copy Pack 4's `AbioticFactor\` in too (if Pack 4 was built). The installed `World?_P.*` should already be
+   byte-identical; compare the SHA-1s with Pack 4's `FILES.txt`.
 5. Check the installed hub files against `FILES.txt` (SHA-1) and that `mods.txt` has `PortalHub : 1`. Switch the probe off
    (`CordonaProbe : 0`) for a release-like run.
 6. Unzip the editor somewhere else (the desktop, for example), double-click `PortalHubConfig.bat`, check that the install line says
@@ -82,7 +87,8 @@ Afterwards: put the probe back on if the next two-player test needs it (`Cordona
 ## 6. Upload (LuciDin)
 
 1. Nexus page > Manage > Files: upload `Release\PortalHub-1.0.0.zip`. Name "Portal Hub 1.0.0", version `1.0.0`, category Main
-   Files. Description: one line, e.g. "Portal Hub 1.0 with the config editor, a demo preset and the optional 2.0 teaser worlds."
+   Files. Description: one line, e.g. "Portal Hub 1.0 with the config editor (blank: no portals of its own)."
+   Then each built pack, `Release\PortalHub-1.0.0-Pack<N>-<name>.zip`, as an **Optional** file, named e.g. "Pack 1 - Demo".
 2. Requirements tab: UE4SS for Abiotic Factor (mod 35), "Lua mod loader, 1.25.0 or later".
 3. Publish the page.
 4. Optional: download the uploaded file again and compare its SHA-1 with the builder's last line.

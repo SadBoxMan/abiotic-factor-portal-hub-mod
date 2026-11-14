@@ -5,7 +5,9 @@ slots, and each one can lead to any of the game's portal worlds. A config editor
 
 - Made for **Abiotic Factor v1.5.0**, with **UE4SS for Abiotic Factor 1.25.0** or later.
 - Works with the game's own worlds. No game files are replaced: the hub is a UE4SS Lua mod.
-- **Includes a 2.0 teaser:** four small custom worlds (World A-D) as an optional extra. Custom worlds are unsupported in 1.0 (see section 7).
+- Starts **blank**: only the game's own portals, until you add yours. Every portal world already has a Manual Hub Exit (section 5).
+- **Optional preset packs:** ready-made portal rooms by the author, as separate downloads. Pack 4 includes a 2.0 teaser: four small
+  custom worlds (World A-D). Custom worlds are unsupported in 1.0 (see section 7).
 
 ## 1. Install UE4SS first (not included)
 
@@ -31,7 +33,8 @@ game after changing the config.
 
 3. Copy `PortalHubConfig.bat`, the `PortalHubConfig` folder and the `tools` folder anywhere you like (your desktop, for example).
    Keep them side by side.
-4. Start the game and load a save. The hub portals appear when the portal room loads. With a fresh config, Dunkeltaler Forest is on slot A-3.
+4. Start the game and load a save. A fresh config has no portals of its own: add yours in the config editor (section 3), or use a
+   preset pack (section 7). The hub portals appear when the portal room loads.
 
 **Upgrading from an earlier copy:** your `config.lua` holds your portals. Back it up, install, then put it back. `manual_exits.lua` holds
 the Manual Hub Exit spots (section 5): keep yours if you recorded or edited any.
@@ -70,8 +73,9 @@ the Manual Hub Exit. It is off by default because it makes the game much easier.
 
 ## 5. Manual Hub Exits and the Failsafe Exit
 
-A **Manual Hub Exit (MHE)** is an extra exit portal placed inside a world that always leads back to the hub. 1.0 ships MHEs for
-**Far Garden** and **the Train**. A world with an MHE gets that portal whether or not a hub portal leads there:
+A **Manual Hub Exit (MHE)** is an extra exit portal placed inside a world that always leads back to the hub. 1.0 ships an MHE in
+**every portal world** the editor offers (22 worlds), each placed by hand by the author. A world with an MHE gets that portal whether or
+not a hub portal leads there:
 
 - If a hub portal leads to that world, the MHE takes you back to it. For the game's homes, it takes you to their own portal in the hub room.
 - If no hub portal leads there, the MHE takes you to the **Failsafe Exit**: an invisible landing spot on the top tier of the portal room.
@@ -90,20 +94,25 @@ or restart mods to use the changes. A world set to **manual** with no MHE record
 These are the hub's only keys. The game binds NUMPAD 1 and 2 only to two developer debug actions (camera shake), which are not in its
 Controls list, so they don't clash with normal play.
 
-## 7. The 2.0 teaser worlds (optional, unsupported)
+## 7. Preset packs and the 2.0 teaser worlds (optional)
 
-Custom worlds (worlds that ship their own pak, not part of the game) are what Portal Hub 2.0 is about. The code is already in 1.0, and
-four small test worlds are included as a teaser. **They are unsupported in 1.0:** expect rough edges, and please don't report them as bugs.
+The author's preset packs are **separate optional downloads** on the mod page, one zip each. A preset is a ready-made `config.lua` that
+fills the portal room. Each pack's zip has its own README with the details.
 
-To try them:
-1. Copy the `AbioticFactor` folder from `Optional - 2.0 teaser worlds` into `<game>`, merging it as before. This puts twelve files
-   (`WorldA_P.pak/.ucas/.utoc` ... `WorldD_P.*`) in `<game>\AbioticFactor\Content\Paks\~mods\`.
-2. Use the demo preset (below), which has them on slots C-1 to C-4. You can also add them yourself on the editor's Custom Worlds tab,
-   with the entries from the preset.
+| Pack | Download | What it is |
+|---|---|---|
+| 1, Demo | `PortalHub-1.0.0-Pack1-Demo.zip` | The flagship sample: nine varied optional worlds, no major story spoilers, every portal leading back through its world's Manual Hub Exit |
+| 2, Story | `PortalHub-1.0.0-Pack2-Story.zip` | Story-based (when it is released) |
+| 3, Builder Worlds | `PortalHub-1.0.0-Pack3-Builder-Worlds.zip` | Builder worlds (when it is released) |
+| 4, Custom Worlds | `PortalHub-1.0.0-Pack4-Custom-Worlds.zip` | Demos the 2.0 teaser worlds (World A-D) and includes them (when it is released) |
 
-**Demo preset:** `Presets\config-demo.lua` is a ready-made config with every open slot filled. To use it, back up
-`Mods\PortalHub\Scripts\config.lua`, copy the preset over it (keep the name `config.lua`), and restart. Install the teaser worlds first,
-or their portals lead nowhere.
+**To use a pack:** back up `Mods\PortalHub\Scripts\config.lua`, copy the pack's preset (in its `Presets` folder) over it, keeping the
+name `config.lua`, and restart the game. You can change it in the editor afterwards like any other config.
+
+**The 2.0 teaser worlds:** custom worlds (worlds that ship their own pak, not part of the game) are what Portal Hub 2.0 is about. The code
+is already in 1.0, and four small test worlds come with Pack 4. **They are unsupported in 1.0:** expect rough edges, and please don't
+report them as bugs. Pack 4's README says how to install them (twelve files in `<game>\AbioticFactor\Content\Paks\~mods\`). Install them
+before you use Pack 4's preset, or its portals lead nowhere.
 
 ## 8. Multiplayer (experimental)
 

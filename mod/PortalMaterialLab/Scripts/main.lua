@@ -9,6 +9,8 @@
 --                   NUMPAD . gives the lighting back (the only keys besides NUMPAD 3 that change anything, and only the lighting)
 --   NUMPAD -        Leyak director: required story flag, CanSpawn, cooldown, active Leyak, each Leyak's distance (read-only); F4 forces a spawn
 --   F5              no-clip on / off (changes the player: capsule passes through walls but keeps overlaps for level streaming, flying)
+--   F7              infinite health on / off (changes the player: sets its own Invincible flag, checked again every 2 s while on, so a
+--                   new character after a load gets it too; no hook). For recording MHEs in dangerous worlds (CRD-031).
 --   F2              save the player's position (world and world-relative, for ArriveSpot / ExitSpot) to the log and saved_positions.txt
 --   INSERT          Hub Exit preview and MHE: put a portal at the last F2 spot that leads to the last hub-room portal used, and save that spot
 --                   as the Manual Hub Exit (MHE) of the world it is in, in the HUB's manual_exits.lua; a hub portal in exit mode "manual" to that
@@ -18,7 +20,7 @@
 --   PAGE UP         flags and row registry: flags in this save, hub rows in DT_WorldFlags and DT_Levels, BaseTables, zones, pads (read-only)
 --   PAGE DOWN       the same questions asked through native calls not used elsewhere (flag library, HasWorldFlag handle forms; on their own key)
 --   (no key)        every pad use is logged by a passive hook on AttemptTeleport: which pad, where it leads, which flag and buffs it gives
--- Keys stay clear of the game's own bindings: F1 is its player list, F10 its HUD toggle, + its pager (NUMPAD 1 and 2 belong to PortalHub, F6-F10 to PortalLogger). Note: Shift + a numpad digit does not work,
+-- Keys stay clear of the game's own bindings: F1 is its player list, F10 its HUD toggle, + its pager (NUMPAD 1 and 2 belong to PortalHub, F6 to PortalLogger; F7 and F8 are unbound in the game's input config). Note: Shift + a numpad digit does not work,
 -- because with Num Lock on Shift turns the digit into Home / arrow keys.
 -- Rule: every object is checked with IsValid() before anything is called on it (a call on an invalid object crashes the game).
 
@@ -1932,6 +1934,53 @@ local function hook_pads_soon() ExecuteWithDelay(5000, function() ExecuteInGameT
 NotifyOnNewObject(HOMEWORLD_PAD, hook_pads_soon)
 if valid(FindFirstOf("BP_Teleporter_HomeWorld_C")) then hook_pads_soon() end
 
+-- F7: infinite health for testing (CRD-031; the lab never ships). Sets the player character's own Invincible flag. While on, it is checked
+-- every 2 s on the game thread and set again if a new character lacks it (after a load or a respawn). No hook and no async loop: a
+-- generation number stops an old check chain when F7 is pressed again. The controller is found once and kept while it is valid: a
+-- FindFirstOf every 2 s walks the whole object array, which stutters and can crash while a world streams in (CRD-032).
+local invincible = { on = false, gen = 0, pc = nil }
+local function current_pawn()
+    local pc = invincible.pc
+    if not (pc and pc:IsValid()) then
+        pc = player_controller()
+        invincible.pc = pc
+    end
+    local pawn = pc and pc.Pawn
+    return valid(pawn) and pawn or nil
+end
+local function is_invincible(pawn)
+    local ok, v = pcall(function() return pawn.Invincible end)
+    return ok and v == true
+end
+local function set_invincible(pawn, on)
+    return pcall(function() pawn.Invincible = on end)
+end
+local function invincible_check(gen)
+    if not invincible.on or gen ~= invincible.gen then return end
+    local pawn = current_pawn()
+    if pawn and not is_invincible(pawn) then
+        local ok = set_invincible(pawn, true)
+        log("infinite health: set again on the current character (" .. tostring(ok) .. ")")
+    end
+    ExecuteWithDelay(2000, function() ExecuteInGameThread(function() invincible_check(gen) end) end)
+end
+local function toggle_invincible()
+    local pawn = current_pawn()
+    if not pawn then log("infinite health: no player character") say("Infinite health: no player character", 2) return end
+    invincible.on = not invincible.on
+    invincible.gen = invincible.gen + 1
+    local ok, err = set_invincible(pawn, invincible.on)
+    if not ok then
+        invincible.on = false
+        log("infinite health: could not set Invincible (" .. one_line(err) .. ")")
+        say("Infinite health: could not be set", 2)
+        return
+    end
+    log("infinite health " .. (invincible.on and "ON" or "OFF") .. " (Invincible = " .. tostring(is_invincible(pawn)) .. ", health " .. total_health(pawn) .. ")")
+    say("Infinite health " .. (invincible.on and "ON" or "OFF"), invincible.on and 0 or 2)
+    if invincible.on then invincible_check(invincible.gen) end
+end
+
 if not pcall(function() RegisterKeyBind(Key.PAGE_UP, function() ExecuteInGameThread(flag_registry_survey) end) end) then log("PAGE UP could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.PAGE_DOWN, function() ExecuteInGameThread(flag_native_probe) end) end) then log("PAGE DOWN could not be bound") end
 log("assessment keys: PAGE UP = flags and row registry (read-only), PAGE DOWN = flag calls not used before (read-only, its own key)")
@@ -1940,4 +1989,5 @@ if not pcall(function() RegisterKeyBind(Key.F5, function() ExecuteInGameThread(t
 if not pcall(function() RegisterKeyBind(Key.F2, function() ExecuteInGameThread(save_position) end) end) then log("F2 could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.F3, function() ExecuteInGameThread(kill_player) end) end) then log("F3 could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.INS, function() ExecuteInGameThread(hub_exit_preview) end) end) then log("INSERT could not be bound") end
-log("player keys: F5 = no-clip on / off, F2 = save this position (log, screen, saved_positions.txt), F3 = kill the player, INSERT = Hub Exit preview at the last F2 spot")
+if not pcall(function() RegisterKeyBind(Key.F7, function() ExecuteInGameThread(toggle_invincible) end) end) then log("F7 could not be bound") end
+log("player keys: F5 = no-clip on / off, F2 = save this position (log, screen, saved_positions.txt), F3 = kill the player, INSERT = Hub Exit preview at the last F2 spot, F7 = infinite health on / off")

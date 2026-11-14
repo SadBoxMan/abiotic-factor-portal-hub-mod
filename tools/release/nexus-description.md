@@ -18,12 +18,13 @@ slots, and each one can lead to any of the game's portal worlds, with its own lo
 **What it does**
 - Up to nine extra portals in the portal room, each to a world of your choice (the DLC areas excepted).
 - **Exit modes** per portal: leave a world the game's way, always back to the hub, per player (dynamic), or through a **Manual Hub Exit**.
-- **Manual Hub Exits**: an extra exit portal inside a world that always leads back to the hub (Far Garden and the Train in 1.0),
+- **Manual Hub Exits**: an extra exit portal inside a world that always leads back to the hub (one in every portal world, placed by hand),
   with a **Failsafe Exit** in the portal room for worlds that have no hub portal.
 - The portal hum gets quieter as you add portals (or set it yourself).
 - **Config editor** (Windows): click a slot, pick a world, look, light and exit mode, then save. It checks your install too.
-- **Demo preset** with every slot filled.
-- **2.0 teaser:** four small custom worlds (optional, unsupported in 1.0), a first look at connecting worlds that are not in the game.
+- Starts **blank**: you choose the portals. Or grab one of the author's **preset packs** (optional files): Pack 1 Demo, Pack 2 Story,
+  Pack 3 Builder Worlds, Pack 4 Custom Worlds.
+- **2.0 teaser** (in Pack 4): four small custom worlds (unsupported in 1.0), a first look at connecting worlds that are not in the game.
 
 **Requirements**
 - Abiotic Factor v1.5.0
@@ -51,4 +52,6 @@ occasions UE4SS stops all delayed actions (restart the game); custom worlds are 
 
 ---
 
-**File description (Files tab):** Portal Hub 1.0.0: the hub, the config editor, a demo preset and the optional 2.0 teaser worlds.
+**File descriptions (Files tab):** Main file, Portal Hub 1.0.0: the hub and the config editor (blank, no portals of its own). Optional
+files, one per preset pack: Pack 1 Demo (the flagship sample), Pack 2 Story, Pack 3 Builder Worlds, Pack 4 Custom Worlds (with the 2.0
+teaser worlds). Upload only the packs that were built.

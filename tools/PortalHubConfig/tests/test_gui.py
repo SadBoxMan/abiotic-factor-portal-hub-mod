@@ -35,7 +35,22 @@ def main():
     d = tempfile.mkdtemp()
     path = os.path.join(d, "config.lua")
     shutil.copy(TEMPLATE, path)
-    shutil.copy(os.path.join(os.path.dirname(TEMPLATE), "manual_exits.lua"), d)
+    # the shipped template is blank (CRD-031); this test starts from one portal on A-3, as the template used to have
+    with open(path, encoding="utf-8", newline="") as f:
+        t = f.read()
+    nl = "\r\n" if "\r\n" in t else "\n"          # a Windows checkout may have CRLF
+    blank = "    portals = {" + nl + "    }," + nl
+    assert blank in t, "the template's empty portals list was not found"
+    one = '    portals = {' + nl + '        { slot = "A-3", name = "Dunkeltaler Forest", destination = "signal_start" },' + nl + '    },' + nl
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(t.replace(blank, one, 1))
+    # A fixed MHE file (not the shipped one, which has an MHE in every world, CRD-031): two worlds and the failsafe, so fog_start is unrecorded.
+    with open(os.path.join(d, "manual_exits.lua"), "w", encoding="utf-8", newline="") as f:
+        f.write("return {\n"
+                '    ["anteverse_a_start"] = { 127627, 335370, 1930, 302 },\n'
+                '    ["failsafe"] = { -11938, 8293, 257, 183 },\n'
+                '    ["train_start"] = { 333394, 13460, 872, 359 },\n'
+                "}\n")
     original = text(path)
     root = tk.Tk()
     root.withdraw()

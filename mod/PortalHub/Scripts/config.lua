@@ -71,7 +71,9 @@ return {
     worlds = {
     },
 
+    -- Blank on a new install: only the game's own portals (Stone Garden, Torii and the Cabin on A-1, A-2 and B-3). Add yours in the config
+    -- editor, or copy one of the author's preset packs over this file. Example (remove the leading -- to use):
+    --   { slot = "A-3", name = "Dunkeltaler Forest", destination = "signal_start" },
     portals = {
-        { slot = "A-3", name = "Dunkeltaler Forest", destination = "signal_start" },
     },
 }

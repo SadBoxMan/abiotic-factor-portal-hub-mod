@@ -8,16 +8,17 @@ r"""Builds the public Portal Hub release zip for Nexus (CRD-015) into Release\ a
 Everything shipped is read from git HEAD (git show / git archive), never from the working tree: another card may be editing
 main.lua, and an uncommitted file must never reach players. The working-tree copies are only compared, with a warning if they differ.
 
-What ships (inside "PortalHub <VERSION>\"):
+What ships, main download PortalHub-<VERSION>.zip (inside "PortalHub <VERSION>\"), blank: no portals of its own (LuciDin, CRD-031):
     AbioticFactor\Binaries\Win64\ue4ss\Mods\PortalHub\Scripts\
         main.lua            the repo's, with DEV_KEYS = false and the dev-key block removed (packaged copy only)
-        slots.lua, manual_exits.lua, config.lua (the template)
+        slots.lua, manual_exits.lua (the author's MHEs, one per world), config.lua (the template: no portals)
     PortalHubConfig\        the config editor (one-folder exe, unsigned), built here by PyInstaller from HEAD's sources
     PortalHubConfig.bat     starts it
     tools\PortalHubConfig\  the editor's Python source and icons (no tests), the fallback the .bat uses
-    Presets\config-demo.lua the demo preset (tools\release\config-demo.lua)
-    Optional - 2.0 teaser worlds\AbioticFactor\Content\Paks\~mods\World[A-D]_P.pak/.ucas/.utoc
     README.md (tools\release\README-player.md), LICENSE.txt, FILES.txt (path, size, SHA-1 of every other file)
+Optional downloads, one per preset pack committed in tools\release\presets\ (PortalHub-<VERSION>-Pack1-Demo.zip ...):
+    Presets\<pack>.lua      the author's preset;  README.md (tools\release\README-presets.md), LICENSE.txt, FILES.txt
+    Pack 4 (custom worlds) also carries the World A-D teaser worlds: AbioticFactor\Content\Paks\~mods\World[A-D]_P.pak/.ucas/.utoc
 Never shipped: the lab, CordonaProbe, PortalLogger, PortalPoC, the test mods, the cheat / item-spawner mods, anything private
 ("Cordona Local Patches") or third-party (External Mods). The checks below refuse a build that has any of them.
 
@@ -43,7 +44,19 @@ OUT = os.path.join(ROOT, "Release")
 VERSION = "1.0.0"
 TOP = "PortalHub " + VERSION
 HUB_DST = "AbioticFactor/Binaries/Win64/ue4ss/Mods/PortalHub/Scripts/"
-TEASER_DST = "Optional - 2.0 teaser worlds/AbioticFactor/Content/Paks/~mods/"
+TEASER_DST = "AbioticFactor/Content/Paks/~mods/"     # inside Pack 4's download (CRD-031)
+# The author's preset packs (CRD-031, LuciDin 13 November 2026): one optional download each, built for every pack committed in
+# PRESETS_SRC. Pack 1 (the flagship demo) is required; any other file in that folder is left out with a warning.
+PRESETS_SRC = "tools/release/presets"
+PACKS = [   # preset file, zip suffix, folder title
+    ("pack1-demo.lua", "Pack1-Demo", "Pack 1 - Demo"),
+    ("pack2-story.lua", "Pack2-Story", "Pack 2 - Story"),
+    ("pack3-builder-worlds.lua", "Pack3-Builder-Worlds", "Pack 3 - Builder Worlds"),
+    ("pack4-custom-worlds.lua", "Pack4-Custom-Worlds", "Pack 4 - Custom Worlds"),
+]
+PRESET_NAMES = tuple(p[0] for p in PACKS)
+REQUIRED_PRESET = PRESET_NAMES[0]
+TEASER_PACK = PRESET_NAMES[3]
 PRIVATE_NAMES = ["Cordona Local Patches"]
 ALLOWED_TOKENS = {"ue4ss"}          # External Mods holds UE4SS too: a dependency the README names on purpose
 
@@ -133,11 +146,9 @@ def find_names(data, names):
 
 def allowed_path(rel):
     rel = rel.replace(os.sep, "/")
-    if rel in ("README.md", "LICENSE.txt", "FILES.txt", "PortalHubConfig.bat", "Presets/config-demo.lua"):
+    if rel in ("README.md", "LICENSE.txt", "FILES.txt", "PortalHubConfig.bat"):
         return True
     if rel in [HUB_DST + f for f in ("main.lua", "slots.lua", "manual_exits.lua", "config.lua")]:
-        return True
-    if re.fullmatch(re.escape(TEASER_DST) + r"World[A-D]_P\.(pak|ucas|utoc)", rel):
         return True
     if rel.startswith("PortalHubConfig/"):
         return True
@@ -145,6 +156,29 @@ def allowed_path(rel):
             and "/dist/" not in rel and "/build/" not in rel and "__pycache__" not in rel:
         return True
     return False
+
+
+def allowed_pack_path(rel, preset):
+    """The allowlist of one preset pack's download: its preset, the docs, and (Pack 4 only) the teaser worlds."""
+    rel = rel.replace(os.sep, "/")
+    if rel in ("README.md", "LICENSE.txt", "FILES.txt", "Presets/" + preset):
+        return True
+    return preset == TEASER_PACK and re.fullmatch(re.escape(TEASER_DST) + r"World[A-D]_P\.(pak|ucas|utoc)", rel) is not None
+
+
+def order_presets(names):
+    """(the preset names to ship, in pack order; the other names found) from the file names in tools/release/presets."""
+    names = set(names)
+    return [n for n in PRESET_NAMES if n in names], sorted(names - set(PRESET_NAMES))
+
+
+def preset_names():
+    """The file names in tools/release/presets at HEAD (with --worktree, in the working tree)."""
+    if WORKTREE:
+        d = os.path.join(ROOT, *PRESETS_SRC.split("/"))
+        return sorted(os.listdir(d)) if os.path.isdir(d) else []
+    out = git("ls-tree", "--name-only", "HEAD", PRESETS_SRC + "/")
+    return [line.rsplit("/", 1)[-1] for line in out.splitlines() if line.strip()]
 
 
 def put(stage, rel, data):
@@ -192,13 +226,13 @@ def warn_if_working_tree_differs(paths):
         print("NOTE: these working-tree files differ from HEAD; the zip uses HEAD's versions:\n" + diff)
 
 
-def run_checks(stage, names):
+def run_checks(stage, names, allowed=allowed_path):
     problems = []
     for d, _, files in os.walk(stage):
         for fn in files:
             full = os.path.join(d, fn)
             rel = os.path.relpath(full, stage).replace(os.sep, "/")
-            if not allowed_path(rel):
+            if not allowed(rel):
                 problems.append("not on the allowlist: " + rel)
             with open(full, "rb") as f:
                 data = f.read()
@@ -224,6 +258,11 @@ def main():
     shipped = ["mod/PortalHub/Scripts", "tools/PortalHubConfig", "tools/release", "PortalHubConfig.bat", "LICENSE", "World Projects/Builds"]
     if not WORKTREE:
         warn_if_working_tree_differs(shipped)
+    presets, others = order_presets(preset_names())
+    for n in others:
+        print("WARNING: %s/%s is not one of the preset names (%s); not shipped" % (PRESETS_SRC, n, ", ".join(PRESET_NAMES)))
+    if REQUIRED_PRESET not in presets:
+        sys.exit("BUILD REFUSED: no %s/%s%s; the flagship preset is required" % (PRESETS_SRC, REQUIRED_PRESET, "" if WORKTREE else " at HEAD"))
 
     stage_root = os.path.join(OUT, "stage")
     stage = os.path.join(stage_root, TOP)
@@ -261,12 +300,7 @@ def main():
                     with open(os.path.join(d, fn), "rb") as f:
                         put(stage, "tools/PortalHubConfig/" + rel, f.read())
         put(stage, "PortalHubConfig.bat", committed("PortalHubConfig.bat"))
-        # presets, teaser worlds, docs
-        put(stage, "Presets/config-demo.lua", committed("tools/release/config-demo.lua"))
-        for w in "ABCD":
-            for ext in ("pak", "ucas", "utoc"):
-                fn = "World%s_P.%s" % (w, ext)
-                put(stage, TEASER_DST + fn, committed("World Projects/Builds/" + fn))
+        # docs (presets and the teaser worlds are optional downloads of their own, below)
         put(stage, "README.md", committed("tools/release/README-player.md"))
         put(stage, "LICENSE.txt", committed("LICENSE"))
     finally:
@@ -275,7 +309,6 @@ def main():
     names = forbidden_names()
     problems = run_checks(stage, names)
     lua = [os.path.join(stage, HUB_DST, f) for f in ("main.lua", "slots.lua", "manual_exits.lua", "config.lua")]
-    lua.append(os.path.join(stage, "Presets", "config-demo.lua"))
     if subprocess.run([sys.executable, os.path.join(ROOT, "tools", "dev", "lua_syntax_check.py")] + lua).returncode:
         problems.append("the staged Lua failed the syntax check")
     for t in TESTS_ON_PACKAGED:
@@ -296,7 +329,37 @@ def main():
     print("forbidden-name scan: %d name(s) checked, none found; External Mods %s" %
           (len(names), "read" if os.path.isdir(os.path.join(ROOT, "External Mods")) else "NOT FOUND (only the private name was checked)"))
 
-    # file list (inside the zip and beside it), then the zip
+    write_package(stage_root, stage, "PortalHub-" + VERSION, "Portal Hub " + VERSION, names, head)
+
+    # the optional preset packs, one download each (Pack 4 also carries the teaser worlds)
+    for preset, suffix, title in PACKS:
+        if preset not in presets:
+            print("%s: not committed yet, no download built" % title)
+            continue
+        proot = os.path.join(OUT, "stage-" + suffix)
+        pstage = os.path.join(proot, "%s - %s" % (TOP, title))
+        if os.path.isdir(proot):
+            shutil.rmtree(proot)
+        os.makedirs(pstage)
+        put(pstage, "Presets/" + preset, committed(PRESETS_SRC + "/" + preset))
+        if preset == TEASER_PACK:
+            for w in "ABCD":
+                for ext in ("pak", "ucas", "utoc"):
+                    fn = "World%s_P.%s" % (w, ext)
+                    put(pstage, TEASER_DST + fn, committed("World Projects/Builds/" + fn))
+        put(pstage, "README.md", committed("tools/release/README-presets.md"))
+        put(pstage, "LICENSE.txt", committed("LICENSE"))
+        problems = run_checks(pstage, names, lambda rel, p=preset: allowed_pack_path(rel, p))
+        if subprocess.run([sys.executable, os.path.join(ROOT, "tools", "dev", "lua_syntax_check.py"),
+                           os.path.join(pstage, "Presets", preset)]).returncode:
+            problems.append("the preset failed the syntax check")
+        if problems:
+            sys.exit("BUILD REFUSED (%s):\n  %s" % (title, "\n  ".join(problems)))
+        write_package(proot, pstage, "PortalHub-%s-%s" % (VERSION, suffix), "Portal Hub %s, %s" % (VERSION, title), names, head)
+
+
+def write_package(stage_root, stage, name, label, names, head):
+    """FILES.txt (inside the zip and beside it as <name>-files.txt), then <name>.zip in OUT, scanned once more for forbidden names."""
     listing = []
     for d, _, files in os.walk(stage):
         for fn in files:
@@ -305,10 +368,9 @@ def main():
                 data = f.read()
             listing.append((os.path.relpath(full, stage).replace(os.sep, "/"), len(data), hashlib.sha1(data).hexdigest()))
     listing.sort()
-    head_text = "Portal Hub %s, built from commit %s. Path, size in bytes, SHA-1.\n" % (VERSION, head)
+    head_text = "%s, built from commit %s. Path, size in bytes, SHA-1.\n" % (label, head)
     files_txt = head_text + "".join("%s\t%d\t%s\n" % row for row in listing)
     put(stage, "FILES.txt", files_txt.encode("utf-8"))
-    name = "PortalHub-" + VERSION
     with open(os.path.join(OUT, name + "-files.txt"), "w", encoding="utf-8", newline="\n") as f:
         f.write(files_txt)
     zpath = os.path.join(OUT, name + ".zip")
@@ -322,7 +384,7 @@ def main():
     with open(zpath, "rb") as f:
         zdata = f.read()
     if find_names(zdata, names):
-        sys.exit("BUILD REFUSED: the finished zip holds a forbidden name")
+        sys.exit("BUILD REFUSED: the finished zip %s holds a forbidden name" % zpath)
     print("%s: %d files, %.1f MB, SHA-1 %s (commit %s)" % (zpath, len(listing) + 1, len(zdata) / 1e6, hashlib.sha1(zdata).hexdigest(), head))
 
 
