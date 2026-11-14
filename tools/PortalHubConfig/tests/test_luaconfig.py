@@ -8,7 +8,8 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))
+sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa fallback (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "Cordona pylib"))   # lupa: <repo parent>\Cordona pylib first
 from hubdata import DEFAULT_DESIGN, design_path  # noqa: E402
 from luaconfig import HubConfig, LuaError, Parser, World, Portal, read_manual_exits  # noqa: E402
 

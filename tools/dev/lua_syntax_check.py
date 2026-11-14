@@ -2,7 +2,8 @@
 #   python tools\dev\lua_syntax_check.py mod\PortalHub\Scripts\main.lua mod\PortalMaterialLab\Scripts\main.lua
 # lupa: pip install lupa   (or pip install --target %TEMP%\pylib lupa, which this script also looks in)
 import os, sys
-sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))
+sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa fallback (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "Cordona pylib"))   # lupa: <repo parent>\Cordona pylib first
 import lupa
 
 check = lupa.LuaRuntime().eval("function(s) local f, e = load(s); return e end")

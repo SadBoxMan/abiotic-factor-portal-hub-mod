@@ -1,7 +1,8 @@
 # World settings on the loader Blueprint: the Blueprint wins over config.lua, which wins over the defaults. Runs the real hub main.lua
 # against hub_mock.lua plus a fake class defaults object (LOADER_VARS) for the world's loader, once per scenario.
 import sys, os
-sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa may be installed there (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa fallback (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "Cordona pylib"))   # lupa: <repo parent>\Cordona pylib first
 import lupa
 
 S = os.path.dirname(os.path.abspath(__file__))

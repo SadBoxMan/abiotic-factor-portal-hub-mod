@@ -2,7 +2,8 @@
 # back wrapped are still read (they looked missing before), PAGE UP reports the tables and the row registry, PAGE DOWN falls back to
 # RowName only when the hub's table is refused, the pad hook logs which pad was used, and nothing writes to the game.
 import sys, os
-sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa may be installed there (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa fallback (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "Cordona pylib"))   # lupa: <repo parent>\Cordona pylib first
 import lupa
 
 S = os.path.dirname(os.path.abspath(__file__))

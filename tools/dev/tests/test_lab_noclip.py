@@ -2,7 +2,8 @@
 # CRD-016 no-clip (F5): the capsule's blocking channels go to overlap and come back, the actor's collision is never switched off
 # (that hid the Facility's sublevels), the old whole-actor switch is only the fallback, and flying is switched on and off.
 import sys, os, re
-sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa may be installed there (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa fallback (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "Cordona pylib"))   # lupa: <repo parent>\Cordona pylib first
 import lupa
 
 S = os.path.dirname(os.path.abspath(__file__))

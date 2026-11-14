@@ -8,7 +8,8 @@
 # NUMPAD 1 / 2, and pads the hub must not touch.
 #   python test_hub_exits.py [path to a main.lua, default the repo's]
 import sys, os, math
-sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa may be installed there (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa fallback (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "Cordona pylib"))   # lupa: <repo parent>\Cordona pylib first
 import lupa
 
 S = os.path.dirname(os.path.abspath(__file__))

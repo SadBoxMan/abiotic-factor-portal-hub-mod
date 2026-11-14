@@ -3,7 +3,8 @@
 # none at all. Checks that the vignette level entry is added, that the soft-object field Level is never written, and that leaving puts
 # the level name back.
 import sys, os
-sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa may be installed there (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa fallback (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "Cordona pylib"))   # lupa: <repo parent>\Cordona pylib first
 import lupa
 
 S = os.path.dirname(os.path.abspath(__file__))

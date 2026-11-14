@@ -1,5 +1,6 @@
 import sys, os
-sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))
+sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa fallback (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "Cordona pylib"))   # lupa: <repo parent>\Cordona pylib first
 import lupa
 L = lupa.LuaRuntime()
 src = open(sys.argv[1], encoding="utf-8").read()

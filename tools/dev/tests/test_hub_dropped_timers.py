@@ -1,7 +1,8 @@
 # Dropped timers: UE4SS can lose queued ExecuteWithDelay callbacks when mods are restarted ("Hook threw exception: Ref was not function").
 # A world's loading check and the presence tracker must then be restarted by NUMPAD 1 (spawn_all), without ever running twice.
 import sys, os
-sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa may be installed there (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa fallback (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "Cordona pylib"))   # lupa: <repo parent>\Cordona pylib first
 import lupa
 
 S = os.path.dirname(os.path.abspath(__file__))
