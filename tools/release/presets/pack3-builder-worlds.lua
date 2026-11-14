@@ -3,7 +3,8 @@
 -- A-3, B-2, C-1 and C-3 are left empty). Every portal is in exit mode "manual": it leads to the world's Manual Hub Exit, which always
 -- leads back. To use it: back up Mods\PortalHub\Scripts\config.lua, copy this file over it (keep the name config.lua), and restart
 -- the game. Released under CC0 like the rest of Portal Hub.
--- Portal Hub configuration. Edit this file, then restart mods (UE4SS GUI: "Restart All Mods") to apply.
+-- Portal Hub configuration. Edit this file, then restart the game to apply. "Restart All Mods" in the UE4SS window works for a
+-- quick try, but restart the game before you play on (README, Known issues).
 --
 -- Each entry in `portals` puts one portal into one of the open slots of the Homeworld portal room.
 --   slot         Which container: "A-3", "B-1", ... Open slots: A-3 A-4 B-1 B-2 B-4 C-1 C-2 C-3 C-4.

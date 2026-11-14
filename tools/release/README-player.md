@@ -20,8 +20,8 @@ Below, `<game>` means that folder.
 
 **Optional: UE4SS's own window.** It is off in a fresh UE4SS install. To switch it on, open `<game>\AbioticFactor\Binaries\Win64\ue4ss\UE4SS-settings.ini`
 in Notepad and change `GuiConsoleEnabled = 0` to `GuiConsoleEnabled = 1`. Ctrl + O then opens the window. It shows the log live and has
-a **Restart All Mods** button, which applies config changes without restarting the game. The hub works without it; you then restart the
-game after changing the config.
+a **Restart All Mods** button, which applies config changes without restarting the game: handy for a quick try, but restart the game
+before you play on (see Known issues). The hub works without it; you then restart the game after changing the config.
 
 ## 2. Install the Portal Hub
 
@@ -49,7 +49,7 @@ is installed. It only ever edits the hub's `config.lua`.
   game's own Stone Garden, Torii and Cabin portals and are locked.
 - **Hub Exits tab:** the default exit mode for every portal, and an on/off switch for each world's Manual Hub Exit.
 - **Custom Worlds tab:** connect a world that comes in its own pak (advanced, see section 7).
-- **Save**, then apply it: **Restart All Mods** in the UE4SS window, or restart the game.
+- **Save**, then restart the game to apply it. **Restart All Mods** in the UE4SS window works for a quick try (see Known issues).
 
 **The exe is not signed.** Windows SmartScreen may say "Windows protected your PC". Click **More info**, then **Run anyway**. To stop it
 asking, right-click the downloaded zip **before extracting it** > Properties > tick **Unblock** > OK, then extract again. Some antivirus
@@ -82,7 +82,7 @@ not a hub portal leads there:
 
 Switch a world's MHE off on the editor's Hub Exits tab (`mhe = { train_start = false }` in `config.lua`). The spots are kept in
 `Mods\PortalHub\Scripts\manual_exits.lua`, one line per world (`[arrival pad id] = { x, y, z, yaw }`). You may edit it; press NUMPAD 1
-or restart mods to use the changes. A world set to **manual** with no MHE recorded falls back to **game**.
+or restart the game to use the changes. A world set to **manual** with no MHE recorded falls back to **game**.
 
 ## 6. Keys
 
@@ -137,7 +137,13 @@ player's own machine.
 ## 10. Known issues
 
 - **UE4SS can stop all delayed actions** in rare cases. The log says "Ref was not function" and the hub stops reacting, even to NUMPAD 1.
-  Restart the game. It has not been seen on UE4SS 1.25.0 so far, but it is not proven gone.
+- **After Restart All Mods, restart the game before you play on.** Restart All Mods is fine for trying out config changes, but on
+  UE4SS 1.25.0 it can leave a mod's old hooks or timers behind, and the game may crash later, even an hour on. The hub takes its own hook
+  off when mods restart; other mods may not.
+  Restart the game. It was seen once on UE4SS 1.25.0, two minutes after a Restart All Mods.
+- **Rare crashes inside UE4SS** were seen in long test sessions while worlds were loading, with several mods installed. The hub now does
+  as little as it can at those moments; whether it played a part is still being tested. If the game crashes, a crash report in
+  `%LOCALAPPDATA%\AbioticFactor\Saved\Crashes\` and UE4SS's `UE4SS.log` help us find out.
 - **Loading a save made inside a custom world** may put you on its arrival pad rather than where you saved.
 - **Not yet tried in the game:** the **hub** exit mode, the **Buffs** switch, and the true-exit buffs of worlds other than Far Garden.
   The Botanical Wing's return trip is untested (its two pads are the game's own link between the two halves).

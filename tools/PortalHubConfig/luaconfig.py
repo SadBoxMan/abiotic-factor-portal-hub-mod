@@ -20,7 +20,7 @@ LUA_RESERVED = {
 }
 NAME_RX = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 NUMBER_RX = re.compile(r"-?(?:0[xX][0-9a-fA-F]+|\d+\.?\d*(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?)")
-HEADER = "-- Portal Hub configuration. Edit this file, or use PortalHubConfig.bat. Restart mods to apply.\n\nreturn {\n}\n"
+HEADER = "-- Portal Hub configuration. Edit this file, or use PortalHubConfig.bat. Restart the game to apply (Restart All Mods: a quick try only).\n\nreturn {\n}\n"
 
 
 class LuaError(Exception):

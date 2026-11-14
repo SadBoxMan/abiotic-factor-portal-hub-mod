@@ -183,15 +183,35 @@ local function hook_cb(fname)
     end
 end
 
+-- probe.hooked[f] holds the ids RegisterHook returned (true if it returned none), so unload can take each hook off (CRD-032)
 local function install_hooks()
     if not valid(StaticFindObject(BUTTON_CLASS)) then return false end
     for _, f in ipairs(HOOKS) do
         if not probe.hooked[f] then
-            local ok, err = pcall(function() RegisterHook(BUTTON_CLASS .. ":" .. f, hook_cb(f)) end)
-            if ok then probe.hooked[f] = true; log("hooked " .. f) else log("hook " .. f .. " failed: " .. tostring(err)) end
+            local ok, pre, post = pcall(RegisterHook, BUTTON_CLASS .. ":" .. f, hook_cb(f))
+            if ok then
+                probe.hooked[f] = (type(pre) == "number" and type(post) == "number") and { pre, post } or true
+                log("hooked " .. f)
+            else
+                log("hook " .. f .. " failed: " .. tostring(pre))
+            end
         end
     end
     return true
+end
+
+-- Restart All Mods closes this Lua state; ModRef.OnUnload runs just before. UE4SS drops a Blueprint function's hooks only with the mod that
+-- hooked it first, so each hook is taken off here (UnregisterHook on a Blueprint function only marks the callback as gone).
+local function unregister_hooks()
+    local n = 0
+    for f, ids in pairs(probe.hooked) do
+        if type(ids) == "table" then
+            local ok, err = pcall(UnregisterHook, BUTTON_CLASS .. ":" .. f, ids[1], ids[2])
+            if ok then n = n + 1 else log("unloading: " .. f .. " hook could not be unregistered: " .. tostring(err):match("^[^\r\n]*")) end
+        end
+    end
+    probe.hooked = {}
+    log("unloading: " .. n .. " hook(s) unregistered")
 end
 
 local function remove_buttons()
@@ -340,4 +360,5 @@ RegisterKeyBind(Key.DEL, function() ExecuteInGameThread(function()
     local n = remove_buttons()
     if n > 0 then log("DELETE pressed: removed " .. n .. " probe button(s)") else spawn_button() end
 end) end)
+if not pcall(function() ModRef.OnUnload = unregister_hooks end) then log("unload callback not available in this UE4SS") end
 log("keys: ] = identity + network survey (read-only), DELETE = spawn the probe button (host only) / press again to remove it")

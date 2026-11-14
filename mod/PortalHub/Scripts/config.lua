@@ -1,4 +1,5 @@
--- Portal Hub configuration. Edit this file, then restart mods (UE4SS GUI: "Restart All Mods") to apply.
+-- Portal Hub configuration. Edit this file, then restart the game to apply. "Restart All Mods" in the UE4SS window works for a
+-- quick try, but restart the game before you play on (README, Known issues).
 --
 -- Each entry in `portals` puts one portal into one of the open slots of the Homeworld portal room.
 --   slot         Which container: "A-3", "B-1", ... Open slots: A-3 A-4 B-1 B-2 B-4 C-1 C-2 C-3 C-4.

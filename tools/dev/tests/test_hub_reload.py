@@ -3,7 +3,8 @@
 # five worlds loading at once use one shared timer chain (fault 2). Each tick the mock player falls unless held or standing on a visible level.
 #   python test_hub_reload.py [path to a main.lua, default the repo's]
 import sys, os
-sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa may be installed there (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa fallback (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "Cordona pylib"))   # lupa: <repo parent>\Cordona pylib first
 import lupa
 
 S = os.path.dirname(os.path.abspath(__file__))
@@ -88,6 +89,7 @@ function RegisterKeyBind(key, a, b) end
 -- quit to the menu and load a save, without restarting the game
 function new_map(where, z)
     WORLD.dead = true
+    for _, a in pairs(LOADERS) do a.dead = true end      -- the old map's actors go with it (the hub keeps a loader it found, CRD-032)
     WORLD = new_world()
     LOADERS, VISIBLE, SPAWNED = {}, {}, {}
     PC.ActiveLevelFXName = FName("None")
@@ -121,7 +123,16 @@ function portal_on(id)
     for _, a in ipairs(SPAWNED) do if not a.gone and a.MyTeleporterID and a.MyTeleporterID.s == id then return a.IsTeleporterActive end end
 end
 ''')
+# CRD-032: object searches made while main.lua loads, outside a game-thread callback (on Restart All Mods it runs on UE4SS's own thread)
+L.execute(r'''
+OFF_THREAD, LOADING = {}, true
+for _, fname in ipairs({ "FindFirstOf", "FindAllOf" }) do
+    local f = _G[fname]
+    _G[fname] = function(n, ...) if LOADING and GAME_THREAD == 0 then OFF_THREAD[#OFF_THREAD + 1] = fname .. " " .. tostring(n) end return f(n, ...) end
+end
+''')
 L.execute(open(MAIN, encoding="utf-8").read())
+L.execute("LOADING = false")
 
 results = []
 def check(name, cond, detail=""):
@@ -323,6 +334,37 @@ L.execute("KEEP_DYING = true; ON_HOMEWORLD()"); tick()
 line = lua("(function() for i = #LOGS, 1, -1 do if LOGS[i]:find('hum volume', 1, true) then return LOGS[i] end end end)()")
 check("CRD-028: respawn: the hum counts 5 hub pads, not 10", line is not None and "on 5 hub pad(s) (5 added)" in line, line)
 L.execute("KEEP_DYING = false")
+
+# ---- CRD-032: fewer walks of the object list, nothing searched off the game thread at load, and the hook taken off on unload
+check("CRD-032: loading searched nothing outside the game thread", lua("#OFF_THREAD") == 0,
+      [lua("OFF_THREAD[%d]" % i) for i in range(1, lua("#OFF_THREAD") + 1)])
+L.execute("LOADER_SEARCHES = 0; local f = FindAllOf; FindAllOf = function(n) if n == 'BP_world_b_C' then LOADER_SEARCHES = LOADER_SEARCHES + 1 end return f(n) end")
+L.execute("LOC.X = ORIGIN.world_b"); tick(2)
+first = lua("LOADER_SEARCHES")
+tick(20)
+check("CRD-032: standing in a ready world: its loader is not searched for again", first <= 1 and lua("LOADER_SEARCHES") == first, (first, lua("LOADER_SEARCHES")))
+L.execute("PC.GetWorld = function() return WORLD end; GETWORLD_CALLS = 0; local U = package.loaded.UEHelpers; local gw = U.GetWorld; "
+          "U.GetWorld = function(...) GETWORLD_CALLS = GETWORLD_CALLS + 1; return gw(...) end")
+L.execute("new_map(ORIGIN.world_b)"); tick(3)
+check("CRD-032: a reload is still noticed (held while the level comes back)", lua("MODE") == 0, lua("MODE"))
+check("CRD-032: while held, the world comes from the controller (no UEHelpers.GetWorld search each tick)", lua("GETWORLD_CALLS") == 0, lua("GETWORLD_CALLS"))
+L.execute("show_all()"); tick(3)
+check("CRD-032: and let go once it is back", lua("MODE") == 3, lua("MODE"))
+L.execute("LOC.X = -10000"); tick(2)
+
+hooks = [(lua("HOOKED[%d].name" % i), lua("HOOKED[%d].id" % i)) for i in range(1, lua("#HOOKED") + 1)]
+attempt = [h for h in hooks if h[0].endswith(":AttemptTeleport")]
+check("CRD-032: one AttemptTeleport hook registered", len(attempt) == 1, hooks)
+check("CRD-032: the unload callback is set", lua("type(ModRef.OnUnload)") == "function")
+check("CRD-032: the NotifyOnNewObject callback returns nothing (true would cancel it)", lua("select('#', ON_HOMEWORLD())") == 0)
+tick(3)
+L.execute("ModRef.OnUnload()")
+un = [(lua("UNHOOKED[%d].name" % i), lua("UNHOOKED[%d].pre" % i), lua("UNHOOKED[%d].post" % i)) for i in range(1, lua("#UNHOOKED") + 1)]
+check("CRD-032: unload unregisters the AttemptTeleport hook with its own ids",
+      len(attempt) == 1 and un == [(attempt[0][0], attempt[0][1], attempt[0][1])], (attempt, un))
+check("CRD-032: unload says so in the log", count("unloading: AttemptTeleport hook %d unregistered" % attempt[0][1]) == 1 if attempt else False)
+L.execute("ModRef.OnUnload()")
+check("CRD-032: a second unload does nothing", lua("#UNHOOKED") == 1, lua("#UNHOOKED"))
 
 check("never put None back in the whole run", count("level entry back to None") == 0, count("level entry back to None"))
 check("no rescue in the whole run", count("rescue:") == 0, count("rescue:"))

@@ -7,7 +7,8 @@
 # controller yet means looking again before acting; NUMPAD 1 / 2 on a client.
 #   python test_hub_client_mode.py [path to a main.lua, default the repo's]
 import sys, os, math
-sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa may be installed there (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa fallback (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "Cordona pylib"))   # lupa: <repo parent>\Cordona pylib first
 import lupa
 
 S = os.path.dirname(os.path.abspath(__file__))
@@ -21,7 +22,7 @@ TELEPORTER = "/Game/Blueprints/Environment/Teleporters/BP_Teleporter_ParentBP.BP
 PADS, SPAWNS, LOADER_SPAWNS, DESTROY_CALLS, NEXT = {}, 0, 0, 0, 0
 NOTIFY, HOOKS, KEYS = {}, {}, {}
 function NotifyOnNewObject(cls, fn) NOTIFY[cls] = NOTIFY[cls] or {}; table.insert(NOTIFY[cls], fn) end
-function RegisterHook(name, fn) HOOKS[#HOOKS + 1] = { name = name, fn = fn } end
+function RegisterHook(name, fn) local id = 201 + #HOOKS; HOOKS[#HOOKS + 1] = { name = name, fn = fn, id = id }; return id, id end
 function RegisterKeyBind(key, a, b) KEYS[key] = b or a end
 function n_notify(cls) return NOTIFY[cls] and #NOTIFY[cls] or 0 end
 
@@ -368,6 +369,25 @@ check("no teleporter watch", h.ev("n_notify(TELEPORTER)") == 0)
 h.ex("C = player('C'); hx = mkpad('hub_X9', 'cordonatest_start', 0, 0, 0, true)")
 h.ex("use(C, 'hub_X9')"); h.pump()
 check("route_return runs as before", h.ev("dest_of('cordonatest_start')") == "hub_X9")
+
+print("=== CRD-032: unloading takes the AttemptTeleport hook off, on a client as on the host; a failing UnregisterHook is only logged")
+for who, before in (("host", ""), ("client", "AUTH = false")):
+    h = Hub(portals(TEST), before=before)
+    ids = [h.ev("HOOKS[%d].id" % i) for i in range(1, h.ev("#HOOKS") + 1) if h.ev("HOOKS[%d].name" % i).endswith(":AttemptTeleport")]
+    h.ex("ModRef.OnUnload()")
+    un = [(h.ev("UNHOOKED[%d].pre" % i), h.ev("UNHOOKED[%d].post" % i)) for i in range(1, h.ev("#UNHOOKED") + 1)]
+    check(who + ": the hook is registered once and unregistered with its ids on unload", len(ids) == 1 and un == [(ids[0], ids[0])], (ids, un))
+h = Hub(portals(TEST), before="function UnregisterHook() error('no hook with that id') end")
+n = h.n()
+ok = True
+try:
+    h.ex("ModRef.OnUnload()")
+except Exception as e:
+    ok = False
+check("a throwing UnregisterHook does not escape the unload callback, and is logged",
+      ok and h.has("unloading: the AttemptTeleport hook could not be unregistered: ", n), h.logs(n))
+h = Hub(portals(TEST), before="ModRef = nil")
+check("no ModRef (an older UE4SS): logged, the hub loads as before", h.has("unload callback not available") and h.has("loaded - NUMPAD 1"))
 
 errs = [l for hb in HUBS for l in hb.logs() if "failed" in l or "error" in l]
 check("no 'failed' or 'error' lines in any run's log", not errs, errs)

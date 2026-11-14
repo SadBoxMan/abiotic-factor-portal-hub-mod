@@ -1754,7 +1754,7 @@ class App:
         try:
             self.cfg.save()
             self.do_reload()
-            self.saved_note = f"Saved {n} portal(s)" + (f" and {w} custom world(s)" if w else "") + ". In game press Ctrl+O, then click Restart All Mods."
+            self.saved_note = f"Saved {n} portal(s)" + (f" and {w} custom world(s)" if w else "") + ". Restart the game to apply (for a quick try: Ctrl+O, Restart All Mods)."
             self.update_state()
         except (OSError, LuaError) as err:
             self.status.configure(fg=T["status_bad"], text=f"Could not save: {err}")

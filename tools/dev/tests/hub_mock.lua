@@ -110,12 +110,19 @@ function StaticFindObject(path)
     return nil
 end
 function LoadAsset() end
-function RegisterHook() end
+-- RegisterHook hands out ids like UE4SS (a Blueprint function's pre and post id are the same); UnregisterHook records what it was given.
+-- ModRef.OnUnload is what UE4SS calls just before Restart All Mods closes the Lua state (CRD-032).
+HOOK_ID, HOOKED, UNHOOKED = 100, {}, {}
+function RegisterHook(name) HOOK_ID = HOOK_ID + 1; HOOKED[#HOOKED + 1] = { name = name, id = HOOK_ID }; return HOOK_ID, HOOK_ID end
+function UnregisterHook(name, pre, post) UNHOOKED[#UNHOOKED + 1] = { name = name, pre = pre, post = post } end
+ModRef = {}
 function NotifyOnNewObject() end
 function RegisterKeyBind() end
 Key = setmetatable({}, { __index = function(_, k) return k end })
 ModifierKey = Key
-function ExecuteInGameThread(fn) fn() end
+-- GAME_THREAD > 0 while a callback runs "on the game thread" (CRD-032: at Restart All Mods main.lua itself runs on UE4SS's own thread)
+GAME_THREAD = 0
+function ExecuteInGameThread(fn) GAME_THREAD = GAME_THREAD + 1; local ok, err = pcall(fn); GAME_THREAD = GAME_THREAD - 1; if not ok then error(err, 0) end end
 QUEUE = {}
 function ExecuteWithDelay(ms, fn) QUEUE[#QUEUE + 1] = fn end
 function pump() local q = QUEUE; QUEUE = {}; for _, fn in ipairs(q) do fn() end end

@@ -4,7 +4,8 @@
 # buttons are ignored; the survey (], was F11) lists hub pads with their roles and flags duplicate IDs,
 # lists every portal-room pad with its look and hum volume, and picks the local player controller on a host; DELETE again removes the probe button.
 import sys, os
-sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa may be installed there (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa fallback (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "Cordona pylib"))   # lupa: <repo parent>\Cordona pylib first
 import lupa
 
 S = os.path.dirname(os.path.abspath(__file__))
@@ -257,6 +258,35 @@ n = len(g.LOGS)
 L.execute("press('DEL')")
 check("DELETE: removes the probe button", g.SPAWNED[2].alive is False and has(logs(L, n), "removed 1 probe button"), logs(L, n))
 check("DELETE: the game's own button is untouched", g.OTHER.alive is True)
+
+# --- CRD-032: the ids RegisterHook returns are kept, and ModRef.OnUnload takes every hook off before Restart All Mods closes the state
+def probe_unload(extra):
+    L = lupa.LuaRuntime(unpack_returned_tuples=True)
+    L.execute(MOCK)
+    L.execute("CLASS_LOADED = true; NEXT_ID, UNHOOKED, ModRef = 300, {}, {}\n"
+              "local reg = RegisterHook\n"
+              "function RegisterHook(path, cb) reg(path, cb); NEXT_ID = NEXT_ID + 1; HOOKS[#HOOKS].id = NEXT_ID; return NEXT_ID, NEXT_ID end\n"
+              "function UnregisterHook(path, pre, post) UNHOOKED[#UNHOOKED + 1] = { path = path, pre = pre, post = post } end\n" + extra)
+    L.execute(open(PROBE, encoding="utf-8").read())
+    return L
+L5 = probe_unload(""); g5 = L5.globals()
+reg = sorted((g5.HOOKS[i].path, g5.HOOKS[i].id) for i in range(1, len(g5.HOOKS) + 1))
+check("CRD-032: four hooks registered at load", len(reg) == 4, reg)
+check("CRD-032: the unload callback is set", L5.eval("type(ModRef.OnUnload)") == "function")
+n = len(g5.LOGS); L5.execute("ModRef.OnUnload()")
+un = sorted((g5.UNHOOKED[i].path, g5.UNHOOKED[i].pre) for i in range(1, len(g5.UNHOOKED) + 1))
+check("CRD-032: unload unregisters each hook with its own ids", un == reg and all(g5.UNHOOKED[i].pre == g5.UNHOOKED[i].post for i in range(1, len(g5.UNHOOKED) + 1)), (reg, un))
+check("CRD-032: unload is logged", has(logs(L5, n), "unloading: 4 hook(s) unregistered"), logs(L5, n))
+L5.execute("ModRef.OnUnload()")
+check("CRD-032: a second unload does nothing", len(g5.UNHOOKED) == 4, len(g5.UNHOOKED))
+check("CRD-032: the Homeworld callback returns nothing (true would cancel it)", L5.eval("select('#', NOTIFY[1].cb())") == 0)
+L6 = probe_unload("function UnregisterHook() error('no hook with that id') end"); g6 = L6.globals()
+n = len(g6.LOGS)
+try:
+    L6.execute("ModRef.OnUnload()"); escaped = False
+except Exception:
+    escaped = True
+check("CRD-032: a throwing UnregisterHook is logged, not raised", not escaped and has(logs(L6, n), "hook could not be unregistered"), logs(L6, n))
 
 bad = [n for n, ok in results if not ok]
 print("\n%d checks, %d failed" % (len(results), len(bad)))

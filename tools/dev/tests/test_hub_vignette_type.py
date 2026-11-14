@@ -1,6 +1,7 @@
 # Vignette world type: completion flag row, zone pointed at it, proper exit pad. Runs the real hub main.lua against hub_mock.lua plus extras.
 import sys, os
-sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa may be installed there (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))   # lupa fallback (pip install --target %TEMP%\pylib lupa)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "Cordona pylib"))   # lupa: <repo parent>\Cordona pylib first
 import lupa
 
 S = os.path.dirname(os.path.abspath(__file__))
@@ -103,6 +104,24 @@ before = lua('#SHOWN')
 L.execute("FLAGS_LOADED = true"); tick(5)
 shown = [lua('SHOWN[%d]' % i) for i in range(before + 1, lua('#SHOWN') + 1)]
 check('no completed message when the save\'s flags finish loading', not any('completed' in m for m in shown), shown)
+# ---- CRD-032: the flag subsystem is found once per player controller and kept; the tracker used to walk the whole object list for it every 2 s
+L.execute("FS_SEARCHES = 0; local f = FindFirstOf; FindFirstOf = function(n) if n == 'WorldFlagSubsystem' then FS_SEARCHES = FS_SEARCHES + 1 end return f(n) end")
+for _ in range(3):
+    L.execute("LOC.X, LOC.Y = -10000, 9000"); tick(1)
+    L.execute("LOC.X, LOC.Y = 1100500, 1300000"); tick(2)
+check("CRD-032: same controller: no new search for the flag subsystem", lua("FS_SEARCHES") == 0, lua("FS_SEARCHES"))
+# a load brings a new controller (the hub searches again), and the kept subsystem is not asked after that
+L.execute("OLD_FS = FS; PC = setmetatable({}, { __index = PC })"); tick(1)
+L.execute("LOC.X, LOC.Y = -10000, 9000"); tick(1); L.execute("LOC.X, LOC.Y = 1100500, 1300000"); tick(2)
+check("CRD-032: new controller: one new search", lua("FS_SEARCHES") == 1, lua("FS_SEARCHES"))
+# the kept subsystem going invalid (its map gone) also means a new search, and the new one is used
+L.execute("FS = setmetatable({ IsValid = function() return true end }, { __index = OLD_FS }); OLD_FS.IsValid = function() return false end")
+L.execute("LOC.X, LOC.Y = -10000, 9000"); tick(1); L.execute("LOC.X, LOC.Y = 1100500, 1300000"); tick(2)
+check("CRD-032: kept subsystem gone: searched again", lua("FS_SEARCHES") == 2, lua("FS_SEARCHES"))
+L.execute("SET_FLAGS['%s'] = nil" % flag); tick(5)
+L.execute("SET_FLAGS['%s'] = true" % flag); tick(5)
+shown = [lua('SHOWN[%d]' % i) for i in range(1, lua('#SHOWN') + 1)]
+check("CRD-032: flags still read through the new subsystem", shown and "completed" in shown[-1], shown[-3:])
 allLogs = [g.LOGS[i] for i in range(1, len(g.LOGS) + 1)]
 check("no tracker errors", not any("tracker error" in l for l in allLogs), [l for l in allLogs if "tracker error" in l])
 print("\n%d checks, %d passed, %d failed" % (len(res), sum(res), len(res) - sum(res)))

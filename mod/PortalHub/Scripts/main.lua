@@ -1326,8 +1326,25 @@ local function flags_loaded(fs)
     return not (ok and loaded == false)                       -- if the game cannot be asked, carry on as before
 end
 
+-- The flag subsystem is found once per player controller and kept (CRD-032). FindFirstOf walks the game's whole object list, and the
+-- tracker asked for it every 2 s; on 13 November the game crashed inside such a walk, from a game-thread callback, while Rise streamed in.
+-- A new controller (a load, a new map) means a new search, so a subsystem left from the old map is never asked.
+-- (One main-chunk local for the cache and the function: the main chunk is near Lua's 200-local limit.)
+local flag_subsystem = (function()
+    local kept = { obj = nil, pc = nil }
+    return function(pc)
+        local key = pc and obj_key(pc)
+        if kept.obj and kept.pc == key and kept.obj:IsValid() then return kept.obj end
+        kept.obj, kept.pc = nil, nil
+        local fs = FindFirstOf("WorldFlagSubsystem")
+        if not (fs and fs:IsValid()) then return nil end
+        if key then kept.obj, kept.pc = fs, key end
+        return fs
+    end
+end)()
+
 local function flag_is_set(def, pc)
-    local fs = FindFirstOf("WorldFlagSubsystem")
+    local fs = flag_subsystem(pc)
     if not (fs and fs:IsValid()) or not flags_loaded(fs) then return nil end
     local ok, v = pcall(function() return fs:HasWorldFlag(pc, flag_handle(completion_flag(def))) end)
     if ok and type(v) == "boolean" then return v end
@@ -1339,7 +1356,7 @@ local flagSeen, flagCheckAt = {}, 0
 local function watch_flags(pc)
     if os.clock() - flagCheckAt < 2 then return end
     flagCheckAt = os.clock()
-    local fs = FindFirstOf("WorldFlagSubsystem")
+    local fs = flag_subsystem(pc)
     if fs and fs:IsValid() and not flags_loaded(fs) then flagSeen = {} return end   -- a save is loading: its flags are new, not changes
     for _, def in pairs(worldDefs) do
         if world_type(def) == "vignette" and def.vignette then
@@ -1412,17 +1429,36 @@ local function note(msg)       -- rate-limited log line for things that can repe
     if now - presence.lastNote > 5 then presence.lastNote = now; log(msg) end
 end
 
+-- The game world, from the tracker's own controller (CRD-032): UEHelpers.GetWorld() searches every PlayerController in the object list
+-- first, and the tracker asked for it every tick while the player stood in a world that was still loading.
+local function world_of(pc)
+    if pc then
+        local ok, w = pcall(function() return pc:GetWorld() end)
+        if ok and w and w:IsValid() then return w end
+    end
+    return UEHelpers.GetWorld()
+end
+
 -- A world counts as ready when the hub says so and its loader is still there (without one that "ready" is from before a map load: see
 -- forget_old_map), or when its level is already visible (for example the mods were restarted while the player was standing in it, so the
 -- hub's own state is empty). In that case the hub adopts it. On a client (CRD-027) it is only adopted: its arrival pad, zones and portals
 -- are the host's.
-local function world_is_ready(def, client)
+-- While the player stays in a ready world, the tracker checked its loader with FindAllOf every tick, a walk of the game's whole object
+-- list (CRD-032). The loader found is kept with the player controller it was found under; a load or a new map brings a new controller,
+-- so the loader is searched for again then (and a loader gone with its map still counts as gone).
+local function world_is_ready(def, client, pc)
     local st = worldState[def.id]
     if st and st.status == "ready" then
-        if loader_present(def) then return true end
+        -- the loader kept with the controller it was found under (see above); searched for again under a new controller
+        local key = pc and obj_key(pc)
+        if key and st.loader and st.loaderPc == key and st.loader:IsValid() then return true end
+        st.loader, st.loaderPc = nil, nil
+        for _, a in ipairs(FindAllOf(def.loaderClass) or {}) do
+            if a:IsValid() then st.loader, st.loaderPc = a, key; return true end
+        end
         forget_old_map()
     end
-    local world = UEHelpers.GetWorld()
+    local world = world_of(pc)
     if world and world:IsValid() and loader_present(def) then
         local ls = find_streaming(world, def.level)
         local visible = false
@@ -1521,7 +1557,7 @@ local function track_tick()
         end
         return
     end
-    if world_is_ready(here, client) then
+    if world_is_ready(here, client, pc) then
         local justIn = presence.inside ~= here.id
         if presence.held then
             if client then presence.held = nil else release_player(pawn) end
@@ -1578,7 +1614,7 @@ local function track_tick()
         -- Only the host's teleport can put this player here, so the host has this world: load it on this machine (the host's loader and level
         -- never reach a client, run 1, 10 November). No hold: the pawn is the server's to move; the level streams in within about a second.
         local st = worldState[here.id]
-        local world = UEHelpers.GetWorld()
+        local world = world_of(pc)
         if not st and world and world:IsValid() then
             log("client mode: the host's teleport brought this player into " .. here.id .. "'s area; loading it on this machine")
             start_world(world, here)
@@ -1600,7 +1636,7 @@ local function track_tick()
         end
     else
         -- not loaded yet: start loading it now (it does not need the portal room) and hold the player until it is ready
-        local world = UEHelpers.GetWorld()
+        local world = world_of(pc)
         if not st and world and world:IsValid() then
             log("worlds: the player is inside the area of " .. here.id .. " before it was loaded; loading it now")
             start_world(world, here)
@@ -1865,10 +1901,30 @@ local function on_attempt(self, inPlayer)
     if not ok then log("hub exits failed: " .. tostring(err)) end
 end
 
+-- The ids RegisterHook returns are kept so the hook can be taken off when this Lua state is unloaded (CRD-032, see unregister_hook below).
 local function install_hook()
     if state.hooked then return end
-    local ok, err = pcall(function() RegisterHook(ATTEMPT_FN, on_attempt) end)
-    if ok then state.hooked = true else log("hook failed: " .. tostring(err)) end
+    local ok, pre, post = pcall(RegisterHook, ATTEMPT_FN, on_attempt)
+    if ok then
+        state.hooked = true
+        if type(pre) == "number" and type(post) == "number" then state.hookIds = { pre, post } end
+    else
+        log("hook failed: " .. tostring(pre))
+    end
+end
+
+-- Restart All Mods, or restarting this mod alone, closes this Lua state (CRD-032). UE4SS v3.0.1-1212 drops a Blueprint function's hooks
+-- only together with the mod that hooked that function first, so if another mod hooked AttemptTeleport before the hub, the hub's callback
+-- would stay behind on a closed state and the next pad use would call into it. ModRef.OnUnload runs just before the state is closed, while
+-- UE4SS holds back the game thread's Lua callbacks; UnregisterHook on a Blueprint function only marks the callback as gone. (The unload
+-- function is a field, not a main-chunk local: the main chunk is near Lua's 200-local limit.)
+state.unregister_hook = function()
+    if not state.hookIds then return end
+    local ids = state.hookIds
+    state.hookIds, state.hooked = nil, false
+    local ok, err = pcall(UnregisterHook, ATTEMPT_FN, ids[1], ids[2])
+    log(ok and ("unloading: AttemptTeleport hook " .. ids[1] .. " unregistered")
+        or ("unloading: the AttemptTeleport hook could not be unregistered: " .. tostring(err):match("^[^\r\n]*")))
 end
 
 -- MHEs on their own (see the top of this file) and the Failsafe Exit they may lead to. The failsafe is a landing pad only: off (like the
@@ -2125,14 +2181,22 @@ log(CLIENT_MODE and "client mode: on (in someone else's game this hub stands dow
 start_tracker()
 
 -- Spawn whenever the hub room's own portals appear (world load), and now if the world is already up.
+-- The callback returns nothing on purpose: a NotifyOnNewObject callback that returns true is removed, and with it, in UE4SS v3.0.1-1212, the
+-- reference that may be keeping this mod's shared hook thread alive (CRD-032).
 NotifyOnNewObject(HOMEWORLD_CLASS, function() log("a Homeworld pad appeared; spawning the hub portals shortly"); schedule_spawn(SPAWN_DELAY_MS) end)
-local existing = FindFirstOf("BP_Teleporter_HomeWorld_C")
-if existing and existing:IsValid() then
-    log("the portal room is already loaded; spawning the hub portals")
-    schedule_spawn(500)
-else
-    log("the portal room is not loaded yet; the hub portals will spawn when you get near it (or press NUMPAD 1 in the room)")
-end
+-- On Restart All Mods this file runs on UE4SS's own thread while the game runs, so the object search waits for the game thread (CRD-032).
+ExecuteInGameThread(function()
+    local existing = FindFirstOf("BP_Teleporter_HomeWorld_C")
+    if existing and existing:IsValid() then
+        log("the portal room is already loaded; spawning the hub portals")
+        schedule_spawn(500)
+    else
+        log("the portal room is not loaded yet; the hub portals will spawn when you get near it (or press NUMPAD 1 in the room)")
+    end
+end)
+
+-- ModRef.OnUnload (UE4SS 3.x) is called just before Restart All Mods closes this Lua state; older builds without it ignore the field.
+if not pcall(function() ModRef.OnUnload = state.unregister_hook end) then log("unload callback not available in this UE4SS; the hook stays until the game restarts") end
 
 RegisterKeyBind(Key.NUM_ONE, function() log("NUMPAD 1 pressed"); ExecuteInGameThread(spawn_all) end)
 RegisterKeyBind(Key.NUM_TWO, function()
