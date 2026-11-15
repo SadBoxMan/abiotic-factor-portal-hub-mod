@@ -40,7 +40,10 @@ check("game default 158 on every row", all(r[1] == "158" for r in rows[1:]))
 check("LuciDin's 4 picks", [byname[n][2] for n in ("Niagara_Portal_Friendly_Red", "Niagara_Portal", "Niagara_Portal_Botanical_Red", "Niagara_Portal_Door")] == ["108", "118", "138", "158"])
 check("pick offsets", [byname[n][3] for n in ("Niagara_Portal_Friendly_Red", "Niagara_Portal", "Niagara_Portal_Botanical_Red", "Niagara_Portal_Door")] == ["-50", "-40", "-20", "0"])
 check("only the picks have heights", sum(1 for r in rows[1:] if r[2]) == 4)
-check("CRLF (Excel)", nl == "\r\n")
+# git stores the sheet with LF (core.autocrlf, no .gitattributes): a Windows checkout has CRLF, a zip or Linux checkout LF. Either is
+# fine for Excel; the checks below run on a CRLF fixture built here, and on an LF one, so they pass on any checkout.
+check("one line ending throughout", (b"\r\n" in raw) == (raw.count(b"\n") == raw.count(b"\r\n")))
+raw = raw.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")      # the CRLF fixture (what Excel writes)
 
 tmp = tempfile.mkdtemp()
 try:
@@ -55,8 +58,10 @@ try:
 
     def copy():
         p = os.path.join(tmp, "sheet.csv")
-        shutil.copy(SHEET, p)
+        open(p, "wb").write(raw)
         return p
+
+    check("the CRLF fixture reads as CRLF", ph.read_sheet(copy())[1] == "\r\n")
 
     print("=== --keep (and no terminal): typed values stay")
     p = copy()
