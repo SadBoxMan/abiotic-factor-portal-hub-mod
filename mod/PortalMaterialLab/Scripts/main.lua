@@ -2630,13 +2630,13 @@ end
 -- tint: a grey ring in a window look ------------------------------------------------------------------------------------------------
 LK.TINT_RINGS = { "M_Portal_Friendly_White", "M_Portal_Friendly", "M_Portal_Garden", "M_Portal_Torii", "M_Portal_Salem",
     "M_Portal_Shadowgate2", "M_Portal_Shadowgate_Blue", "M_Portal_Botanical_Green", "M_Portal_Botanical_Red", "M_WorldPortal_Warehouse",
-    "M_Portal_Arch", "M_PortalHubLooks_Arch", "M_WorldPortal" }
+    "M_Portal_Arch", "M_WorldPortal" }
 LK.TINTS = {
     { n = "white (grey as is)", v = { 1.0, 1.0, 1.0 } }, { n = "red", v = { 1.0, 0.05, 0.05 } }, { n = "green", v = { 0.05, 1.0, 0.05 } },
     { n = "blue", v = { 0.05, 0.1, 1.0 } }, { n = "gold", v = { 1.0, 0.7, 0.1 } }, { n = "purple", v = { 0.6, 0.1, 1.0 } },
     { n = "cyan", v = { 0.05, 0.9, 1.0 } },
 }
-LK.TINT_PARAMS = { "PortalCenterColor", "PortalCenterColor2", "PortalEdge" }
+LK.TINT_PARAMS = { "PortalCenterColor", "PortalCenterColor2", "PortalEdge", "DistortionEdge" }   -- DistortionEdge: the arch's fringe (CRD-043)
 -- Friendly White's own values (cooked file, 21 Aug): the fallback grey when the instance can't be read.
 LK.WHITE_GREY = { PortalCenterColor = 0.109, PortalCenterColor2 = 1.0, PortalEdge = 4.84 }
 LK.tint = { pad = nil, mid = nil, ring = 0, step = 0, grey = nil, look = nil }
@@ -2685,10 +2685,12 @@ LK.tint_step = function()
     local c = LK.TINTS[t.step]
     log(string.format("---- TINT (. in tint mode): %s = RGB %.2f, %.2f, %.2f on %s (%s)", c.n, c.v[1], c.v[2], c.v[3], tostring(pad_id(t.pad)), LK.TINT_RINGS[t.ring]))
     for _, p in ipairs(LK.TINT_PARAMS) do
-        local g = t.grey[p] or 1.0
-        local v = { R = g * c.v[1], G = g * c.v[2], B = g * c.v[3], A = 1.0 }
-        local ok, err = pcall(function() t.mid:SetVectorParameterValue(FName(p), v) end)
-        log(string.format("  %s = %.3f, %.3f, %.3f%s", p, v.R, v.G, v.B, ok and "" or (" FAILED: " .. one_line(err))))
+        local g = t.grey[p]
+        if g then   -- a colour that could not be read and has no fallback (DistortionEdge) is left alone
+            local v = { R = g * c.v[1], G = g * c.v[2], B = g * c.v[3], A = 1.0 }
+            local ok, err = pcall(function() t.mid:SetVectorParameterValue(FName(p), v) end)
+            log(string.format("  %s = %.3f, %.3f, %.3f%s", p, v.R, v.G, v.B, ok and "" or (" FAILED: " .. one_line(err))))
+        end
     end
     say("Tint: " .. c.n)
 end
@@ -2711,7 +2713,7 @@ end
 -- cooked value (21 Aug files; the scalar is not read back, so no second untried call). Uniform only: one radius, no X / Y.
 LK.RADIUS = { M_Portal_Friendly_White = 0.346, M_Portal_Friendly = 0.346, M_Portal_Garden = 0.37, M_Portal_Torii = 0.37,
     M_Portal_Salem = 0.583, M_Portal_Shadowgate2 = 0.583, M_Portal_Shadowgate_Blue = 0.583, M_Portal_Botanical_Green = 0.37,
-    M_Portal_Botanical_Red = 0.37, M_WorldPortal_Warehouse = 0.4, M_Portal_Arch = 0.236, M_PortalHubLooks_Arch = 0.30 }
+    M_Portal_Botanical_Red = 0.37, M_WorldPortal_Warehouse = 0.4, M_Portal_Arch = 0.236 }
 LK.tint_radius = function(f)
     local t = LK.tint
     if not (valid(t.mid) and valid(t.pad)) then log("ring size: press SCROLL LOCK (tint mode) at a window-look pad first") say("SCROLL LOCK first", 2) return end
@@ -2847,7 +2849,7 @@ LK.mesh_set_ring = function(idx, tag)
     local ok, err = pcall(function() m.comp:SetMaterial(0, mid) end)
     if not ok then log("  " .. one_line(err)) return end
     if valid(m.back) then pcall(function() m.back:SetMaterial(0, mid) end) end
-    m.mid, m.step, m.tstep = mid, 4, 0
+    m.mid, m.step, m.tstep, m.ringname = mid, 4, 0, name
     m.grey = LK.grey_of(mid)
     log(string.format("  on. Grey levels: centre %.3f, centre 2 %.3f, edge %.3f. What does it look like (swirl, smear, checker, invisible)?",
         m.grey.PortalCenterColor, m.grey.PortalCenterColor2, m.grey.PortalEdge))
@@ -2858,10 +2860,11 @@ LK.mesh_tint = function()
     if not LK.mesh_ready("mesh tint", 4) then return end
     m.tstep = m.tstep % #LK.TINTS + 1
     local c = LK.TINTS[m.tstep]
-    log(string.format("---- MESH RING TINT (.): %s = RGB %.2f, %.2f, %.2f (%s)", c.n, c.v[1], c.v[2], c.v[3], LK.TINT_RINGS[m.ring]))
+    log(string.format("---- MESH RING TINT (.): %s = RGB %.2f, %.2f, %.2f (%s)", c.n, c.v[1], c.v[2], c.v[3], tostring(m.ringname or LK.TINT_RINGS[m.ring])))
     for _, p in ipairs(LK.TINT_PARAMS) do
-        local g = m.grey[p] or 1.0
-        local ok, err = pcall(function() m.mid:SetVectorParameterValue(FName(p), { R = g * c.v[1], G = g * c.v[2], B = g * c.v[3], A = 1.0 }) end)
+        local g = m.grey[p]
+        local ok, err = true, nil
+        if g then ok, err = pcall(function() m.mid:SetVectorParameterValue(FName(p), { R = g * c.v[1], G = g * c.v[2], B = g * c.v[3], A = 1.0 }) end) end
         if not ok then log("  " .. p .. " FAILED: " .. one_line(err)) end
     end
     say("Mesh tint: " .. c.n)
@@ -2978,19 +2981,28 @@ end
 LK.mesh_survey = function()
     local m = LK.mesh
     if not valid(m.comp) then log("mesh ring survey: none built") say("No mesh ring", 2) return end
-    log("---- MESH RING SURVEY (/): on " .. tostring(pad_id(m.pad)) .. ", step " .. m.step .. ", shape " .. LK.MESH_SHAPES[m.shape].name .. ", ring " .. tostring(LK.TINT_RINGS[m.ring] or "none") .. ", " .. LK.mesh_text())
+    log("---- MESH RING SURVEY (/): on " .. tostring(pad_id(m.pad)) .. ", step " .. m.step .. ", shape " .. LK.MESH_SHAPES[m.shape].name .. ", ring " .. tostring(m.ringname or LK.TINT_RINGS[m.ring] or "none") .. ", " .. LK.mesh_text())
     say("Mesh ring: see the log")
 end
 
--- Our own ring material (CRD-043): M_PortalHubLooks_Arch, cooked into PortalHubLooks_P (chunk 120, World Projects/PortalHubLooks).
--- Two-sided, swirl and arch shape worked out from the surface (UV), so ONE face reads the same from both sides; tint through
--- PortalCenterColor / PortalCenterColor2 / PortalEdge, scene through PortalTexture, size through Radius (S). It is one more ring in
--- LK.TINT_RINGS (tint and mesh mode), right after the game's arch. In mesh mode Shift + SCROLL LOCK swaps the ring on the built
--- shape between the game's arch and ours (A / B); SCROLL LOCK and Shift + SCROLL LOCK are gathered 40 ms (Shift wins), as U is.
--- Loading it is the only new thing (same calls as every other ring): the first load is named in the log before it runs.
-LK.OWN_RING = "M_PortalHubLooks_Arch"
-LK.GAME_ARCH = "M_Portal_Arch"
-LK.RING_PATHS = { M_PortalHubLooks_Arch = "/Game/Mods/PortalHubLooks/Materials/M_PortalHubLooks_Arch.M_PortalHubLooks_Arch" }
+-- Our own "Geo" portals (CRD-043; LuciDin, 15 Nov): one master material, M_PortalHubLooks_Geo, cooked into PortalHubLooks_P (chunk 120,
+-- World Projects/PortalHubLooks), and 12 instances: 6 shapes (arched door, gothic arch, square, door, round, oval) x 2 styles (swirl,
+-- window: clear scene, no swirl). Two-sided with a true backside, swirl clockwise from the front, shape worked out in real centimetres
+-- from the surface, so the mesh-ring scale sets the size and the proportions stay right; tint through PortalCenterColor /
+-- PortalCenterColor2 / PortalEdge / DistortionEdge, scene through PortalTexture. In mesh mode (shape built, step 3 or later) Shift +
+-- SCROLL LOCK puts the next Geo ring on: the engine plane stood up as square C, at that shape's starting size (sizes in metres = the
+-- plane's scale; Round and Oval are first guesses at a default and a Friendly portal, tuned in game with M / N and Shift + M / N).
+-- SCROLL LOCK and Shift + SCROLL LOCK are gathered 40 ms (Shift wins), as U is. Loading from our pak is named in the log first.
+LK.GEO = {
+    { name = "MI_GeoArch_Swirl", w = 1.0, h = 2.0 }, { name = "MI_GeoArch_Window", w = 1.0, h = 2.0 },
+    { name = "MI_GeoGothic_Swirl", w = 1.0, h = 2.0 }, { name = "MI_GeoGothic_Window", w = 1.0, h = 2.0 },
+    { name = "MI_GeoSquare_Swirl", w = 1.0, h = 1.0 }, { name = "MI_GeoSquare_Window", w = 1.0, h = 1.0 },
+    { name = "MI_GeoDoor_Swirl", w = 0.75, h = 2.0 }, { name = "MI_GeoDoor_Window", w = 0.75, h = 2.0 },
+    { name = "MI_GeoRound_Swirl", w = 1.8, h = 1.8 }, { name = "MI_GeoRound_Window", w = 1.8, h = 1.8 },
+    { name = "MI_GeoOval_Swirl", w = 1.4, h = 2.0 }, { name = "MI_GeoOval_Window", w = 1.4, h = 2.0 },
+}
+LK.RING_PATHS = {}
+for _, g in ipairs(LK.GEO) do LK.RING_PATHS[g.name] = "/Game/Mods/PortalHubLooks/Geo/" .. g.name .. "." .. g.name end
 LK.ring_obj = function(name)
     local own = LK.RING_PATHS[name]
     local path = own or ("/Game/Particles/Materials/" .. name .. "." .. name)
@@ -3029,14 +3041,38 @@ LK.load_own = function(path)
     log("  GetAsset did not load it either (" .. (okG and "returned nothing" or one_line(res)) .. ")")
     return nil
 end
-LK.ring_index = function(name)
-    for i, n in ipairs(LK.TINT_RINGS) do if n == name then return i end end
+LK.square_c = function()
+    for i, sh in ipairs(LK.MESH_SHAPES) do if sh.name:find("^square C") then return i end end
 end
-LK.mesh_own_ring = function()
+LK.mesh_geo_next = function()
     local m = LK.mesh
-    if not LK.mesh_ready("own ring A / B", 3) then return end
-    local to = LK.TINT_RINGS[m.ring] == LK.OWN_RING and LK.GAME_ARCH or LK.OWN_RING
-    LK.mesh_set_ring(LK.ring_index(to), "Shift + SCROLL LOCK, " .. (to == LK.OWN_RING and "own arch" or "game's arch"))
+    if not LK.mesh_ready("Geo ring", 3) then return end
+    local i = (m.geo or 0) % #LK.GEO + 1
+    local g = LK.GEO[i]
+    log(string.format("---- GEO RING (Shift + SCROLL LOCK): %d/%d %s, starting size %.2f m wide x %.2f m tall", i, #LK.GEO, g.name, g.w, g.h))
+    local parent = LK.ring_obj(g.name)
+    local lib = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
+    if not (parent and valid(lib)) then return end   -- m.geo kept: the next press tries the same one again
+    local ok, mid = pcall(function() return lib:CreateDynamicMaterialInstance(m.pad, parent, FName("None"), 0) end)
+    if not (ok and valid(mid)) then log("  no instance (" .. one_line(mid) .. ")") return end
+    local sc = LK.square_c()
+    if sc and m.shape ~= sc then   -- the Geo shapes are drawn for a flat face: the engine plane, stood up as square C
+        local mesh = LK.obj(LK.MESH_SHAPES[sc].path)
+        if mesh then
+            local okM = pcall(function() m.comp:SetStaticMesh(mesh) end)
+            if valid(m.back) then pcall(function() m.back:SetStaticMesh(mesh) end) end
+            if okM then m.shape = sc; log("  shape: " .. LK.MESH_SHAPES[sc].name) end
+        end
+    end
+    if m.step == 3 then LK.untried("PrimitiveComponent:SetMaterial on a StaticMeshComponent") end
+    local okS, err = pcall(function() m.comp:SetMaterial(0, mid) end)
+    if not okS then log("  " .. one_line(err)) return end
+    if valid(m.back) then pcall(function() m.back:SetMaterial(0, mid) end) end
+    m.mid, m.step, m.tstep, m.geo, m.ringname = mid, 4, 0, i, g.name
+    m.grey = LK.grey_of(mid)
+    m.sx, m.sy, m.sz = g.w, g.h, 1.0
+    LK.mesh_place("Geo " .. g.name)
+    say(string.format("Geo %s (%.2f x %.2f m)", (g.name:gsub("^MI_Geo", "")), g.w, g.h))
 end
 LK.sl_gate = function(kind)
     if LK.sl_pending then
@@ -3047,12 +3083,12 @@ LK.sl_gate = function(kind)
     later(LK.STEP_WINDOW_MS, function()
         local k = LK.sl_pending
         LK.sl_pending = nil
-        if k == "shift" then LK.mesh_own_ring() else LK.mesh_build() end
+        if k == "shift" then LK.mesh_geo_next() else LK.mesh_build() end
     end)
 end
 LK.shift_scroll = function()
     if LK.mode_name() == "mesh" then LK.sl_gate("shift") return end
-    log("Shift + SCROLL LOCK: mesh mode only (own arch / game's arch on the mesh ring; [ switches mode)")
+    log("Shift + SCROLL LOCK: mesh mode only (next Geo ring on the mesh ring; [ switches mode)")
 end
 -- PAUSE in mesh mode (LuciDin, 15 Nov: "Can the portal I am looking at be entirely replaced with the new mesh ring?"): hides the pad's
 -- own look (its ParticleLoop effect only; base, trigger and light stay) so the mesh ring stands alone; the next PAUSE shows it again,
@@ -3172,7 +3208,7 @@ if not pcall(function() RegisterKeyBind(Key.OEM_ONE, function() ExecuteInGameThr
 log("look keys (CRD-039, visual only): / = look survey, SCROLL LOCK = material instance, U = put it on the effect, . = colour, , = picture, L = overlay, O / P = overlay up / down, LEFT / RIGHT = sideways, M / N = overlay scale, I = scale axis")
 log("look heights (CRD-041, visual only): ; = next look on the nearest pad (all 32), then O / P = that look's height up / down 10 cm, Shift + O / P 1 cm (kept per look)")
 if not pcall(function() RegisterKeyBind(Key.OEM_FOUR, function() ExecuteInGameThread(LK.next_mode) end) end) then log("[ could not be bound") end
-log("look modes (CRD-042, visual only): [ = overlay / own / tint. own: M / N scale and LEFT / RIGHT turn the pad's own look (I = axis), O / P height, SCROLL LOCK reset, / renderers, U ring facing (whole look). tint: SCROLL LOCK grey ring in a window look, . tint, , picture, M / N ring size. mesh: SCROLL LOCK builds a ring on SM_Portal (4 steps), then as tint plus M/N/LEFT/RIGHT/O/P, L shape, U back face, Shift + U removes, Shift + SCROLL LOCK own arch / game's arch, PAUSE hides / shows the pad's own look; in every mode Shift + M / N scale in fine steps (x1.01) (CRD-043)")
+log("look modes (CRD-042, visual only): [ = overlay / own / tint. own: M / N scale and LEFT / RIGHT turn the pad's own look (I = axis), O / P height, SCROLL LOCK reset, / renderers, U ring facing (whole look). tint: SCROLL LOCK grey ring in a window look, . tint, , picture, M / N ring size. mesh: SCROLL LOCK builds a ring on SM_Portal (4 steps), then as tint plus M/N/LEFT/RIGHT/O/P, L shape, U back face, Shift + U removes, Shift + SCROLL LOCK next Geo ring (12: 6 shapes x swirl / window), PAUSE hides / shows the pad's own look; in every mode Shift + M / N scale in fine steps (x1.01) (CRD-043)")
 
 if not pcall(function() RegisterKeyBind(Key.PAGE_UP, function() ExecuteInGameThread(flag_registry_survey) end) end) then log("PAGE UP could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.PAGE_DOWN, function() ExecuteInGameThread(flag_native_probe) end) end) then log("PAGE DOWN could not be bound") end

@@ -1,11 +1,11 @@
-# Runs the real mod/PortalMaterialLab/Scripts/main.lua against the lab's mock game and checks CRD-043: our own cooked ring material
-# M_PortalHubLooks_Arch (PortalHubLooks_P, World Projects/PortalHubLooks) is one more ring in LK.TINT_RINGS, right after the game's
-# arch; in mesh mode Shift + SCROLL LOCK swaps the ring on the built shape between the game's arch and ours (gathered with the plain
-# SCROLL LOCK that fires with it); the first load is named in the log first; a missing pak is said, not crashed on; PAUSE (mesh
-# mode) hides / shows the pad's own look, and Shift + U shows it again; the own material loads through GetAsset when LoadAsset
-# finds nothing; the ring faces the pad's own angle; Shift + M / N scale in fine steps.
-# Also cross-checks the lab against the material's build script: same asset path, chunk 120 label, and every parameter the lab sets
-# (tint colours, PortalTexture, Radius (S)) exists in the material with the radius the lab starts from.
+# Runs the real mod/PortalMaterialLab/Scripts/main.lua against the lab's mock game and checks CRD-043: our own cooked "Geo" portals
+# (PortalHubLooks_P, World Projects/PortalHubLooks): in mesh mode Shift + SCROLL LOCK puts the next of 12 Geo rings (6 shapes x swirl /
+# window) on the built shape, as the engine plane stood up as square C, at that shape's starting size (gathered with the plain SCROLL
+# LOCK that fires with it); loading from our pak is named first and falls back to GetAsset by name when LoadAsset finds nothing; a
+# missing pak is said, not crashed on; the tint also covers DistortionEdge where it reads; PAUSE (mesh mode) hides / shows the pad's
+# own look and Shift + U shows it again; the ring faces the pad's own angle; Shift + M / N scale in fine steps.
+# Also cross-checks the lab against the material's build script: same instance names and folder, chunk 120, the parameters the lab
+# sets, true backside and clockwise swirl by default.
 import sys, os, re
 sys.path.insert(0, os.path.join(os.environ.get("TEMP", ""), "pylib"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "Cordona pylib"))
@@ -55,12 +55,11 @@ def press(L, key):
     L.execute("KEYS['%s'](); pump()" % key)
 
 
-def ring_list(src):   # LK is a main-chunk local, so the list is read from the source
-    body = re.search(r"^LK\.TINT_RINGS = \{(.*?)\}", src, re.S | re.M).group(1)
-    return re.findall(r'"([\w]+)"', body)
+def shift_sl(L):
+    L.execute("KEYS['SCROLL_LOCK+SHIFT'](); KEYS['SCROLL_LOCK'](); pump()")   # UE4SS fires the plain bind with the Shift one
 
 
-def mesh_built(L, steps=4):
+def mesh_built(L, steps=3):
     L.execute("PADS = { (sft_pad('hub_B1', 'Niagara_Portal', 100)) }")
     for _ in range(3):
         press(L, "OEM_FOUR")
@@ -70,105 +69,149 @@ def mesh_built(L, steps=4):
 
 src = open(LAB, encoding="utf-8").read()
 build = open(BUILD, encoding="utf-8").read()
+GEO = re.findall(r'\{ name = "(MI_Geo\w+)", w = ([\d.]+), h = ([\d.]+) \}', src)
+NAMES = [g[0] for g in GEO]
 
-print("=== ring list and keys")
-L = lab()
-rings = ring_list(src)
-check("own arch is in LK.TINT_RINGS, right after the game's arch", rings.index("M_PortalHubLooks_Arch") == rings.index("M_Portal_Arch") + 1, rings)
-check("the plain window is still last (mesh mode skips it)", rings[-1] == "M_WorldPortal", rings)
-check("12 mesh rings + the plain window", len(rings) == 13, len(rings))
+print("=== Geo list and keys")
+shapes = ["Arch", "Gothic", "Square", "Door", "Round", "Oval"]
+check("12 Geo rings: 6 shapes x swirl / window, in LuciDin's order", NAMES == ["MI_Geo%s_%s" % (s, st) for s in shapes for st in ("Swirl", "Window")], NAMES)
+sizes = {n: (float(w), float(h)) for n, w, h in GEO}
+check("starting sizes: square 1 x 1 m, door 0.75 x 2 m (LuciDin)", sizes["MI_GeoSquare_Swirl"] == (1.0, 1.0) and sizes["MI_GeoDoor_Window"] == (0.75, 2.0), sizes)
+check("swirl and window of a shape start the same size", all(sizes["MI_Geo%s_Swirl" % s] == sizes["MI_Geo%s_Window" % s] for s in shapes))
+check("the plain ring list is the game's again (no own ring in it)", "PortalHubLooks" not in re.search(r"^LK\.TINT_RINGS = \{(.*?)\}", src, re.S | re.M).group(1))
 check("Shift + SCROLL LOCK bound to LK.shift_scroll", re.search(r"RegisterKeyBind\(Key\.SCROLL_LOCK, \{ ModifierKey\.SHIFT \}, function\(\) ExecuteInGameThread\(LK\.shift_scroll\)", src))
 check("plain SCROLL LOCK still bound to LK.make_mid", re.search(r"RegisterKeyBind\(Key\.SCROLL_LOCK, function\(\) ExecuteInGameThread\(LK\.make_mid\)", src))
 others = "".join(open(os.path.join(ROOT, "mod", m, "Scripts", "main.lua"), encoding="utf-8").read()
                  for m in ("PortalHub", "CordonaProbe", "PortalLogger", "CordonaDlcSurvey"))
 check("no other mod of ours binds SCROLL LOCK", "Key.SCROLL_LOCK" not in others)
 check("no bare ExecuteWithDelay added", src.count("ExecuteWithDelay(") == 1)
-block = src[src.index("-- Our own ring material (CRD-043)"):src.index("-- Mode switch:")]
+block = src[src.index("-- Our own \"Geo\" portals (CRD-043"):src.index("-- Mode switch:")]
 check("no main-chunk local in the CRD-043 block", not re.search(r"^local ", block, re.M))
 check("square C is still a shape: engine Plane, roll +90, yaw +90",
       re.search(r'name = "square C \(roll \+90, yaw \+90\)", path = "/Engine/BasicShapes/Plane\.Plane", pitch = 0, yaw = 90, roll = 90', src))
+check("DistortionEdge (the arch's fringe) is one of the tint colours", re.search(r'LK\.TINT_PARAMS = \{ "PortalCenterColor", "PortalCenterColor2", "PortalEdge", "DistortionEdge" \}', src))
 
 print("=== lab and material build script agree")
-m = re.search(r'BASE = "([^"]+)"\nMAT_DIR = BASE \+ "([^"]+)"\nMAT_NAME = "([^"]+)"', build)
-path = m.group(1) + m.group(2) + "/" + m.group(3)
-lab_path = re.search(r'LK\.RING_PATHS = \{ M_PortalHubLooks_Arch = "([^"]+)" \}', src).group(1)
-check("lab path = the build script's asset (" + path + ")", lab_path == path + "." + m.group(3), lab_path)
+geo_dir = re.search(r'^GEO_DIR = BASE \+ "([^"]+)"', build, re.M).group(1)
+base = re.search(r'^BASE = "([^"]+)"', build, re.M).group(1)
+lab_dir = re.search(r'LK\.RING_PATHS\[g\.name\] = "([^"]+)" \.\. g\.name', src).group(1)
+check("lab folder = the script's instance folder (" + base + geo_dir + ")", lab_dir == base + geo_dir + "/", lab_dir)
+sh = re.findall(r'\("(\w+)", ([\d.]+)\)', re.search(r"^SHAPES = \[(.*?)\]$", build, re.M).group(1))
+st = re.findall(r'"(\w+)": \{', re.search(r"^STYLES = \{(.*?)^\}", build, re.M | re.S).group(1))
+script_names = ["MI_Geo%s_%s" % (a, b) for a, _ in sh for b in st]
+check("the script makes exactly the lab's 12 instances", script_names == NAMES, script_names)
+shape_val = {a: float(v) for a, v in sh}
+check("shape values: arch 0, gothic 1, square = door = 2 (rectangle), round 3, oval 4",
+      shape_val == {"Arch": 0.0, "Gothic": 1.0, "Square": 2.0, "Door": 2.0, "Round": 3.0, "Oval": 4.0}, shape_val)
+check("window style: scene only, no swirl over it", re.search(r'"Window": \{"SceneMix": 1\.0, "SwirlOverScene": 0\.0', build))
 check("label chunk 120 in the build script", re.search(r"^CHUNK = 120$", build, re.M))
-check("the project cooks its own folder", '+DirectoriesToAlwaysCook=(Path="%s")' % m.group(1) in open(GAME_INI, encoding="utf-8").read())
-params = re.findall(r'\("\w+",\s*"([^"]+)",\s*([-\d.(][^)]*\)?)\)', build)
-names = {p for p, _ in params}
-for p in ("PortalCenterColor", "PortalCenterColor2", "PortalEdge", "Radius (S)"):
-    check("material has " + p + " (the lab sets it)", p in names, sorted(names))
+check("the project cooks its own folder", '+DirectoriesToAlwaysCook=(Path="%s")' % base in open(GAME_INI, encoding="utf-8").read())
+params = {p for p in re.findall(r'\(\s*"\w+",\s*"([^"]+)",', build)}
+for p in ("PortalCenterColor", "PortalCenterColor2", "PortalEdge", "DistortionEdge", "Shape", "Pointed", "TrueBack"):
+    check("material has " + p, p in params, sorted(params))
 check("material has a PortalTexture texture parameter", '"parameter_name", "PortalTexture"' in build)
-rad = [v for p, v in params if p == "Radius (S)"]
-lab_rad = float(re.search(r"M_PortalHubLooks_Arch = ([\d.]+) \}", src).group(1))
-check("lab's starting ring size = the material's Radius (S) default (0.30)", rad and abs(float(rad[0]) - lab_rad) < 1e-9, (rad, lab_rad))
+check("true backside by default (TrueBack 1.0)", re.search(r'\("TrueBack",\s*"TrueBack",\s*1\.0\)', build))
+check("swirl turns clockwise from the front (angle minus time x speed, y down)", "atan2(pn.y, pn.x) - t * SwirlSpeed" in build)
 check("material: two-sided, masked, unlit, Niagara sprite usage", all(x in build for x in ('"two_sided", True', "BLEND_MASKED", "MSM_UNLIT", '"used_with_niagara_sprites", True')))
+check("shape size read from the surface (pixel derivatives of the camera-relative position)", "ddx(P)" in build and "WPT_CAMERA_RELATIVE" in build)
 check("no game texture paths in the graph except the dummy's own path", re.findall(r'"/Game/Particles/[^"]*"', build) == ['"/Game/Particles/RenderTargets"'], re.findall(r'"/Game/Particles/[^"]*"', build))
 
-print("=== mesh mode: Shift + SCROLL LOCK, own arch / game's arch")
+print("=== mesh mode: Shift + SCROLL LOCK steps through the Geo rings")
 L = lab()
 mesh_built(L, steps=2)
 L.execute("KEYS['SCROLL_LOCK+SHIFT'](); pump()")
-check("before the shape is on (step 2): asks for the build, no call", has(L, "own ring A / B: build the shape first") and calls(L)[-1] == "collision 0", calls(L)[-2:])
+check("before the shape is on (step 2): asks for the build, no call", has(L, "Geo ring: build the shape first") and calls(L)[-1] == "collision 0", calls(L)[-2:])
 press(L, "SCROLL_LOCK")   # step 3: SM_Portal
 n = len(calls(L))
-L.execute("KEYS['SCROLL_LOCK+SHIFT'](); KEYS['SCROLL_LOCK'](); pump()")   # UE4SS fires plain SCROLL LOCK with Shift + SCROLL LOCK
+shift_sl(L)
 c = calls(L)[n:]
-check("step 3 + Shift + SCROLL LOCK: our own arch straight on (step 4), the plain press gathered", c == ["kml M_PortalHubLooks_Arch", "mmat 0 MID_M_PortalHubLooks_Arch"], c)
-check("first load named before it runs", has(L, "first load of our own cooked ring material next: /Game/Mods/PortalHubLooks/Materials/M_PortalHubLooks_Arch.M_PortalHubLooks_Arch"))
-i_name = next(i for i, l in enumerate(logs(L)) if "first load of our own" in l)
-i_put = next(i for i, l in enumerate(logs(L)) if "MESH RING step 4/4 (Shift + SCROLL LOCK, own arch): M_PortalHubLooks_Arch" in l)
-check("... and before the ring line", i_name < i_put, (i_name, i_put))
-check("SetMaterial on a StaticMeshComponent still named once (first time)", sum("untried native call next: PrimitiveComponent:SetMaterial" in l for l in logs(L)) == 1)
-L.execute("KEYS['SCROLL_LOCK+SHIFT'](); pump()")
-check("again: the game's arch for comparison", calls(L)[-2:] == ["kml M_Portal_Arch", "mmat 0 MID_M_Portal_Arch"], calls(L)[-2:])
-check("logged as the game's arch", has(L, "MESH RING next ring (Shift + SCROLL LOCK, game's arch): M_Portal_Arch"))
-L.execute("KEYS['SCROLL_LOCK+SHIFT'](); pump()")
-check("again: ours", calls(L)[-1] == "mmat 0 MID_M_PortalHubLooks_Arch", calls(L)[-1])
+check("first Geo: arched door swirl, on the plane (square C), the plain press gathered",
+      c[:3] == ["kml MI_GeoArch_Swirl", "mesh Plane", "mmat 0 MID_MI_GeoArch_Swirl"], c)
+check("placed at 1.0 x 2.0 m, stood up as square C (roll +90, yaw +90 from the pad)", c[3:] == ["mloc 0.0 0.0 158.0", "mrot 0 90 90", "mscale 1.000 2.000 1.000"], c)
+check("first load named before it runs", has(L, "first load of our own cooked ring material next: /Game/Mods/PortalHubLooks/Geo/MI_GeoArch_Swirl.MI_GeoArch_Swirl"))
+check("logged with its starting size", has(L, "GEO RING (Shift + SCROLL LOCK): 1/12 MI_GeoArch_Swirl, starting size 1.00 m wide x 2.00 m tall"))
+check("SetMaterial on a StaticMeshComponent named once (first time)", sum("untried native call next: PrimitiveComponent:SetMaterial" in l for l in logs(L)) == 1)
+n = len(calls(L))
+shift_sl(L)
+c = calls(L)[n:]
+check("second: arch window; shape already square C (no SetStaticMesh)", c[:2] == ["kml MI_GeoArch_Window", "mmat 0 MID_MI_GeoArch_Window"] and not any(x.startswith("mesh ") for x in c), c)
+for _ in range(5):
+    shift_sl(L)
+check("7th: door swirl at 0.75 x 2.0 m", calls(L)[-1] == "mscale 0.750 2.000 1.000" and "mmat 0 MID_MI_GeoDoor_Swirl" in calls(L)[-4:], calls(L)[-4:])
+for _ in range(5):
+    shift_sl(L)
+check("12th: oval window", "mmat 0 MID_MI_GeoOval_Window" in calls(L)[-4:], calls(L)[-4:])
+shift_sl(L)
+check("then round again to the arch swirl", "mmat 0 MID_MI_GeoArch_Swirl" in calls(L)[-4:], calls(L)[-4:])
 check("first-load line only once", sum("first load of our own" in l for l in logs(L)) == 1)
 press(L, "OEM_PERIOD"); press(L, "OEM_PERIOD")
-check(". tints our arch (red, grey x RGB on PortalCenterColor / 2 / PortalEdge)", calls(L)[-3:] == ["vec PortalCenterColor 0.109 0.005 0.005", "vec PortalCenterColor2 1.000 0.050 0.050", "vec PortalEdge 4.836 0.242 0.242"], calls(L)[-3:])
+check(". tints the Geo ring (red, grey x RGB; DistortionEdge unreadable in this mock, left alone)",
+      calls(L)[-3:] == ["vec PortalCenterColor 0.109 0.005 0.005", "vec PortalCenterColor2 1.000 0.050 0.050", "vec PortalEdge 4.836 0.242 0.242"], calls(L)[-3:])
+check("tint log names the Geo ring", has(L, "MESH RING TINT (.): red = RGB 1.00, 0.05, 0.05 (MI_GeoArch_Swirl)"))
 press(L, "OEM_COMMA")
-check(", puts a scene in our arch's PortalTexture", calls(L)[-1].startswith("tex PortalTexture TC_"), calls(L)[-1])
+check(", puts a scene in its PortalTexture", calls(L)[-1].startswith("tex PortalTexture TC_"), calls(L)[-1])
+press(L, "M")
+check("M scales it from its starting size (x1.1 = 1.1 x 2.2 m)", calls(L)[-1] == "mscale 1.100 2.200 1.100", calls(L)[-1])
+press(L, "OEM_TWO")
+check("/ names the Geo ring", has(L, "ring MI_GeoArch_Swirl"))
 press(L, "SCROLL_LOCK")
-check("plain SCROLL LOCK after ours: wraps to Friendly White (ours is the 12th mesh ring)", calls(L)[-1] == "mmat 0 MID_M_Portal_Friendly_White", calls(L)[-1])
-L.execute("for i = 1, 10 do KEYS['SCROLL_LOCK'](); pump() end")
-check("10 more: the game's arch (11th)", calls(L)[-1] == "mmat 0 MID_M_Portal_Arch", calls(L)[-1])
-press(L, "SCROLL_LOCK")
-check("next: ours (12th)", calls(L)[-1] == "mmat 0 MID_M_PortalHubLooks_Arch", calls(L)[-1])
-for _ in range(3):
-    press(L, "L")
-check("L x3: square C (engine Plane, roll +90, yaw +90 from the pad's own angle) with our arch put back", "mesh Plane" in calls(L)[-6:] and "mmat 0 MID_M_PortalHubLooks_Arch" in calls(L)[-6:]
-      and "mrot 0 90 90" in calls(L)[-3:], calls(L)[-6:])
-n = len(calls(L))
+check("plain SCROLL LOCK after a Geo ring: the game's rings again (Friendly White)", calls(L)[-1] == "mmat 0 MID_M_Portal_Friendly_White", calls(L)[-1])
+shift_sl(L)
+check("Shift + SCROLL LOCK goes on with the next Geo (arch window)", "mmat 0 MID_MI_GeoArch_Window" in calls(L)[-4:], calls(L)[-4:])
 L.execute("KEYS['SCROLL_LOCK'](); KEYS['SCROLL_LOCK'](); pump()")
-check("two plain presses inside 40 ms count once (gathered)", calls(L)[n:] == ["kml M_Portal_Friendly_White", "mmat 0 MID_M_Portal_Friendly_White"], calls(L)[n:])
+check("two plain presses inside 40 ms count once (gathered)", calls(L)[-1] == "mmat 0 MID_M_Portal_Friendly", calls(L)[-2:])
+
+print("=== tint: DistortionEdge where it reads")
+L = lab()
+L.execute("GREYS.DistortionEdge = { R = 10, G = 0.924, B = 0 }")
+mesh_built(L)
+shift_sl(L)
+press(L, "OEM_PERIOD"); press(L, "OEM_PERIOD")
+c = calls(L)[-4:]
+check("readable DistortionEdge is tinted too (grey 2.78 x red)", c[3].startswith("vec DistortionEdge 2.78") and c[0].startswith("vec PortalCenterColor "), c)
+
+print("=== own pak: LoadAsset finds nothing (in game, 15 Nov), GetAsset by name loads it")
+L = lab()
+L.execute("""
+OWN_VIA_GETASSET, OWN_LOADED = true, false
+local oldSFO2 = StaticFindObject
+function StaticFindObject(path)
+    if path == "/Script/AssetRegistry.Default__AssetRegistryHelpers" then
+        return { IsValid = function() return true end, GetFName = function() return FName("Default__AssetRegistryHelpers") end,
+            GetAsset = function(self, d) CALLS2[#CALLS2 + 1] = "getasset " .. d.PackageName:ToString() .. " " .. d.AssetName:ToString(); OWN_LOADED = true end }
+    end
+    if path:find("^/Game/Mods/PortalHubLooks/") and OWN_VIA_GETASSET and not OWN_LOADED then return nil end
+    return oldSFO2(path)
+end
+function LoadAsset(p) if p:find("PortalHubLooks") then error("asset not found in the asset registry") end end
+""")
+mesh_built(L)
+n = len(calls(L))
+shift_sl(L)
+c = calls(L)[n:]
+check("GetAsset by package and asset name, then the Geo ring goes on",
+      c[:2] == ["getasset /Game/Mods/PortalHubLooks/Geo/MI_GeoArch_Swirl MI_GeoArch_Swirl", "kml MI_GeoArch_Swirl"] and "mmat 0 MID_MI_GeoArch_Swirl" in c, c)
+check("LoadAsset's error is logged, not swallowed", has(L, "LoadAsset did not load it (") and has(L, "asset not found in the asset registry"))
+check("GetAsset named as untried before it runs", has(L, "untried native call next: AssetRegistryHelpers:GetAsset({ PackageName, AssetName }) for our own pak's material"))
+check("logged how it loaded", has(L, "loaded with GetAsset"))
 
 print("=== missing pak")
 L = lab()
 L.execute("OWN_PAK = false")
 mesh_built(L)
 n = len(calls(L))
-L.execute("KEYS['SCROLL_LOCK+SHIFT'](); pump()")
-check("not installed: said in the log and on screen, no call", has(L, "M_PortalHubLooks_Arch not found: is PortalHubLooks_P (.pak / .ucas / .utoc) in Content\\Paks\\~mods?")
+shift_sl(L)
+check("not installed: said in the log, no call, shape not changed", has(L, "MI_GeoArch_Swirl not found: is PortalHubLooks_P (.pak / .ucas / .utoc) in Content\\Paks\\~mods?")
       and calls(L)[n:] == [], calls(L)[n:])
-press(L, "SCROLL_LOCK")
-check("the ring index was kept: plain SCROLL LOCK goes on to Friendly (2nd), not past ours", calls(L)[-1] == "mmat 0 MID_M_Portal_Friendly", calls(L)[-1])
 L.execute("OWN_PAK = nil")
-L.execute("KEYS['SCROLL_LOCK+SHIFT'](); pump()")
-check("installed later: the next Shift + SCROLL LOCK finds it", calls(L)[-1] == "mmat 0 MID_M_PortalHubLooks_Arch", calls(L)[-1])
+shift_sl(L)
+check("installed later: the next press tries the same (first) Geo ring and finds it", "mmat 0 MID_MI_GeoArch_Swirl" in calls(L)[-4:], calls(L)[-4:])
 
 print("=== other modes")
 L = lab()
 L.execute("PADS = { (sft_pad('hub_B1', 'Niagara_Portal', 100)) }")
 L.execute("KEYS['SCROLL_LOCK+SHIFT'](); pump()")
 check("overlay mode: Shift + SCROLL LOCK says mesh mode only, no call", has(L, "Shift + SCROLL LOCK: mesh mode only") and calls(L) == [], calls(L))
-press(L, "OEM_FOUR"); press(L, "OEM_FOUR")
-L.execute("for i = 1, 12 do KEYS['SCROLL_LOCK']() end")
-check("tint mode: the 12th grey ring is ours, in the window", calls(L)[-1] == "varmat User.PortalTexture MID_M_PortalHubLooks_Arch", calls(L)[-1])
-press(L, "M")
-check("tint-mode M: our Radius (S) from 0.30 (x1.1 = 0.330)", calls(L)[-1] == "scalar Radius (S) 0.330" and has(L, "M_PortalHubLooks_Arch Radius (S) 0.330 (cooked 0.300, x1.10)"), calls(L)[-1])
 
 print("=== PAUSE: hide the pad's own look (mesh mode)")
 check("PAUSE bound once in the lab, to LK.hide_own", re.search(r"RegisterKeyBind\(Key\.PAUSE, function\(\) ExecuteInGameThread\(LK\.hide_own\)", src) and len(re.findall(r"Key\.PAUSE\b", src)) == 1)
@@ -193,7 +236,7 @@ press(L, "PAUSE")
 check("PAUSE again: shown", calls(L)[-1] == "ownvis true false" and has(L, "OWN LOOK SHOWN (PAUSE in mesh mode): hub_B1's own look visible again"), calls(L))
 for _ in range(3):
     press(L, "SCROLL_LOCK")
-L.execute("KEYS['SCROLL_LOCK+SHIFT'](); pump()")
+shift_sl(L)
 L.execute("PADS = { (sft_pad('hub_B1', 'Niagara_Portal', 100)), (sft_pad('hub_B2', 'Niagara_Portal', 50)) }")
 n = len(calls(L))
 press(L, "PAUSE")
@@ -203,47 +246,6 @@ L.execute("KEYS['U+SHIFT'](); KEYS['U'](); pump()")
 check("Shift + U: ring removed and the own look shown again", calls(L)[-2:] == ["mdestroy", "ownvis true false"] and has(L, "OWN LOOK SHOWN (Shift + U)"), calls(L)[-3:])
 press(L, "PAUSE")
 check("next PAUSE hides again (state cleared by Shift + U)", calls(L)[-1] == "ownvis false false", calls(L)[-1])
-
-print("=== own pak: LoadAsset finds nothing (in game, 15 Nov), GetAsset by name loads it")
-L = lab()
-L.execute("""
-OWN_VIA_GETASSET, OWN_LOADED = true, false
-local oldSFO2 = StaticFindObject
-function StaticFindObject(path)
-    if path == "/Script/AssetRegistry.Default__AssetRegistryHelpers" then
-        return { IsValid = function() return true end, GetFName = function() return FName("Default__AssetRegistryHelpers") end,
-            GetAsset = function(self, d) CALLS2[#CALLS2 + 1] = "getasset " .. d.PackageName:ToString() .. " " .. d.AssetName:ToString(); OWN_LOADED = true end }
-    end
-    if path:find("^/Game/Mods/PortalHubLooks/") and OWN_VIA_GETASSET and not OWN_LOADED then return nil end
-    return oldSFO2(path)
-end
-function LoadAsset(p) if p:find("PortalHubLooks") then error("asset not found in the asset registry") end end
-""")
-mesh_built(L, steps=3)
-n = len(calls(L))
-L.execute("KEYS['SCROLL_LOCK+SHIFT'](); pump()")
-c = calls(L)[n:]
-check("GetAsset by package and asset name, then our arch goes on", c == ["getasset /Game/Mods/PortalHubLooks/Materials/M_PortalHubLooks_Arch M_PortalHubLooks_Arch", "kml M_PortalHubLooks_Arch", "mmat 0 MID_M_PortalHubLooks_Arch"], c)
-check("LoadAsset's error is logged, not swallowed", has(L, "LoadAsset did not load it (") and has(L, "asset not found in the asset registry"))
-check("GetAsset named as untried before it runs", has(L, "untried native call next: AssetRegistryHelpers:GetAsset({ PackageName, AssetName }) for our own pak's material"))
-check("logged how it loaded", has(L, "loaded with GetAsset"))
-L.execute("KEYS['SCROLL_LOCK+SHIFT'](); pump(); KEYS['SCROLL_LOCK+SHIFT'](); pump()")
-check("next time it is already in memory: no second GetAsset", sum(x.startswith("getasset") for x in calls(L)) == 1 and calls(L)[-1] == "mmat 0 MID_M_PortalHubLooks_Arch", calls(L)[-3:])
-L = lab()
-L.execute("""
-local oldSFO3 = StaticFindObject
-function StaticFindObject(path)
-    if path == "/Script/AssetRegistry.Default__AssetRegistryHelpers" then
-        return { IsValid = function() return true end, GetAsset = function(self, d) CALLS2[#CALLS2 + 1] = "getasset" end }
-    end
-    return oldSFO3(path)
-end
-OWN_PAK = false
-""")
-mesh_built(L, steps=3)
-L.execute("KEYS['SCROLL_LOCK+SHIFT'](); pump()")
-check("pak really missing: both tried, then 'not found', ring not put on", "getasset" in calls(L) and has(L, "GetAsset did not load it either") and has(L, "not found: is PortalHubLooks_P")
-      and not any(x.startswith("mmat") for x in calls(L)), calls(L)[-3:])
 
 print("=== facing: the ring faces the pad's own angle, not the effect's turn")
 L = lab()

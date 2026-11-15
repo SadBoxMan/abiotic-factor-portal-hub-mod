@@ -1,4 +1,4 @@
-# Unreal Editor (headless) script: build Portal Hub's own ring material, M_PortalHubLooks_Arch (CRD-043). CC0, our own graph.
+# Unreal Editor (headless) script: build Portal Hub's own "Geo" portal materials (CRD-043). CC0, our own graph.
 #
 # Run (the editor must not have this project open):
 #   UnrealEditor-Cmd.exe "<this folder>\..\AbioticFactor.uproject" -run=PythonScript -Script="<this file>"
@@ -6,21 +6,28 @@
 # Env: PH_OUT = report file (default: build_ring_material.txt next to this script); PH_HDR = the dummy cube map's .hdr
 # (default: dummy_cube.hdr next to this script; written by this script if missing).
 #
-# What it makes (running it again rebuilds the material from scratch, keeps the label and the dummy):
-#   /Game/Mods/PortalHubLooks/Materials/M_PortalHubLooks_Arch  the material (Masked, Unlit, Two Sided; Niagara sprite and mesh usage)
+# What it makes (running it again rebuilds the master and the instances from scratch, keeps the label and the dummy):
+#   /Game/Mods/PortalHubLooks/Materials/M_PortalHubLooks_Geo   the master material (Masked, Unlit, Two Sided; Niagara sprite and mesh usage)
+#   /Game/Mods/PortalHubLooks/Geo/MI_Geo<Shape>_<Style>        12 instances: 6 shapes (Arch, Gothic, Square, Door, Round, Oval) x
+#                                                              2 styles (Swirl, Window)
 #   /Game/Mods/PortalHubLooks/PAL_PortalHubLooks               Primary Asset Label: chunk 120, labels its own folder only
 #                                                              (Apply Recursively off, so referenced game paths stay out of the chunk)
 #   /Game/Particles/RenderTargets/TC_Portal_Warehouse          a DUMMY cube map at the game's path (a tiny gradient of our own):
-#                                                              the material's default scene. It cooks into chunk 0, which is never
-#                                                              installed, so in game the reference finds the game's real Mall cube map.
+#                                                              the default scene. It cooks into chunk 0, which is never installed, so
+#                                                              in game the reference finds the game's real Mall cube map.
+# The first version's material (M_PortalHubLooks_Arch, round arch only) is left as it is: removing it is LuciDin's call.
 #
-# Modelled on the game's Night Realm arch (M_Portal_Arch: Masked, Unlit, PortalEdge (5, 0.771, 0), DistortionEdge (10, 0.924, 0),
-# NoiseScale 1.863, NoiseScale2 2.818, Radius (S) 0.236, PortalTexture = TC_Portal_Warehouse, arch-shaped mask), but every part is
-# worked out from the SURFACE (UV), not from the view direction:
-#   * the arch shape is a distance field in UV (no mask texture), so it can be resized and rounded live;
-#   * the swirl is noise in polar UV coordinates turning with time (no noise texture), so it is fixed to the surface;
-#   * on the back face (TwoSidedSign < 0) the UV x is mirrored, so one face reads the same from both sides;
-#   * the scene is the cube map looked up with a direction built from UV plus an optional, side-aware parallax shift.
+# Modelled on the game's Night Realm arch (Masked, Unlit, PortalEdge (5, 0.771, 0), DistortionEdge (10, 0.924, 0), NoiseScale 1.863,
+# NoiseScale2 2.818, PortalTexture = TC_Portal_Warehouse), but every part is worked out from the SURFACE, not the view direction:
+#   * the shape is a distance field in real centimetres: the surface's size per UV is read from the pixel derivatives of the
+#     (camera-relative) world position, so a door scaled to 0.75 x 2 m keeps a round top round; any scale, any mesh;
+#   * the swirl is noise in polar coordinates around the shape's centre, turning clockwise (seen from the front) with time;
+#   * the back face is a true backside (TrueBack = 1: mirror image, swirl turning the other way, as seen from behind), or reads
+#     the same as the front (TrueBack = 0);
+#   * the scene is the cube map looked up with a direction from the surface plus an optional, side-aware parallax shift.
+# LuciDin's shapes (15 Nov): Arched Door, Gothic Arch (pointed top), Square (1 m x 1 m), Door (2 m tall, 0.75 m wide), Round (like a
+# default portal), Oval (like a Friendly portal); each as a swirl and as a window (clear scene, no swirl). The sizes come from the mesh
+# (the lab's mesh-ring scale; the lab sets each one's starting size); the material only takes the shape and its proportions.
 import os
 import unreal
 
@@ -37,7 +44,8 @@ def log(*a):
 
 BASE = "/Game/Mods/PortalHubLooks"
 MAT_DIR = BASE + "/Materials"
-MAT_NAME = "M_PortalHubLooks_Arch"
+MAT_NAME = "M_PortalHubLooks_Geo"
+GEO_DIR = BASE + "/Geo"
 PAL_NAME = "PAL_PortalHubLooks"
 CHUNK = 120
 CUBE_DIR = "/Game/Particles/RenderTargets"
@@ -47,21 +55,19 @@ eal = unreal.EditorAssetLibrary
 at = unreal.AssetToolsHelpers.get_asset_tools()
 mel = unreal.MaterialEditingLibrary
 
-# ---- parameters (name, default) -------------------------------------------------------------------------------------------------
-# Input names in the Custom node (no spaces) map to these parameter names.
+# ---- parameters (Custom node input, parameter name, default) ----------------------------------------------------------------
+# Lengths are in centimetres (the surface's own size, read in the shader).
 SCALARS = [
-    # input        parameter          default  what it does
-    ("Radius",     "Radius (S)",      0.30),   # arch half width in UV (0..0.5); the lab's M / N "ring size"
-    ("ArchHeight", "ArchHeight",      0.92),   # arch height in UV, bottom to top of the round
-    ("ArchBottom", "ArchBottom",      0.98),   # UV v of the arch's foot (v = 0 top, 1 bottom)
-    ("Round",      "Round",           0.0),    # 0 = arch, 1 = oval (blends between)
-    ("EdgeWidth",  "EdgeWidth",       0.05),   # width of the glowing edge band, UV
+    ("Shape",      "Shape",           0.0),    # 0 arched door, 1 gothic (pointed) arch, 2 rectangle (square, door), 3 round, 4 oval
+    ("Pointed",    "Pointed",         1.0),    # gothic only: 0 = round top, 1 = equilateral pointed arch
+    ("TrueBack",   "TrueBack",        1.0),    # 1 = the back face is a true backside (mirror image), 0 = reads like the front
+    ("EdgeWidth",  "EdgeWidth",       6.0),    # width of the glowing edge band, cm
     ("EdgePower",  "EdgePower",       2.0),    # how fast the edge glow fades inwards
-    ("EdgeWobble", "EdgeWobble",      0.03),   # how much the noise frays the outline, UV
+    ("EdgeWobble", "EdgeWobble",      3.0),    # how much the noise frays the outline, cm (the shape is inset by this)
     ("EdgeFlicker","EdgeFlicker",     0.5),    # 0 = PortalEdge only, 1 = flickers towards DistortionEdge
     ("NoiseScale", "NoiseScale",      1.8632), # swirl noise size around the ring (game arch value)
     ("NoiseScale2","NoiseScale2",     2.8175), # swirl noise size from centre to edge (game arch value)
-    ("SwirlSpeed", "SwirlSpeed",      0.35),   # turns of the swirl per second, roughly (radians / s)
+    ("SwirlSpeed", "SwirlSpeed",      0.35),   # radians per second, clockwise seen from the front (negative = anticlockwise)
     ("SwirlTwist", "SwirlTwist",      2.5),    # how much the swirl spirals (radians from centre to edge)
     ("Inflow",     "InflowSpeed",     0.4),    # how fast the noise flows towards the centre
     ("SwirlLow",   "SwirlLow",        0.35),   # noise level where PortalCenterColor2 starts
@@ -78,11 +84,17 @@ SCALARS = [
     ("Brightness", "Brightness",      1.0),    # everything x this
 ]
 VECTORS = [
-    ("Center",     "PortalCenterColor",  (0.01, 0.0, 0.02, 1.0)),   # dark part of the swirl
-    ("Center2",    "PortalCenterColor2", (0.5, 0.08, 0.0, 1.0)),    # bright part of the swirl
+    ("Center",     "PortalCenterColor",  (0.01, 0.0, 0.02, 1.0)),     # dark part of the swirl
+    ("Center2",    "PortalCenterColor2", (0.5, 0.08, 0.0, 1.0)),      # bright part of the swirl
     ("Edge",       "PortalEdge",         (5.0, 0.771312, 0.0, 1.0)),  # edge glow (game arch value)
     ("DistEdge",   "DistortionEdge",     (10.0, 0.92422, 0.0, 1.0)),  # edge flicker colour (game arch value)
+    ("SceneTint",  "SceneTint",          (1.0, 1.0, 1.0, 1.0)),       # scene x this
 ]
+SHAPES = [("Arch", 0.0), ("Gothic", 1.0), ("Square", 2.0), ("Door", 2.0), ("Round", 3.0), ("Oval", 4.0)]
+STYLES = {
+    "Swirl": {},
+    "Window": {"SceneMix": 1.0, "SwirlOverScene": 0.0, "DistortMultiply": 0.03, "DistortDistance": 0.5},
+}
 
 HLSL = r"""
 struct PHLNoise {
@@ -97,45 +109,74 @@ struct PHLNoise {
     float fbm(float3 p) { return (0.5 * n3(p) + 0.25 * n3(p * 2.03 + 7.1) + 0.125 * n3(p * 4.01 + 3.7)) / 0.875; }
 };
 PHLNoise nz;
-float side = Side < 0.0 ? -1.0 : 1.0;
-float x = (UV.x - 0.5) * side;          /* mirrored on the back face: one face reads the same from both sides */
-float y = UV.y;                         /* 0 top, 1 bottom */
 float t = Time;
-/* shape: arch (box + half circle) blended with an oval, as a distance in UV (negative inside) */
-float R = max(Radius, 0.01);
-float vt = ArchBottom - ArchHeight;
-float cy = vt + R;
+/* the surface's size in cm per whole UV range, from pixel derivatives of the camera-relative position (exact on a flat face) */
+float3 P = WPos;
+float2 duvx = ddx(UV); float2 duvy = ddy(UV);
+float3 dpx = ddx(P); float3 dpy = ddy(P);
+float det = duvx.x * duvy.y - duvx.y * duvy.x;
+float W = 100.0; float H = 100.0;
+if (abs(det) > 1e-12) {
+    W = length((dpx * duvy.y - dpy * duvx.y) / det);
+    H = length((dpy * duvx.x - dpx * duvy.x) / det);
+}
+W = max(W, 1.0); H = max(H, 1.0);
+/* back face: true backside (as seen from behind) or the front's reading */
+float side = Side < 0.0 ? -1.0 : 1.0;
+float fx = TrueBack > 0.5 ? 1.0 : side;
+float x = (UV.x - 0.5) * W * fx;      /* cm from the centre line, + right */
+float y = UV.y * H;                    /* cm from the top */
+/* shape: a distance in cm, negative inside */
+float inset = max(EdgeWobble, 0.0) + 1.0;
+float hw = max(W * 0.5 - inset, 1.0);
+float top = inset; float bot = H - inset;
+float hh = max((bot - top) * 0.5, 1.0);
+float cyMid = H * 0.5;
 float2 q = float2(abs(x), y);
-float dC = length(q - float2(0.0, cy)) - R;
-float dB = max(q.x - R, max(cy - q.y, q.y - ArchBottom));
-float dArch = min(dC, dB);
-float midY = (vt + ArchBottom) * 0.5;
-float hy = max(ArchHeight * 0.5, 0.01);
-float2 pn = float2(x / R, (y - midY) / hy);
-float dEll = (length(pn) - 1.0) * min(R, hy);
-float d = lerp(dArch, dEll, saturate(Round));
-/* swirl: noise on circles around the centre, turning with time, so it is fixed to the surface and seamless */
+int s = (int)round(Shape);
+float d;
+float pw = hw; float ph = hh;
+if (s == 0 || s == 1) {
+    float R = hw;
+    float o = (s == 1) ? saturate(Pointed) * R : 0.0;
+    float apex = sqrt(R * R + 2.0 * R * o);
+    float cy = top + apex;
+    float dC = max(length(float2(q.x + o, q.y - cy)) - (R + o), q.y - cy);
+    float dB = max(q.x - hw, max(cy - q.y, q.y - bot));
+    d = min(dC, dB);
+} else if (s == 2) {
+    d = max(q.x - hw, max(top - q.y, q.y - bot));
+} else if (s == 3) {
+    float r0 = min(hw, hh);
+    d = length(float2(q.x, q.y - cyMid)) - r0;
+    pw = r0; ph = r0;
+} else {
+    d = (length(float2(q.x / hw, (q.y - cyMid) / hh)) - 1.0) * min(hw, hh);
+}
+/* swirl: noise on circles around the centre, turning clockwise seen from the front (y grows downwards) */
+float2 pn = float2(x / pw, (y - cyMid) / ph);
 float r = length(pn);
-float a = atan2(pn.y, pn.x) + t * SwirlSpeed + r * SwirlTwist;
+float a = atan2(pn.y, pn.x) - t * SwirlSpeed + r * SwirlTwist;
 float3 sp = float3(cos(a) * NoiseScale, sin(a) * NoiseScale, r * NoiseScale2 - t * Inflow);
 float n = nz.fbm(sp);
 float n2 = nz.fbm(sp * 1.7 + float3(3.1, 1.3, t * 0.37));
-d += (n2 - 0.5) * EdgeWobble;
+d += (n2 - 0.5) * 2.0 * EdgeWobble;
 float inside = d < 0.0 ? 1.0 : 0.0;
-float depth = saturate(-d / max(EdgeWidth, 0.001));
-/* scene: direction from UV, shifted by the view in the face's own frame (x mirrored, normal towards the viewer on both sides) */
+float depth = saturate(-d / max(EdgeWidth, 0.1));
+/* scene: direction from the surface (longer side = 1), shifted by the view in the face's own frame */
+float L = max(W, H);
 float3 c = CamT;
-c.x *= side;
+c.x *= fx;
 c.z = max(abs(c.z), 0.2);
-float3 dir = float3(x * SceneZoom, (0.5 - y) * SceneZoom, 1.0);
+float3 dir = float3(x / L * SceneZoom, (cyMid - y) / L * SceneZoom, 1.0);
 dir.xy += Parallax * (-c.xy / c.z);
 dir.xy += (n - 0.5) * DistMul * (1.0 + r * DistDist);
 dir = normalize(dir);
-float sy = sin(SceneYaw * 0.0174533);
+float syw = sin(SceneYaw * 0.0174533);
 float cyw = cos(SceneYaw * 0.0174533);
 float3 cd = float3(dir.z, dir.x, dir.y);            /* cube space: X forward, Y right, Z up */
-cd.xy = float2(cd.x * cyw - cd.y * sy, cd.x * sy + cd.y * cyw);
-float3 scene = PortalTex.SampleLevel(PortalTexSampler, cd, SceneBlur).rgb * SceneBright;
+cd.xy = float2(cd.x * cyw - cd.y * syw, cd.x * syw + cd.y * cyw);
+float3 scene = PortalTex.SampleLevel(PortalTexSampler, cd, SceneBlur).rgb * SceneBright * SceneTint.rgb;
 /* colour: swirl over the scene, glowing edge */
 float sw = smoothstep(SwirlLow, SwirlHigh, n);
 float3 swirl = lerp(Center.rgb, Center2.rgb, sw);
@@ -153,8 +194,9 @@ def lc(v):
 
 def make_hdr(path, w=64, h=32):
     # a tiny lat-long Radiance .hdr (RGBE, uncompressed scanlines): dark violet below, warm glow above. Our own, CC0.
+    import math
+
     def rgbe(r, g, b):
-        import math
         m = max(r, g, b)
         if m < 1e-32:
             return bytes((0, 0, 0, 0))
@@ -164,8 +206,7 @@ def make_hdr(path, w=64, h=32):
     rows = []
     for j in range(h):
         k = j / (h - 1.0)                     # 0 top, 1 bottom
-        row = b"".join(rgbe(0.9 * (1 - k) + 0.05, 0.35 * (1 - k) + 0.02, 0.1 + 0.25 * k) for i in range(w))
-        rows.append(row)
+        rows.append(b"".join(rgbe(0.9 * (1 - k) + 0.05, 0.35 * (1 - k) + 0.02, 0.1 + 0.25 * k) for i in range(w)))
     head = b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y %d +X %d\n" % (h, w)
     with open(path, "wb") as f:
         f.write(head + b"".join(rows))
@@ -191,10 +232,15 @@ if not isinstance(cube, unreal.TextureCube):
     log("STOP: the dummy is not a TextureCube")
     raise SystemExit(1)
 
-# ---- material (rebuilt from scratch) ------------------------------------------------------------------------------------------------
+# ---- master material (rebuilt from scratch; instances first, they depend on it) --------------------------------------------------
+for shape, _ in SHAPES:
+    for style in STYLES:
+        p = GEO_DIR + "/MI_Geo" + shape + "_" + style
+        if eal.does_asset_exist(p):
+            eal.delete_asset(p)
 mat_path = MAT_DIR + "/" + MAT_NAME
 if eal.does_asset_exist(mat_path):
-    log("old material deleted:", eal.delete_asset(mat_path))
+    log("old master deleted:", eal.delete_asset(mat_path))
 mat = at.create_asset(MAT_NAME, MAT_DIR, unreal.Material, unreal.MaterialFactoryNew())
 log("material created:", mat is not None)
 mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
@@ -215,8 +261,8 @@ def node(cls, x, y):
 custom = node(unreal.MaterialExpressionCustom, 0, 0)
 custom.set_editor_property("code", HLSL)
 custom.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT4)
-custom.set_editor_property("description", "PortalHubLooks arch (surface-locked)")
-names = ["UV", "Time", "Side", "CamT", "PortalTex"] + [s[0] for s in SCALARS] + [v[0] for v in VECTORS]
+custom.set_editor_property("description", "PortalHubLooks Geo (surface-locked)")
+names = ["UV", "Time", "Side", "CamT", "WPos", "PortalTex"] + [s[0] for s in SCALARS] + [v[0] for v in VECTORS]
 inputs = []
 for nm in names:
     ci = unreal.CustomInput()
@@ -232,7 +278,7 @@ def wire(src, inp):
     return ok
 
 
-y = -1600
+y = -1800
 wire(node(unreal.MaterialExpressionTextureCoordinate, -900, y), "UV"); y += 120
 wire(node(unreal.MaterialExpressionTime, -900, y), "Time"); y += 120
 wire(node(unreal.MaterialExpressionTwoSidedSign, -900, y), "Side"); y += 120
@@ -242,6 +288,13 @@ tr.set_editor_property("transform_source_type", unreal.MaterialVectorCoordTransf
 tr.set_editor_property("transform_type", unreal.MaterialVectorCoordTransform.TRANSFORM_TANGENT)
 log("camera -> transform:", mel.connect_material_expressions(camv, "", tr, ""))
 wire(tr, "CamT"); y += 160
+wp = node(unreal.MaterialExpressionWorldPosition, -900, y)
+try:
+    wp.set_editor_property("world_position_shader_offset", unreal.WorldPositionIncludedOffsets.WPT_CAMERA_RELATIVE)
+    log("world position: camera relative")
+except Exception as ex:   # older enum names: fall back to the default (absolute) and say so
+    log("world position: camera-relative option not set (" + str(ex) + "); absolute world position used")
+wire(wp, "WPos"); y += 160
 tex = node(unreal.MaterialExpressionTextureObjectParameter, -900, y)
 tex.set_editor_property("parameter_name", "PortalTexture")
 tex.set_editor_property("texture", cube)
@@ -270,6 +323,23 @@ log("emissive:", mel.connect_material_property(rgb, "", unreal.MaterialProperty.
 log("opacity mask:", mel.connect_material_property(alpha, "", unreal.MaterialProperty.MP_OPACITY_MASK))
 mel.recompile_material(mat)
 log("saved material:", eal.save_asset(mat_path, only_if_is_dirty=False))
+
+# ---- 12 instances: shape x style ------------------------------------------------------------------------------------------------
+made = []
+for shape, sval in SHAPES:
+    for style, over in STYLES.items():
+        name = "MI_Geo" + shape + "_" + style
+        mi = at.create_asset(name, GEO_DIR, unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
+        mel.set_material_instance_parent(mi, mat)
+        mel.set_material_instance_scalar_parameter_value(mi, "Shape", sval)
+        for k, v in over.items():
+            mel.set_material_instance_scalar_parameter_value(mi, k, v)
+        mel.update_material_instance(mi)
+        eal.save_asset(GEO_DIR + "/" + name, only_if_is_dirty=False)
+        made.append(name + " (Shape " + str(sval) + (", " + ", ".join("%s %s" % kv for kv in over.items()) if over else "") + ")")
+log("instances:", len(made))
+for m in made:
+    log("  ", m)
 
 # ---- primary asset label: chunk 120, own folder only --------------------------------------------------------------------------------
 pal_path = BASE + "/" + PAL_NAME
