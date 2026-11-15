@@ -68,7 +68,7 @@ def heights(L):
 
 
 def press(L, key):
-    L.execute("KEYS['%s']()" % key)
+    L.execute("KEYS['%s'](); pump()" % key)      # pump: O / P act after a 40 ms game-thread window
 
 
 src = open(LAB, encoding="utf-8").read()
@@ -130,6 +130,50 @@ check("Stone Garden: starts after Garden (Greenverse), at its height kept from h
 check("line shows this pad's game default 138.3", heights(L)[-1].startswith("---- LOOK HEIGHT: Niagara_Portal_Greenverse | game default 138.3 cm | set 158.0 cm | offset +19.7 cm | pad H_Garden_Entrance (23/32)"), heights(L)[-1])
 L.execute("for i = 1, 16 do KEYS['OEM_ONE']() end")
 check("Fog's kept height follows the look to this pad (128, offset -10.3)", calls(L)[-1] == "z Niagara_Portal_Fog 128.0" and "offset -10.3 cm" in heights(L)[-1], (calls(L)[-1], heights(L)[-1]))
+
+print("=== Shift + O / P: 1 cm (LuciDin, 14 Nov)")
+check("Shift + O and Shift + P bound with ModifierKey.SHIFT",
+      re.search(r"RegisterKeyBind\(Key\.O, \{ ModifierKey\.SHIFT \}, function\(\) ExecuteInGameThread\(function\(\) LK\.step_press\(1\)", src)
+      and re.search(r"RegisterKeyBind\(Key\.P, \{ ModifierKey\.SHIFT \}, function\(\) ExecuteInGameThread\(function\(\) LK\.step_press\(-1\)", src))
+check("O / P delays go through the game-thread helper", "later(LK.STEP_WINDOW_MS" in src)
+L = lab()
+L.execute("PADS = { (cyc_pad('hub_B1', 'Niagara_Portal_Dark', 100)) }")
+press(L, "OEM_ONE")
+press(L, "O+SHIFT"); press(L, "O+SHIFT"); press(L, "P+SHIFT")
+check("Shift O, Shift O, Shift P: Door 158 -> 159", calls(L)[-1] == "z Niagara_Portal_Door 159.0", calls(L)[-3:])
+L.execute("KEYS['O+SHIFT'](); KEYS['O'](); pump()")
+check("Shift + O that also fires plain O (either order) moves 1 cm once", calls(L)[-1] == "z Niagara_Portal_Door 160.0" and len(heights(L)) == 5, calls(L)[-2:])
+L.execute("KEYS['P'](); KEYS['P+SHIFT'](); pump()")
+check("... and P then Shift + P: -1 cm once", calls(L)[-1] == "z Niagara_Portal_Door 159.0" and len(heights(L)) == 6, calls(L)[-2:])
+L.execute("KEYS['O'](); DELAYED_BEFORE = #DELAYED")
+check("nothing moves before the window ends", calls(L)[-1] == "z Niagara_Portal_Door 159.0" and L.eval("DELAYED_BEFORE") == 1)
+L.execute("pump()")
+check("plain O alone: +10 after the window", calls(L)[-1] == "z Niagara_Portal_Door 169.0")
+
+print("=== starting heights from portal-heights.csv next to the lab")
+import tempfile, shutil
+here = os.getcwd()
+tmp = tempfile.mkdtemp()
+try:
+    os.chdir(tmp)
+    L = lab()
+    check("no sheet: logged, picks used", any("no portal-heights.csv next to the lab" in l for l in logs(L)))
+    os.makedirs(os.path.join("ue4ss", "Mods", "PortalMaterialLab"))
+    sheet = open(os.path.join(ROOT, "docs", "portal-heights.csv"), "rb").read().decode("ascii")
+    sheet = sheet.replace("Niagara_Portal_Door,158,158,0,", "Niagara_Portal_Door,158,141.5,-16.5,").replace("Niagara_Portal_Fog,158,,,", 'Niagara_Portal_Fog,158," 122 ",,"a, quoted note"')
+    open(os.path.join("ue4ss", "Mods", "PortalMaterialLab", "portal-heights.csv"), "wb").write(b"\xef\xbb\xbf" + sheet.encode("ascii"))
+    L = lab()
+    check("5 heights read (BOM, CRLF, quotes)", any("look heights: 5 starting heights read from portal-heights.csv" in l for l in logs(L)), [l for l in logs(L) if "look heights" in l])
+    L.execute("PADS = { (cyc_pad('hub_B1', 'Niagara_Portal_Dark', 100)) }")
+    press(L, "OEM_ONE")
+    check("Door starts at the sheet's 141.5 (sheet wins over the pick)", calls(L)[-1] == "z Niagara_Portal_Door 141.5", calls(L)[-1:])
+    press(L, "OEM_ONE")
+    check("Fog starts at the sheet's 122", calls(L)[-1] == "z Niagara_Portal_Fog 122.0", calls(L)[-1:])
+    press(L, "OEM_ONE")
+    check("a look with no height in the sheet: the pad's own", calls(L)[-1] == "z Niagara_Portal_Friendly 158.0", calls(L)[-1:])
+finally:
+    os.chdir(here)
+    shutil.rmtree(tmp)
 
 print("=== without ;: old O / P path unchanged")
 L = lab()

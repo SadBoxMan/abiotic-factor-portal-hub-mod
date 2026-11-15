@@ -116,7 +116,7 @@ ev = lambda L, e: L.eval(e)
 
 
 def press(L, key):
-    L.execute("KEYS['%s']()" % key)
+    L.execute("KEYS['%s'](); pump()" % key)      # pump: O / P act after a 40 ms game-thread window (CRD-041)
 
 
 src = open(LAB, encoding="utf-8").read()
@@ -229,8 +229,10 @@ press(L, "L")
 check("then starts over with Garden", calls(L)[-3] == "spawn Niagara_Portal_Garden lt=0 pool=0", calls(L)[-3:])
 
 print("=== overlay fit: O / P / M / N")
-for k in ("O", "P", "M", "N", "I", "LEFT_ARROW", "RIGHT_ARROW"):
+for k in ("M", "N", "I", "LEFT_ARROW", "RIGHT_ARROW"):
     check(k + " bound once", len(re.findall(r"Key\.%s\b" % k, src)) == 1)
+for k in ("O", "P"):
+    check(k + " bound twice: plain and Shift (CRD-041)", len(re.findall(r"Key\.%s\b" % k, src)) == 2)
 L = lab()
 L.execute("PADS = { new_pad('hub_A3', 'Niagara_Portal_Friendly_Red', { 'M_Portal_Friendly_Red' }, 100) }")
 press(L, "O"); press(L, "O"); press(L, "P"); press(L, "P"); press(L, "P")

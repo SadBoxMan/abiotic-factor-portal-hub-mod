@@ -19,7 +19,8 @@ local NameMT = { __index = { ToString = function(self) return self.s end }, __eq
 function FName(s) return setmetatable({ s = s }, NameMT) end
 function FText(s) return setmetatable({ s = s }, NameMT) end
 Key = setmetatable({}, { __index = function(_, k) return k end })
-function RegisterKeyBind(k, fn) KEYS[k] = fn end
+ModifierKey = setmetatable({}, { __index = function(_, k) return k end })
+function RegisterKeyBind(k, a, b) if b then KEYS[k .. "+" .. table.concat(a, "+")] = b else KEYS[k] = a end end   -- (key, fn) or (key, { modifiers }, fn)
 function RegisterHook(name, fn) HOOKS[name] = fn end
 function NotifyOnNewObject(name, fn) NOTIFY[name] = fn end
 function ExecuteInGameThread(fn) fn() end

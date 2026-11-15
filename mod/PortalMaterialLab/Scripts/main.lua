@@ -23,7 +23,8 @@
 --                   dynamic material instance of the ring (U puts it on non-window looks), . cycles its colour, , cycles its picture (cube map), L cycles an overlay look with
 --                   only some parts on (O / P move it up / down, M / N scale it). Visual only, on this machine, nothing saved (hub NUMPAD 1 respawns hub pads; a reload resets the game's)
 --   ;               look heights (CRD-041): the next of the 32 looks on the nearest pad, at that look's height; O / P then set the current
---                   look's height (kept per look). Logs one LOOK HEIGHT line per change for tools/dev/portal_heights_from_log.py
+--                   look's height by 10 cm, Shift + O / P by 1 cm (kept per look; starting heights from portal-heights.csv next to
+--                   the lab if present). Logs one LOOK HEIGHT line per change for tools/dev/portal_heights_from_log.py
 --   (no key)        every pad use is logged by a passive hook on AttemptTeleport: which pad, where it leads, which flag and buffs it gives
 -- Keys stay clear of the game's own bindings: F1 is its player list, F10 its HUD toggle, + its pager (NUMPAD 1 and 2 belong to PortalHub, F6 to PortalLogger; F7 and F8 are unbound in the game's input config). Note: Shift + a numpad digit does not work,
 -- because with Num Lock on Shift turns the digit into Home / arrow keys.
@@ -2284,6 +2285,23 @@ LK.LOOKS = { "Niagara_Portal", "Niagara_Portal_Blueverse", "Niagara_Portal_Botan
     "Niagara_Portal_Salem", "Niagara_Portal_Shadowgate2", "Niagara_Portal_SnowFlurry", "Niagara_Portal_SunDisk",
     "Niagara_Portal_Tiny", "Niagara_Portal_Torii" }
 LK.PICKS = { Niagara_Portal_Friendly_Red = 108, Niagara_Portal = 118, Niagara_Portal_Botanical_Red = 138, Niagara_Portal_Door = 158 }
+-- Starting heights from the sheet (LuciDin, 14 Nov: a relaunch must not lose the heights set so far): a copy of docs/portal-heights.csv
+-- put next to the lab as portal-heights.csv; its "LuciDin's height cm" column wins over the picks above. Read once at load; optional.
+LK.SHEET_FILE = "ue4ss/Mods/PortalMaterialLab/portal-heights.csv"
+LK.sheet = {}
+LK.read_sheet = function()
+    local f = io.open(LK.SHEET_FILE, "rb")
+    if not f then log("look heights: no portal-heights.csv next to the lab (starting heights: picks, else the pad's own)") return end
+    local n = 0
+    for raw in f:lines() do
+        local line = raw:gsub("^\239\187\191", ""):gsub("\r$", "")
+        local look, height = line:match('^"?(Niagara_Portal[%w_]*)"?,[^,]*,"?%s*(-?[%d.]+)%s*"?,')
+        if look and tonumber(height) then LK.sheet[look] = tonumber(height); n = n + 1 end
+    end
+    f:close()
+    log("look heights: " .. n .. " starting heights read from portal-heights.csv")
+end
+LK.read_sheet()
 LK.heights = {}
 LK.cyc = { pl = nil, id = nil, base = nil, idx = 0 }
 LK.addr = function(o) local ok, a = pcall(function() return o:GetAddress() end); return ok and a or o end
@@ -2330,7 +2348,7 @@ LK.next_look = function()
     if not sys then log("look heights: look not found: " .. name) return end
     local ok, err = pcall(function() pl:SetAsset(sys, true); pl:Activate(true) end)
     if not ok then log("look heights: SetAsset " .. name .. " failed: " .. one_line(err)) return end
-    if not LK.heights[name] then LK.heights[name] = LK.PICKS[name] or c.base.Z end
+    if not LK.heights[name] then LK.heights[name] = LK.sheet[name] or LK.PICKS[name] or c.base.Z end
     LK.set_height(name, ";")
 end
 LK.nudge = function(dz)
@@ -2348,6 +2366,21 @@ LK.nudge = function(dz)
     end
     LK.oz = LK.oz + dz
     LK.place("O/P")
+end
+-- Shift + O / P = 1 cm steps (LuciDin, 14 Nov: a modifier is wanted here; his veto of the no-modifier rule). UE4SS may also fire the
+-- plain O bind on Shift + O, so presses are gathered for 40 ms on the game thread and the finest step wins: one move per press.
+LK.STEP_WINDOW_MS = 40
+LK.step_press = function(dz)
+    if LK.step_pending then
+        if math.abs(dz) < math.abs(LK.step_pending) then LK.step_pending = dz end
+        return
+    end
+    LK.step_pending = dz
+    later(LK.STEP_WINDOW_MS, function()
+        local step = LK.step_pending
+        LK.step_pending = nil
+        if step then LK.nudge(step) end
+    end)
 end
 LK.side = function(d)
     if not LK.need_fx("side") then return end
@@ -2370,8 +2403,10 @@ LK.rescale = function(f)
     log("---- OVERLAY FIT (M/N): " .. LK.OVERLAYS[LK.overlay].look .. ": " .. LK.fit_text() .. (ok and "" or (" FAILED: " .. one_line(err))))
     say("Overlay " .. LK.fit_text())
 end
-if not pcall(function() RegisterKeyBind(Key.O, function() ExecuteInGameThread(function() LK.nudge(10) end) end) end) then log("O could not be bound") end
-if not pcall(function() RegisterKeyBind(Key.P, function() ExecuteInGameThread(function() LK.nudge(-10) end) end) end) then log("P could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.O, function() ExecuteInGameThread(function() LK.step_press(10) end) end) end) then log("O could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.P, function() ExecuteInGameThread(function() LK.step_press(-10) end) end) end) then log("P could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.O, { ModifierKey.SHIFT }, function() ExecuteInGameThread(function() LK.step_press(1) end) end) end) then log("Shift + O could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.P, { ModifierKey.SHIFT }, function() ExecuteInGameThread(function() LK.step_press(-1) end) end) end) then log("Shift + P could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.M, function() ExecuteInGameThread(function() LK.rescale(1.1) end) end) end) then log("M could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.N, function() ExecuteInGameThread(function() LK.rescale(1 / 1.1) end) end) end) then log("N could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.LEFT_ARROW, function() ExecuteInGameThread(function() LK.side(-10) end) end) end) then log("LEFT could not be bound") end
@@ -2385,7 +2420,7 @@ if not pcall(function() RegisterKeyBind(Key.L, function() ExecuteInGameThread(LK
 if not pcall(function() RegisterKeyBind(Key.U, function() ExecuteInGameThread(LK.apply) end) end) then log("U could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.OEM_ONE, function() ExecuteInGameThread(LK.next_look) end) end) then log("; could not be bound") end
 log("look keys (CRD-039, visual only): / = look survey, SCROLL LOCK = material instance, U = put it on the effect, . = colour, , = picture, L = overlay, O / P = overlay up / down, LEFT / RIGHT = sideways, M / N = overlay scale, I = scale axis")
-log("look heights (CRD-041, visual only): ; = next look on the nearest pad (all 32), then O / P = that look's height up / down 10 cm (kept per look)")
+log("look heights (CRD-041, visual only): ; = next look on the nearest pad (all 32), then O / P = that look's height up / down 10 cm, Shift + O / P 1 cm (kept per look)")
 
 if not pcall(function() RegisterKeyBind(Key.PAGE_UP, function() ExecuteInGameThread(flag_registry_survey) end) end) then log("PAGE UP could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.PAGE_DOWN, function() ExecuteInGameThread(flag_native_probe) end) end) then log("PAGE DOWN could not be bound") end
