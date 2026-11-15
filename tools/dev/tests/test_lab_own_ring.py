@@ -76,7 +76,7 @@ print("=== Geo list and keys")
 shapes = ["Arch", "Gothic", "Square", "Door", "Round", "Oval"]
 check("12 Geo rings: 6 shapes x swirl / window, in LuciDin's order", NAMES == ["MI_Geo%s_%s" % (s, st) for s in shapes for st in ("Swirl", "Window")], NAMES)
 sizes = {n: (float(w), float(h)) for n, w, h in GEO}
-check("starting sizes: square 1 x 1 m, door 0.75 x 2 m (LuciDin)", sizes["MI_GeoSquare_Swirl"] == (1.0, 1.0) and sizes["MI_GeoDoor_Window"] == (0.75, 2.0), sizes)
+check("starting sizes: square 1 x 1 m, door 1.75 x 3 m (LuciDin)", sizes["MI_GeoSquare_Swirl"] == (1.0, 1.0) and sizes["MI_GeoDoor_Window"] == (1.75, 3.0), sizes)
 check("swirl and window of a shape start the same size", all(sizes["MI_Geo%s_Swirl" % s] == sizes["MI_Geo%s_Window" % s] for s in shapes))
 check("the plain ring list is the game's again (no own ring in it)", "PortalHubLooks" not in re.search(r"^LK\.TINT_RINGS = \{(.*?)\}", src, re.S | re.M).group(1))
 check("Shift + SCROLL LOCK bound to LK.shift_scroll", re.search(r"RegisterKeyBind\(Key\.SCROLL_LOCK, \{ ModifierKey\.SHIFT \}, function\(\) ExecuteInGameThread\(LK\.shift_scroll\)", src))
@@ -137,7 +137,7 @@ c = calls(L)[n:]
 check("second: arch window; shape already square C (no SetStaticMesh)", c[:2] == ["kml MI_GeoArch_Window", "mmat 0 MID_MI_GeoArch_Window"] and not any(x.startswith("mesh ") for x in c), c)
 for _ in range(5):
     shift_sl(L)
-check("7th: door swirl at 0.75 x 2.0 m", calls(L)[-1] == "mscale 0.750 2.000 1.000" and "mmat 0 MID_MI_GeoDoor_Swirl" in calls(L)[-4:], calls(L)[-4:])
+check("7th: door swirl at 1.75 x 3.0 m", calls(L)[-1] == "mscale 1.750 3.000 1.000" and "mmat 0 MID_MI_GeoDoor_Swirl" in calls(L)[-4:], calls(L)[-4:])
 for _ in range(5):
     shift_sl(L)
 check("12th: oval window", "mmat 0 MID_MI_GeoOval_Window" in calls(L)[-4:], calls(L)[-4:])

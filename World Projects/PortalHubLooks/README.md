@@ -20,7 +20,7 @@ Custom (HLSL) node fed by parameters. Unlike the game's arch it is **Two Sided**
 
 - **Shape** (`Shape` 0 arched door, 1 gothic arch, 2 rectangle, 3 round, 4 oval; `Pointed` for the gothic top) as a distance in real
   centimetres. The surface's size is read in the shader from the pixel derivatives of the camera-relative position, so the mesh's
-  scale sets the size and a round top stays round on a 0.75 x 2 m door. Square and Door are the same rectangle at different sizes.
+  scale sets the size and a round top stays round on a tall, narrow arch. Square and Door are the same rectangle at different sizes.
 - **Swirl**: noise on circles around the shape's centre, turning **clockwise** seen from the front (`SwirlSpeed`, negative =
   anticlockwise), `NoiseScale`, `NoiseScale2`, `SwirlTwist`, `InflowSpeed`, `SwirlLow` / `SwirlHigh`.
 - **Back face**: `TrueBack` 1 (default) = a true backside (mirror image, swirl turning the other way, as seen from behind); 0 = reads

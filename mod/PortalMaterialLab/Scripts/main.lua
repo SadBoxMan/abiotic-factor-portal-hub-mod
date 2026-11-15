@@ -2997,7 +2997,7 @@ LK.GEO = {
     { name = "MI_GeoArch_Swirl", w = 1.0, h = 2.0 }, { name = "MI_GeoArch_Window", w = 1.0, h = 2.0 },
     { name = "MI_GeoGothic_Swirl", w = 1.0, h = 2.0 }, { name = "MI_GeoGothic_Window", w = 1.0, h = 2.0 },
     { name = "MI_GeoSquare_Swirl", w = 1.0, h = 1.0 }, { name = "MI_GeoSquare_Window", w = 1.0, h = 1.0 },
-    { name = "MI_GeoDoor_Swirl", w = 0.75, h = 2.0 }, { name = "MI_GeoDoor_Window", w = 0.75, h = 2.0 },
+    { name = "MI_GeoDoor_Swirl", w = 1.75, h = 3.0 }, { name = "MI_GeoDoor_Window", w = 1.75, h = 3.0 },   -- LuciDin, 15 Nov: 3 m x 1.75 m
     { name = "MI_GeoRound_Swirl", w = 1.8, h = 1.8 }, { name = "MI_GeoRound_Window", w = 1.8, h = 1.8 },
     { name = "MI_GeoOval_Swirl", w = 1.4, h = 2.0 }, { name = "MI_GeoOval_Window", w = 1.4, h = 2.0 },
 }

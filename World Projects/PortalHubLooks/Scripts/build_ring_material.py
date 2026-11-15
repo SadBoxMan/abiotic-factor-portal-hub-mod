@@ -20,12 +20,12 @@
 # Modelled on the game's Night Realm arch (Masked, Unlit, PortalEdge (5, 0.771, 0), DistortionEdge (10, 0.924, 0), NoiseScale 1.863,
 # NoiseScale2 2.818, PortalTexture = TC_Portal_Warehouse), but every part is worked out from the SURFACE, not the view direction:
 #   * the shape is a distance field in real centimetres: the surface's size per UV is read from the pixel derivatives of the
-#     (camera-relative) world position, so a door scaled to 0.75 x 2 m keeps a round top round; any scale, any mesh;
+#     (camera-relative) world position, so a tall, narrow arch keeps a round top round; any scale, any mesh;
 #   * the swirl is noise in polar coordinates around the shape's centre, turning clockwise (seen from the front) with time;
 #   * the back face is a true backside (TrueBack = 1: mirror image, swirl turning the other way, as seen from behind), or reads
 #     the same as the front (TrueBack = 0);
 #   * the scene is the cube map looked up with a direction from the surface plus an optional, side-aware parallax shift.
-# LuciDin's shapes (15 Nov): Arched Door, Gothic Arch (pointed top), Square (1 m x 1 m), Door (2 m tall, 0.75 m wide), Round (like a
+# LuciDin's shapes (15 Nov): Arched Door, Gothic Arch (pointed top), Square (1 m x 1 m), Door (first 2 m x 0.75 m, then 3 m tall x 1.75 m wide), Round (like a
 # default portal), Oval (like a Friendly portal); each as a swirl and as a window (clear scene, no swirl). The sizes come from the mesh
 # (the lab's mesh-ring scale; the lab sets each one's starting size); the material only takes the shape and its proportions.
 import os
