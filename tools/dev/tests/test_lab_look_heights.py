@@ -159,11 +159,19 @@ try:
     L = lab()
     check("no sheet: logged, picks used", any("no portal-heights.csv next to the lab" in l for l in logs(L)))
     os.makedirs(os.path.join("ue4ss", "Mods", "PortalMaterialLab"))
-    sheet = open(os.path.join(ROOT, "docs", "portal-heights.csv"), "rb").read().decode("ascii")
-    sheet = sheet.replace("Niagara_Portal_Door,158,158,0,", "Niagara_Portal_Door,158,141.5,-16.5,").replace("Niagara_Portal_Fog,158,,,", 'Niagara_Portal_Fog,158," 122 ",,"a, quoted note"')
-    open(os.path.join("ue4ss", "Mods", "PortalMaterialLab", "portal-heights.csv"), "wb").write(b"\xef\xbb\xbf" + sheet.encode("ascii"))
+    # fixture: the shipped sheet's rows with Door 141.5, Fog " 122 " (quoted, with a quoted note) and Friendly blank; BOM and CRLF
+    import csv, io
+    rows = list(csv.reader(io.StringIO(open(os.path.join(ROOT, "docs", "portal-heights.csv"), "rb").read().decode("ascii"))))
+    out = []
+    for r in rows:
+        if r and r[0] == "Niagara_Portal_Door": r = [r[0], "158", "141.5", "-16.5", r[4]]
+        if r and r[0] == "Niagara_Portal_Friendly": r = [r[0], "158", "", "", ""]
+        line = ",".join(r)
+        if r and r[0] == "Niagara_Portal_Fog": line = 'Niagara_Portal_Fog,158," 122 ",,"a, quoted note"'
+        out.append(line)
+    open(os.path.join("ue4ss", "Mods", "PortalMaterialLab", "portal-heights.csv"), "wb").write(b"\xef\xbb\xbf" + ("\r\n".join(out) + "\r\n").encode("ascii"))
     L = lab()
-    check("5 heights read (BOM, CRLF, quotes)", any("look heights: 5 starting heights read from portal-heights.csv" in l for l in logs(L)), [l for l in logs(L) if "look heights" in l])
+    check("31 heights read (BOM, CRLF, quotes; Friendly blank)", any("look heights: 31 starting heights read from portal-heights.csv" in l for l in logs(L)), [l for l in logs(L) if "look heights" in l])
     L.execute("PADS = { (cyc_pad('hub_B1', 'Niagara_Portal_Dark', 100)) }")
     press(L, "OEM_ONE")
     check("Door starts at the sheet's 141.5 (sheet wins over the pick)", calls(L)[-1] == "z Niagara_Portal_Door 141.5", calls(L)[-1:])

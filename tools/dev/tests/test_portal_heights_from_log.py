@@ -37,13 +37,24 @@ check("header", rows[0] == ph.HEADER, rows[0])
 check("32 looks, DESIGN_NAMES order", [r[0] for r in rows[1:]] == hubdata.DESIGN_NAMES)
 byname = {r[0]: r for r in rows[1:]}
 check("game default 158 on every row", all(r[1] == "158" for r in rows[1:]))
-check("LuciDin's 4 picks", [byname[n][2] for n in ("Niagara_Portal_Friendly_Red", "Niagara_Portal", "Niagara_Portal_Botanical_Red", "Niagara_Portal_Door")] == ["108", "118", "138", "158"])
-check("pick offsets", [byname[n][3] for n in ("Niagara_Portal_Friendly_Red", "Niagara_Portal", "Niagara_Portal_Botanical_Red", "Niagara_Portal_Door")] == ["-50", "-40", "-20", "0"])
-check("only the picks have heights", sum(1 for r in rows[1:] if r[2]) == 4)
+check("every look has a height (LuciDin's run, 14 Nov)", all(ph.num(r[2]) is not None for r in rows[1:]), [r[0] for r in rows[1:] if not r[2]])
+check("offset = height - game default on every row", all(abs(ph.num(r[3]) - (ph.num(r[2]) - ph.num(r[1]))) < 0.05 for r in rows[1:]))
+check("Rift row says it does not move", "did not move" in byname["Niagara_Portal_Rift"][4])
 # git stores the sheet with LF (core.autocrlf, no .gitattributes): a Windows checkout has CRLF, a zip or Linux checkout LF. Either is
-# fine for Excel; the checks below run on a CRLF fixture built here, and on an LF one, so they pass on any checkout.
+# fine for Excel.
 check("one line ending throughout", (b"\r\n" in raw) == (raw.count(b"\n") == raw.count(b"\r\n")))
-raw = raw.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")      # the CRLF fixture (what Excel writes)
+# The script checks below run on a fixture: the sheet as first committed (9f413de: 32 looks, only LuciDin's 4 picks), built here
+# with CRLF (what Excel writes), so they don't depend on the values he sets later or on the checkout's line endings.
+PICKS = {"Niagara_Portal_Friendly_Red": 108, "Niagara_Portal": 118, "Niagara_Portal_Botanical_Red": 138, "Niagara_Portal_Door": 158}
+NOTES = {"Niagara_Portal_Garden": "game's Stone Garden pad uses 138.3", "Niagara_Portal_Door": "oversized look",
+         "Niagara_Portal_NightRDoor_2": "oversized look"}
+fixture = ["look,game default cm,LuciDin's height cm,offset cm,notes"]
+for n in hubdata.DESIGN_NAMES:
+    h, note = PICKS.get(n), NOTES.get(n, "")
+    if h is not None:
+        note = "LuciDin's pick 14 Nov (CRD-039)" + ("; " + note if note else "")
+    fixture.append(",".join([n, "158", "" if h is None else str(h), "" if h is None else str(h - 158), note]))
+raw = ("\r\n".join(fixture) + "\r\n").encode("ascii")
 
 tmp = tempfile.mkdtemp()
 try:

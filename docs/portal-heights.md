@@ -11,7 +11,15 @@ LuciDin edits it; the hub's per-look height build (the looks build card, "Portal
 | offset cm | height minus game default (the script fills it; the build may use either column) |
 | notes | free text |
 
-The four first picks (14 November, CRD-039): Friendly Red 108, Default 118, Botanical Red 138, Door 158.
+The four first picks (14 November, CRD-039): Friendly Red 108, Default 118, Botanical Red 138, Door 158. The lab run the same
+evening (CRD-041) set all 32; Default became 128, Botanical Red 128, Door 188. **Rift did not move** in game: its effect ignores the
+height (`K2_SetRelativeLocation` is accepted, nothing visible changes), so its row keeps the game default.
+
+## Rules for the looks build (LuciDin, 14 November)
+
+- A portal's **Manual Hub Exit (MHE) inherits the source portal's height** (and its scale, once scale is researched: CRD-042).
+- **Exception: Door.** It may need separate values for the hub portal and its MHE; the sheet's Door row is the hub value.
+- Rift: height has no effect; skip it or research another way.
 
 ## Measuring in game (lab, dev only)
 
