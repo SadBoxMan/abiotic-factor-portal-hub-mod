@@ -269,6 +269,45 @@ else:
     check("manual: the hook was registered", False, "no hook")
 done(h)
 
+# ---- stream-in watch: a forced world's zone is re-pointed as it is created, before it can give the sickness (the 2 s tick lost that race
+# in game, 15 November). The zone is created with no flag read in yet; the hub looks again until the flag is there.
+WATCH = """
+NOTIFY, NOTIFY_COUNT = {}, 0
+function NotifyOnNewObject(cls, fn) NOTIFY[cls] = fn; if cls:find("Vignette_Zone", 1, true) then NOTIFY_COUNT = NOTIFY_COUNT + 1 end end
+local sfo2 = StaticFindObject
+function StaticFindObject(p)
+    if p == "/Game/Blueprints/Environment/Volumes/Vignette_Zone.Vignette_Zone_C" then return { IsValid = function() return true end } end
+    return sfo2(p)
+end
+ZC = "/Game/Blueprints/Environment/Volumes/Vignette_Zone.Vignette_Zone_C"
+"""
+h = Hub(SHORE_P % ", forceComplete = true", WATCH)
+h.tick(6)
+check("watch: registered once for the vignette zone class", h.ev("NOTIFY_COUNT") == 1 and h.ev("NOTIFY[ZC]") is not None and h.has("watching for vignette zones"), h.ev("NOTIFY_COUNT"))
+h.tick(10)
+check("watch: not registered again", h.ev("NOTIFY_COUNT") == 1)
+h.run("NEWZ = zone(%d, %d, 'None'); RET = NOTIFY[ZC](NEWZ)" % SHORE_AT)
+check("watch: the callback returns nothing (a true would remove it)", h.ev("RET") is None)
+h.run("pump()")
+check("watch: flag not read in yet: left alone", h.ev("NEWZ.PortalSicknessWorldFlag.RowName.s") == "None")
+h.run("NEWZ.PortalSicknessWorldFlag = { RowName = FName('DemoNeverSet') }; pump()")
+check("watch: re-pointed as soon as the flag is there, without a tick", h.ev("NEWZ.PortalSicknessWorldFlag.RowName.s") == SHORE, h.ev("NEWZ.PortalSicknessWorldFlag.RowName.s"))
+check("watch: logged as caught at stream-in", h.has("Some Distant Shore's zone caught as it streamed in (2 look(s))"), [l for l in h.logs() if "caught" in l])
+check("watch: no zone scan for it (the player was never inside)", h.ev("ZONE_SCANS") == 0, h.ev("ZONE_SCANS"))
+h.run("OTHERZ = zone(%d, %d, 'DemoNeverSet'); NOTIFY[ZC](OTHERZ); pump(); pump()" % ISLAND_AT)
+check("watch: another world's zone on the game's flag untouched", h.ev("OTHERZ.PortalSicknessWorldFlag.RowName.s") == GAME_FLAG)
+h.run("LOOKS = 0; SLOWZ = zone(%d, %d, 'None'); local mt = { __index = function(t, k) if k == 'PortalSicknessWorldFlag' then LOOKS = LOOKS + 1; return { RowName = FName('None') } end end }; SLOWZ.PortalSicknessWorldFlag = nil; setmetatable(SLOWZ, mt); NOTIFY[ZC](SLOWZ); for i = 1, 20 do pump() end" % WALL_AT)
+check("watch: a zone whose flag never reads in is looked at 10 times, then left", h.ev("LOOKS") == 10, h.ev("LOOKS"))
+done(h)
+h = Hub(SHORE_P % "", WATCH)
+h.tick(12)
+check("watch: nothing forced, no watch", h.ev("NOTIFY[ZC]") is None)
+done(h)
+h = Hub(SHORE_P % ", forceComplete = true", WATCH + "PC.HasAuthority = function() return false end; PC.IsLocalController = function() return true end")
+h.tick(12)
+check("watch: client, no watch", h.ev("NOTIFY[ZC]") is None)
+done(h)
+
 check("the game's flag is never passed to SetWorldFlag (every run above)", not any(c.startswith(GAME_FLAG) for c in ALL_CALLS), ALL_CALLS)
 check("only hub flags are ever passed to SetWorldFlag", all(c.startswith("PortalHub_force_") for c in ALL_CALLS), ALL_CALLS)
 

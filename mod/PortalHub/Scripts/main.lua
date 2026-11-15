@@ -1650,6 +1650,7 @@ function state.force.tick(pc, pawn)
     if not (fs and fs:IsValid()) or not flags_loaded(fs) then return end
     local key = obj_key(pc)
     if F.load ~= key then F.load, F.done, F.zone, F.cleared = key, {}, {}, false end    -- a new controller is a new load
+    if next(F.on) then F.watch() end
     local loc = nil
     if pawn then pcall(function() loc = pawn:K2_GetActorLocation() end) end
     local all = true
@@ -1673,6 +1674,58 @@ function state.force.tick(pc, pawn)
         end
     end
     F.cleared = all                           -- nothing forced and every check done: the tick returns at once until the next load
+end
+
+-- A zone streams in with the player and gives the sickness on that first overlap, before the 2 s tick can re-point it (15 November, in
+-- game: flag set, zone re-pointed 2 s later, sickness kept). So while a world is forced the host watches for new Vignette zones
+-- (NotifyOnNewObject, set up once, after the zone class is in memory) and re-points a forced world's zone on the game thread as soon as its
+-- flag has been read in (looked at up to 10 times, 50 ms apart). The tick above stays as the backstop.
+function state.force.watch()
+    local F = state.force
+    if F.watching then return end
+    local cls = StaticFindObject(VIGNETTE_ZONE)
+    if not (cls and cls:IsValid()) then
+        local pkg = VIGNETTE_ZONE:gsub("%.[^%.]*$", "")
+        for _, try in ipairs({ VIGNETTE_ZONE, pkg }) do
+            if cls and cls:IsValid() then break end
+            pcall(LoadAsset, try)
+            cls = StaticFindObject(VIGNETTE_ZONE)
+        end
+    end
+    if not (cls and cls:IsValid()) then
+        if not F.watchSaid then F.watchSaid = true; log("forced completion: the vignette zone class is not loaded yet; zones are re-pointed by the 2 s check only for now") end
+        return
+    end
+    F.watching = true
+    -- returns nothing on purpose (a callback that returns true is removed; CRD-032)
+    local ok, err = pcall(NotifyOnNewObject, VIGNETTE_ZONE, function(z) state.force.born(z) end)
+    if ok then log("forced completion: watching for vignette zones as they stream in")
+    else log("forced completion: could not watch for new zones (" .. tostring(err):match("^[^\r\n]*") .. "); the 2 s check stays") end
+end
+
+function state.force.born(z)
+    local F = state.force
+    if not next(F.on) then return end
+    local tries = 0
+    local function look()
+        tries = tries + 1
+        if not (z and z:IsValid()) or is_client() then return end
+        local okC, cur = pcall(function() return z.PortalSicknessWorldFlag.RowName:ToString() end)
+        local okL, l = pcall(function() return z:K2_GetActorLocation() end)
+        local ready = okC and cur and cur ~= "None" and cur ~= "" and okL and l
+        if ready then
+            for dest, w in pairs(F.worlds) do
+                if F.on[dest] and F.near(w, l) and F.point(z, w, "PortalHub_force_" .. w.key .. "_Completed") then
+                    F.zone[dest], F.misses[dest] = z, 0
+                    log("forced completion: " .. w.title .. "'s zone caught as it streamed in (" .. tries .. " look(s))")
+                    return
+                end
+            end
+            return                                    -- another zone (another world, or a custom world's)
+        end
+        if tries < 10 then state.later(50, look) end
+    end
+    state.later(0, look)
 end
 
 local function keep_claim(def, pc)
