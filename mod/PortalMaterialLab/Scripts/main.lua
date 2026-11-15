@@ -2417,7 +2417,7 @@ end
 -- Enum values (UE 5.4): mesh FacingMode 0 Default, 1 Velocity, 2 CameraPosition, 3 CameraPlane; sprite FacingMode 0 FaceCamera,
 -- 1 FaceCameraPlane, 2 CustomFacingVector, 3 FaceCameraPosition, 4 FaceCameraDistanceBlend; sprite Alignment 0 Unaligned,
 -- 1 VelocityAligned, 2 CustomAlignment, 3 Automatic.
-LK.MODES = { "overlay", "own", "tint" }
+LK.MODES = { "overlay", "own", "tint", "mesh" }
 LK.mode = 1
 LK.mode_name = function() return LK.MODES[LK.mode] end
 LK.next_mode = function()
@@ -2426,7 +2426,8 @@ LK.next_mode = function()
     local help = {
         overlay = "M/N scale and LEFT/RIGHT move the overlay (L), O/P its height (CRD-039)",
         own = "M/N scale and LEFT/RIGHT turn the nearest pad's own look (I picks the axis), SCROLL LOCK resets, / renderers, U ring facing (global)",
-        tint = "SCROLL LOCK next ring in a window look, . next tint, , picture in that ring",
+        tint = "SCROLL LOCK next ring in a window look, . next tint, , picture in that ring, M / N ring size",
+        mesh = "SCROLL LOCK builds a ring on a plain 3D shape (SM_Portal) step by step, then next ring; . tint, , picture, M/N scale and LEFT/RIGHT turn (I = axis), O/P height, L next shape (oval / square), U back face on / off, Shift + U removes it",
     }
     log("---- LOOK KEYS MODE ([): " .. m .. ": " .. help[m])
     say("Look keys: " .. m)
@@ -2434,7 +2435,8 @@ end
 LK.MESH_FACING = { [0] = "Default", "Velocity", "CameraPosition", "CameraPlane" }
 LK.SPRITE_FACING = { [0] = "FaceCamera", "FaceCameraPlane", "CustomFacingVector", "FaceCameraPosition", "FaceCameraDistanceBlend" }
 LK.SPRITE_ALIGN = { [0] = "Unaligned", "VelocityAligned", "CustomAlignment", "Automatic" }
-LK.RING_PARTS = { portal = true, portalmap = true, Blackhole = true, rift = true }
+-- part names compared in lower case: in game they read "Portal", "Sparks" (the cooked file says "portal_0"), seen 14 Nov
+LK.RING_PARTS = { portal = true, portalmap = true, blackhole = true, rift = true }
 
 -- own look: scale and turn ------------------------------------------------------------------------------------------------------
 LK.own = { pl = nil, id = nil, base = nil, rot = nil, sx = 1, sy = 1, sz = 1, pitch = 0, yaw = 0, roll = 0 }
@@ -2525,7 +2527,7 @@ LK.renderer_survey = function()
     local list = LK.renderers(look)
     LK.renderers_read = true
     log("---- RENDERER SURVEY (/ in own mode): " .. look .. " on " .. tostring(pad_id(pad)) .. ": " .. #list .. " renderer(s)")
-    for _, e in ipairs(list) do log("  " .. (LK.RING_PARTS[e.part] and "RING " or "     ") .. LK.renderer_text(e)) end
+    for _, e in ipairs(list) do log("  " .. (LK.RING_PARTS[e.part:lower()] and "RING " or "     ") .. LK.renderer_text(e)) end
     say("Renderers of " .. look .. ": " .. #list .. " (see the log)")
 end
 -- One untried call per press (dispatcher, CRD-042): U writes the ring's FacingMode (an EnumProperty, one byte, in the 6 Nov object
@@ -2549,7 +2551,7 @@ LK.ring_facing = function()
     LK.facing_pending = nil
     if not LK.renderers_read then log("ring facing: press / (own mode) first, so the renderer read is tried on its own") say("Press / first", 2) return end
     local ring
-    for _, e in ipairs(LK.renderers(look)) do if LK.RING_PARTS[e.part] then ring = e end end
+    for _, e in ipairs(LK.renderers(look)) do if LK.RING_PARTS[e.part:lower()] then ring = e end end
     if not ring then log("ring facing: no ring renderer found for " .. look) say("No ring renderer found", 2) return end
     local _, cur = LK.renderer_text(ring)
     if cur == nil then log("ring facing: the ring's FacingMode can't be read") return end
@@ -2650,23 +2652,290 @@ LK.tint_picture = function()
     say("Picture: " .. name)
 end
 
+-- Ring size in a window (LuciDin, 14 Nov: the Door and Night Realm rings came out a different size): every ring material has a
+-- scalar "Radius (S)" (its round mask, in the sprite's own 0..0.5 space). In tint mode M / N scale it x1.1 / /1.1 from the ring's
+-- cooked value (21 Aug files; the scalar is not read back, so no second untried call). Uniform only: one radius, no X / Y.
+LK.RADIUS = { M_Portal_Friendly_White = 0.346, M_Portal_Friendly = 0.346, M_Portal_Garden = 0.37, M_Portal_Torii = 0.37,
+    M_Portal_Salem = 0.583, M_Portal_Shadowgate2 = 0.583, M_Portal_Shadowgate_Blue = 0.583, M_Portal_Botanical_Green = 0.37,
+    M_Portal_Botanical_Red = 0.37, M_WorldPortal_Warehouse = 0.4, M_Portal_Arch = 0.236 }
+LK.tint_radius = function(f)
+    local t = LK.tint
+    if not (valid(t.mid) and valid(t.pad)) then log("ring size: press SCROLL LOCK (tint mode) at a window-look pad first") say("SCROLL LOCK first", 2) return end
+    local ring = LK.TINT_RINGS[t.ring]
+    local base = LK.RADIUS[ring]
+    if not base then log("ring size: " .. ring .. " has no Radius (S)") say("No ring size on this one", 2) return end
+    if t.radius_ring ~= ring or t.radius_mid ~= t.mid then t.radius, t.radius_ring, t.radius_mid = base, ring, t.mid end
+    t.radius = t.radius * f
+    log(string.format("---- RING SIZE (M/N in tint mode): %s Radius (S) %.3f (cooked %.3f, x%.2f) on %s", ring, t.radius, base, t.radius / base, tostring(pad_id(t.pad))))
+    LK.untried("MaterialInstanceDynamic:SetScalarParameterValue")
+    local ok, err = pcall(function() t.mid:SetScalarParameterValue(FName("Radius (S)"), t.radius) end)
+    if not ok then log("  FAILED: " .. one_line(err)) end
+    say(string.format("Ring size %.3f (x%.2f)", t.radius, t.radius / base))
+end
+
+-- Ring on a plain 3D shape (LuciDin, 14 Nov, option 1 of "can the window square be altered in size?"): the window's square is fixed,
+-- so draw the tinted ring material on a StaticMeshComponent (Friendly's own ring shape, /Game/Particles/SM_Portal) added to the
+-- pad, which can be scaled per axis. Plain static meshes need no material usage flag. Built one untried call per press:
+-- SCROLL LOCK 1 = AddComponentByClass (empty component, then placed at the pad's effect), 2 = SetCollisionEnabled(0) (before the
+-- mesh exists, so it can never block the pad), 3 = SetStaticMesh(SM_Portal), 4 = SetMaterial(0, grey ring instance); then each
+-- SCROLL LOCK puts the next ring material on it. . tint, , picture, M / N scale and LEFT / RIGHT turn on the I axis, O / P height,
+-- U removes it, / logs its state.
+-- Shapes for the mesh ring (LuciDin, 14 Nov: Door's ring was cut at the corners by SM_Portal's oval; "can the rendering area be
+-- rectangular?"): L in mesh mode puts the next one on (SetStaticMesh and SetMaterial, both tried by then). The plane lies flat
+-- (normal up), so it is stood up by ROLL, not pitch: at pitch 90 yaw and roll turn about the same axis (gimbal lock), which put
+-- the back face at an X and the arch on its side (in game, 14 Nov). Four standings (roll +-90, with and without a quarter yaw):
+-- LuciDin picks the one where the arch stands upright and faces the pad's way.
+LK.MESH_SHAPES = {
+    { name = "SM_Portal (Friendly's oval)", path = "/Game/Particles/SM_Portal.SM_Portal", pitch = 0, yaw = 0, roll = 0 },
+    { name = "square A (roll +90)", path = "/Engine/BasicShapes/Plane.Plane", pitch = 0, yaw = 0, roll = 90 },
+    { name = "square B (roll -90)", path = "/Engine/BasicShapes/Plane.Plane", pitch = 0, yaw = 0, roll = -90 },
+    { name = "square C (roll +90, yaw +90)", path = "/Engine/BasicShapes/Plane.Plane", pitch = 0, yaw = 90, roll = 90 },
+    { name = "square D (roll -90, yaw +90)", path = "/Engine/BasicShapes/Plane.Plane", pitch = 0, yaw = 90, roll = -90 },
+}
+LK.MESH_EMPTY = function()
+    return { comp = nil, pad = nil, step = 0, mid = nil, ring = 0, grey = nil, tstep = 0, sx = 1, sy = 1, sz = 1, pitch = 0, yaw = 0, roll = 0, loc = nil, rot = nil, shape = 1 }
+end
+LK.mesh = LK.MESH_EMPTY()
+LK.mesh_text = function()
+    local m = LK.mesh
+    return string.format("scale X %.2f Y %.2f Z %.2f, turn pitch %+d yaw %+d roll %+d, height %.0f cm (axis %s)",
+        m.sx, m.sy, m.sz, m.pitch, m.yaw, m.roll, m.loc and m.loc.Z or 0, LK.AXES[LK.axis])
+end
+LK.mesh_ready = function(tag, need)
+    local m = LK.mesh
+    if valid(m.comp) and m.step >= need then return true end
+    log(tag .. ": build the shape first (SCROLL LOCK in mesh mode, " .. need .. " step(s))") say("SCROLL LOCK first", 2)
+    return false
+end
+LK.mesh_place = function(tag)
+    local m = LK.mesh
+    local okL, eL = pcall(function() m.comp:K2_SetRelativeLocation(m.loc, false, {}, true) end)
+    local okR, eR = pcall(function() m.comp:K2_SetRelativeRotation({ Pitch = m.rot.Pitch + m.pitch + LK.MESH_SHAPES[m.shape].pitch, Yaw = m.rot.Yaw + m.yaw + LK.MESH_SHAPES[m.shape].yaw, Roll = m.rot.Roll + m.roll + LK.MESH_SHAPES[m.shape].roll }, false, {}, true) end)
+    local okS, eS = pcall(function() m.comp:SetRelativeScale3D({ X = m.sx, Y = m.sy, Z = m.sz }) end)
+    if valid(m.back) then
+        pcall(function() m.back:K2_SetRelativeLocation(m.loc, false, {}, true) end)
+        pcall(function() m.back:K2_SetRelativeRotation({ Pitch = m.rot.Pitch + m.pitch + LK.MESH_SHAPES[m.shape].pitch, Yaw = m.rot.Yaw + m.yaw + LK.MESH_SHAPES[m.shape].yaw + 180, Roll = m.rot.Roll + m.roll + LK.MESH_SHAPES[m.shape].roll }, false, {}, true) end)
+        pcall(function() m.back:SetRelativeScale3D({ X = m.sx, Y = m.sy, Z = m.sz }) end)
+    end
+    local fail = (not okL and eL) or (not okR and eR) or (not okS and eS)
+    log("---- MESH RING (" .. tag .. "): " .. LK.mesh_text() .. (valid(m.back) and ", back face on" or "") .. (fail and (" FAILED: " .. one_line(fail)) or ""))
+    say("Mesh ring " .. LK.mesh_text())
+end
+LK.mesh_ring_mid = function()
+    local m = LK.mesh
+    m.ring = m.ring % (#LK.TINT_RINGS - 1) + 1   -- every ring but the plain window
+    local name = LK.TINT_RINGS[m.ring]
+    local parent = LK.obj("/Game/Particles/Materials/" .. name .. "." .. name)
+    local lib = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
+    if not (parent and valid(lib)) then log("  material or KismetMaterialLibrary not found: " .. name) return nil end
+    local ok, mid = pcall(function() return lib:CreateDynamicMaterialInstance(m.pad, parent, FName("None"), 0) end)
+    if not (ok and valid(mid)) then log("  no instance (" .. one_line(mid) .. ")") return nil end
+    return mid, name
+end
+LK.mesh_build = function()
+    local m = LK.mesh
+    if not valid(m.comp) then
+        local pad, pl, look = LK.target("mesh ring")
+        if not pad then return end
+        local okB, b = pcall(function() local l = pl.RelativeLocation; return { X = l.X, Y = l.Y, Z = l.Z } end)
+        local okR, r = pcall(function() local v = pl.RelativeRotation; return { Pitch = v.Pitch, Yaw = v.Yaw, Roll = v.Roll } end)
+        if not (okB and okR) then log("mesh ring: the effect's place can't be read") return end
+        local cls = StaticFindObject("/Script/Engine.StaticMeshComponent")
+        if not valid(cls) then log("mesh ring: StaticMeshComponent class not found") return end
+        log("---- MESH RING step 1/4 (SCROLL LOCK): add an empty StaticMeshComponent to " .. tostring(pad_id(pad)) .. " (" .. look .. ")")
+        LK.untried("Actor:AddComponentByClass")
+        local ok, comp = pcall(function()
+            return pad:AddComponentByClass(cls, false, { Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = { X = 0, Y = 0, Z = 0 }, Scale3D = { X = 1, Y = 1, Z = 1 } }, false)
+        end)
+        if not (ok and valid(comp)) then log("  no component (" .. one_line(comp) .. ")") return end
+        LK.mesh = LK.MESH_EMPTY()
+        m = LK.mesh
+        m.comp, m.pad, m.step, m.loc, m.rot = comp, pad, 1, b, r
+        LK.mesh_place("placed at the pad's effect")
+        log("  added (nothing to see yet). Next SCROLL LOCK: collision off")
+        say("Mesh ring 1/4: component added")
+        return
+    end
+    if m.step == 1 then
+        log("---- MESH RING step 2/4 (SCROLL LOCK): collision off (before any mesh is on it)")
+        LK.untried("PrimitiveComponent:SetCollisionEnabled(0)")
+        local ok, err = pcall(function() m.comp:SetCollisionEnabled(0) end)
+        log("  " .. (ok and "done. Next SCROLL LOCK: the ring shape" or one_line(err)))
+        if ok then m.step = 2 end
+        say(ok and "Mesh ring 2/4: collision off" or "Collision off FAILED", ok and 0 or 3)
+        return
+    end
+    if m.step == 2 then
+        local mesh = LK.obj("/Game/Particles/SM_Portal.SM_Portal")
+        log("---- MESH RING step 3/4 (SCROLL LOCK): SetStaticMesh SM_Portal (" .. (mesh and "found" or "NOT found") .. ")")
+        if not mesh then return end
+        LK.untried("StaticMeshComponent:SetStaticMesh")
+        local ok, res = pcall(function() return m.comp:SetStaticMesh(mesh) end)
+        log("  " .. (ok and ("set (" .. tostring(res) .. "): Friendly's shape should show in its own material. Next SCROLL LOCK: the grey ring material") or one_line(res)))
+        if ok then m.step = 3 end
+        say(ok and "Mesh ring 3/4: shape on" or "SetStaticMesh FAILED", ok and 0 or 3)
+        return
+    end
+    local mid, name = LK.mesh_ring_mid()
+    if not mid then return end
+    log("---- MESH RING " .. (m.step == 3 and "step 4/4" or "next ring") .. " (SCROLL LOCK): " .. name .. " on the shape (material 0)")
+    if m.step == 3 then LK.untried("PrimitiveComponent:SetMaterial on a StaticMeshComponent") end
+    local ok, err = pcall(function() m.comp:SetMaterial(0, mid) end)
+    if not ok then log("  " .. one_line(err)) return end
+    if valid(m.back) then pcall(function() m.back:SetMaterial(0, mid) end) end
+    m.mid, m.step, m.tstep = mid, 4, 0
+    m.grey = LK.grey_of(mid)
+    log(string.format("  on. Grey levels: centre %.3f, centre 2 %.3f, edge %.3f. What does it look like (swirl, smear, checker, invisible)?",
+        m.grey.PortalCenterColor, m.grey.PortalCenterColor2, m.grey.PortalEdge))
+    say("Mesh ring: " .. name:gsub("^M_", ""))
+end
+LK.mesh_tint = function()
+    local m = LK.mesh
+    if not LK.mesh_ready("mesh tint", 4) then return end
+    m.tstep = m.tstep % #LK.TINTS + 1
+    local c = LK.TINTS[m.tstep]
+    log(string.format("---- MESH RING TINT (.): %s = RGB %.2f, %.2f, %.2f (%s)", c.n, c.v[1], c.v[2], c.v[3], LK.TINT_RINGS[m.ring]))
+    for _, p in ipairs(LK.TINT_PARAMS) do
+        local g = m.grey[p] or 1.0
+        local ok, err = pcall(function() m.mid:SetVectorParameterValue(FName(p), { R = g * c.v[1], G = g * c.v[2], B = g * c.v[3], A = 1.0 }) end)
+        if not ok then log("  " .. p .. " FAILED: " .. one_line(err)) end
+    end
+    say("Mesh tint: " .. c.n)
+end
+LK.mesh_picture = function()
+    local m = LK.mesh
+    if not LK.mesh_ready("mesh picture", 4) then return end
+    LK.picture = LK.picture % #LK.CUBES + 1
+    local name = LK.CUBES[LK.picture]
+    local cube = LK.obj("/Game/Particles/RenderTargets/" .. name .. "." .. name)
+    log("---- MESH RING PICTURE (,): " .. name .. " into PortalTexture")
+    if not cube then log("  cube map not found") return end
+    local ok, err = pcall(function() m.mid:SetTextureParameterValue(FName("PortalTexture"), cube) end)
+    log("  " .. (ok and "set" or one_line(err)))
+    say("Picture: " .. name)
+end
+LK.mesh_scale = function(f)
+    local m = LK.mesh
+    if not LK.mesh_ready("mesh scale", 1) then return end
+    local a = LK.AXES[LK.axis]
+    if a == "all" or a == "X" then m.sx = m.sx * f end
+    if a == "all" or a == "Y" then m.sy = m.sy * f end
+    if a == "all" or a == "Z" then m.sz = m.sz * f end
+    LK.mesh_place("M/N")
+end
+LK.mesh_turn = function(d)
+    local m = LK.mesh
+    if not LK.mesh_ready("mesh turn", 1) then return end
+    local a = LK.AXES[LK.axis]
+    if a == "X" then m.roll = m.roll + d elseif a == "Y" then m.pitch = m.pitch + d else m.yaw = m.yaw + d end
+    LK.mesh_place("LEFT/RIGHT")
+end
+LK.mesh_height = function(dz)
+    local m = LK.mesh
+    if not LK.mesh_ready("mesh height", 1) then return end
+    m.loc.Z = m.loc.Z + dz
+    LK.mesh_place("O/P")
+end
+LK.mesh_remove = function()
+    local m = LK.mesh
+    if not valid(m.comp) then log("mesh ring: nothing to remove") say("No mesh ring", 2) return end
+    local ok = pcall(function() m.comp:K2_DestroyComponent(m.comp) end)
+    if valid(m.back) then pcall(function() m.back:K2_DestroyComponent(m.back) end) end
+    log("---- MESH RING (Shift + U): removed (front and any back face): " .. tostring(ok))
+    LK.mesh = LK.MESH_EMPTY()
+    say("Mesh ring removed")
+end
+-- Back face (LuciDin, 14 Nov: Night Realm's ring material draws its front only; Door's draws both): a second component, back to
+-- back with the first (yaw + 180), same shape and ring instance, so it follows tints and pictures. Only calls already tried:
+-- AddComponentByClass, SetCollisionEnabled(0) before the mesh, SetStaticMesh, SetMaterial. U toggles it; Shift + U removes the ring.
+LK.mesh_back = function()
+    local m = LK.mesh
+    if not LK.mesh_ready("mesh back face", 4) then return end
+    if valid(m.back) then
+        local ok = pcall(function() m.back:K2_DestroyComponent(m.back) end)
+        m.back = nil
+        log("---- MESH RING BACK FACE (U): off: " .. tostring(ok))
+        say("Back face off")
+        return
+    end
+    local cls = StaticFindObject("/Script/Engine.StaticMeshComponent")
+    local mesh = LK.obj(LK.MESH_SHAPES[m.shape].path)
+    if not (valid(cls) and mesh) then log("mesh back face: class or shape not found") return end
+    local ok, back = pcall(function()
+        return m.pad:AddComponentByClass(cls, false, { Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = { X = 0, Y = 0, Z = 0 }, Scale3D = { X = 1, Y = 1, Z = 1 } }, false)
+    end)
+    if not (ok and valid(back)) then log("mesh back face: no component (" .. one_line(back) .. ")") return end
+    local okC = pcall(function() back:SetCollisionEnabled(0) end)
+    if not okC then pcall(function() back:K2_DestroyComponent(back) end) log("mesh back face: collision could not be switched off; removed") return end
+    pcall(function() back:SetStaticMesh(mesh) end)
+    pcall(function() back:SetMaterial(0, m.mid) end)
+    m.back = back
+    LK.mesh_place("U, back face added")
+    say("Back face on")
+end
+-- U / Shift + U in mesh mode: gathered 40 ms on the game thread (UE4SS may fire plain U on Shift + U too); Shift wins.
+LK.u_gate = function(kind)
+    if LK.u_pending then
+        if kind == "shift" then LK.u_pending = "shift" end
+        return
+    end
+    LK.u_pending = kind
+    later(LK.STEP_WINDOW_MS, function()
+        local k = LK.u_pending
+        LK.u_pending = nil
+        if k == "shift" then LK.mesh_remove() else LK.mesh_back() end
+    end)
+end
+LK.shift_u = function()
+    if LK.mode_name() == "mesh" then LK.u_gate("shift") end
+end
+LK.mesh_next_shape = function()
+    local m = LK.mesh
+    if not LK.mesh_ready("mesh shape", 3) then return end
+    m.shape = m.shape % #LK.MESH_SHAPES + 1
+    local sh = LK.MESH_SHAPES[m.shape]
+    local mesh = LK.obj(sh.path)
+    log("---- MESH RING SHAPE (L): " .. sh.name .. " (" .. (mesh and "found" or "NOT found") .. ")")
+    if not mesh then say("Shape not found: " .. sh.name, 3) return end
+    local ok, err = pcall(function() m.comp:SetStaticMesh(mesh) end)
+    if not ok then log("  SetStaticMesh: " .. one_line(err)) return end
+    if valid(m.mid) then
+        local okM, errM = pcall(function() m.comp:SetMaterial(0, m.mid) end)
+        if not okM then log("  SetMaterial: " .. one_line(errM)) end
+    end
+    if valid(m.back) then
+        pcall(function() m.back:SetStaticMesh(mesh) end)
+        if valid(m.mid) then pcall(function() m.back:SetMaterial(0, m.mid) end) end
+    end
+    LK.mesh_place("L, shape " .. sh.name)
+    say("Mesh shape: " .. sh.name)
+end
+LK.mesh_survey = function()
+    local m = LK.mesh
+    if not valid(m.comp) then log("mesh ring survey: none built") say("No mesh ring", 2) return end
+    log("---- MESH RING SURVEY (/): on " .. tostring(pad_id(m.pad)) .. ", step " .. m.step .. ", shape " .. LK.MESH_SHAPES[m.shape].name .. ", ring " .. tostring(LK.TINT_RINGS[m.ring] or "none") .. ", " .. LK.mesh_text())
+    say("Mesh ring: see the log")
+end
+
 -- Mode switch: the existing look keys call these instead in own / tint mode (overlay mode = CRD-039 as before).
-LK.by_mode = function(name, own, tint)
+LK.by_mode = function(name, own, tint, mesh)
     local base = LK[name]
     LK[name] = function(...)
         local m = LK.mode_name()
         if m == "own" and own then return own(...) end
         if m == "tint" and tint then return tint(...) end
+        if m == "mesh" and mesh then return mesh(...) end
         return base(...)
     end
 end
-LK.by_mode("survey", LK.renderer_survey, nil)
-LK.by_mode("make_mid", LK.own_reset, LK.tint_ring)
-LK.by_mode("next_colour", nil, LK.tint_step)
-LK.by_mode("next_picture", nil, LK.tint_picture)
-LK.by_mode("apply", LK.ring_facing, function() log("U does nothing in tint mode ([ switches mode)") say("U: nothing in tint mode", 2) end)
-LK.by_mode("rescale", LK.own_scale, nil)
-LK.by_mode("side", function(d) LK.own_turn(d > 0 and 15 or -15) end, nil)
+LK.by_mode("survey", LK.renderer_survey, nil, LK.mesh_survey)
+LK.by_mode("next_overlay", nil, nil, LK.mesh_next_shape)
+LK.by_mode("make_mid", LK.own_reset, LK.tint_ring, LK.mesh_build)
+LK.by_mode("next_colour", nil, LK.tint_step, LK.mesh_tint)
+LK.by_mode("next_picture", nil, LK.tint_picture, LK.mesh_picture)
+LK.by_mode("apply", LK.ring_facing, function() log("U does nothing in tint mode ([ switches mode)") say("U: nothing in tint mode", 2) end, function() LK.u_gate("plain") end)
+LK.by_mode("rescale", LK.own_scale, LK.tint_radius, LK.mesh_scale)
+LK.by_mode("side", function(d) LK.own_turn(d > 0 and 15 or -15) end, nil, function(d) LK.mesh_turn(d > 0 and 15 or -15) end)
 LK.nudge_base = LK.nudge
 LK.by_mode("nudge", function(dz)
     local fx = LK.fx
@@ -2674,13 +2943,18 @@ LK.by_mode("nudge", function(dz)
     local ok, err = pcall(LK.nudge_base, dz)
     LK.fx = fx
     if not ok then log("own look height: " .. one_line(err)) end
-end, nil)
+end, nil, LK.mesh_height)
 LK.by_mode("next_axis", function()
     LK.axis = LK.axis % #LK.AXES + 1
     local a = LK.AXES[LK.axis]
     log("---- OWN LOOK AXIS (I): M / N now scale " .. a .. "; LEFT / RIGHT turn " .. (a == "X" and "roll" or (a == "Y" and "pitch" or "yaw")))
     say("Own look axis: " .. a)
-end, nil)
+end, nil, function()
+    LK.axis = LK.axis % #LK.AXES + 1
+    local a = LK.AXES[LK.axis]
+    log("---- MESH RING AXIS (I): M / N now scale " .. a .. "; LEFT / RIGHT turn " .. (a == "X" and "roll" or (a == "Y" and "pitch" or "yaw")))
+    say("Mesh ring axis: " .. a)
+end)
 
 if not pcall(function() RegisterKeyBind(Key.O, function() ExecuteInGameThread(function() LK.step_press(10) end) end) end) then log("O could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.P, function() ExecuteInGameThread(function() LK.step_press(-10) end) end) end) then log("P could not be bound") end
@@ -2697,11 +2971,12 @@ if not pcall(function() RegisterKeyBind(Key.OEM_PERIOD, function() ExecuteInGame
 if not pcall(function() RegisterKeyBind(Key.OEM_COMMA, function() ExecuteInGameThread(LK.next_picture) end) end) then log(", could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.L, function() ExecuteInGameThread(LK.next_overlay) end) end) then log("L could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.U, function() ExecuteInGameThread(LK.apply) end) end) then log("U could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.U, { ModifierKey.SHIFT }, function() ExecuteInGameThread(LK.shift_u) end) end) then log("Shift + U could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.OEM_ONE, function() ExecuteInGameThread(LK.next_look) end) end) then log("; could not be bound") end
 log("look keys (CRD-039, visual only): / = look survey, SCROLL LOCK = material instance, U = put it on the effect, . = colour, , = picture, L = overlay, O / P = overlay up / down, LEFT / RIGHT = sideways, M / N = overlay scale, I = scale axis")
 log("look heights (CRD-041, visual only): ; = next look on the nearest pad (all 32), then O / P = that look's height up / down 10 cm, Shift + O / P 1 cm (kept per look)")
 if not pcall(function() RegisterKeyBind(Key.OEM_FOUR, function() ExecuteInGameThread(LK.next_mode) end) end) then log("[ could not be bound") end
-log("look modes (CRD-042, visual only): [ = overlay / own / tint. own: M / N scale and LEFT / RIGHT turn the pad's own look (I = axis), O / P height, SCROLL LOCK reset, / renderers, U ring facing (whole look). tint: SCROLL LOCK grey ring in a window look, . tint, , picture")
+log("look modes (CRD-042, visual only): [ = overlay / own / tint. own: M / N scale and LEFT / RIGHT turn the pad's own look (I = axis), O / P height, SCROLL LOCK reset, / renderers, U ring facing (whole look). tint: SCROLL LOCK grey ring in a window look, . tint, , picture, M / N ring size. mesh: SCROLL LOCK builds a ring on SM_Portal (4 steps), then as tint plus M/N/LEFT/RIGHT/O/P, L shape, U back face, Shift + U removes")
 
 if not pcall(function() RegisterKeyBind(Key.PAGE_UP, function() ExecuteInGameThread(flag_registry_survey) end) end) then log("PAGE UP could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.PAGE_DOWN, function() ExecuteInGameThread(flag_native_probe) end) end) then log("PAGE DOWN could not be bound") end

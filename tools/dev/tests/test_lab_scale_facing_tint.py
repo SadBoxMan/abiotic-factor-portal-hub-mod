@@ -33,6 +33,19 @@ function sft_pad(id, look, x)
         return t[k] end, __newindex = function(_, k) error("the lab wrote " .. tostring(k)) end })
     local p = { IsValid = function() return true end, GetFName = function() return FName("BP_Teleporter_ParentBP_C") end,
         MyTeleporterID = FName(id), ParticleLoop = fx,
+        AddComponentByClass = function(self, cls, manual, tf, deferred)
+            CALLS2[#CALLS2 + 1] = "addcomp " .. cls:GetFName():ToString() .. " " .. tostring(manual) .. " " .. tostring(deferred) .. " W=" .. tf.Rotation.W
+            local alive = true
+            local c = { IsValid = function() return alive end, GetFName = function() return FName("StaticMeshComponent") end,
+                K2_SetRelativeLocation = function(self, l) CALLS2[#CALLS2 + 1] = string.format("mloc %.1f %.1f %.1f", l.X, l.Y, l.Z) end,
+                K2_SetRelativeRotation = function(self, r) CALLS2[#CALLS2 + 1] = string.format("mrot %d %d %d", r.Pitch, r.Yaw, r.Roll) end,
+                SetRelativeScale3D = function(self, s) CALLS2[#CALLS2 + 1] = string.format("mscale %.3f %.3f %.3f", s.X, s.Y, s.Z) end,
+                SetCollisionEnabled = function(self, v) CALLS2[#CALLS2 + 1] = "collision " .. v end,
+                SetStaticMesh = function(self, m) CALLS2[#CALLS2 + 1] = "mesh " .. m:GetFName():ToString(); return true end,
+                SetMaterial = function(self, i, m) CALLS2[#CALLS2 + 1] = "mmat " .. i .. " " .. m:GetFName():ToString() end,
+                K2_DestroyComponent = function() alive = false; CALLS2[#CALLS2 + 1] = "mdestroy" end }
+            return setmetatable({}, { __index = c, __newindex = function(_, k) error("the lab wrote " .. tostring(k)) end })
+        end,
         K2_GetActorLocation = function() return { X = x, Y = 0, Z = 0 } end,
         K2_GetActorRotation = function() return { Pitch = 0, Yaw = 0, Roll = 0 } end }
     return setmetatable({}, { __index = p, __newindex = function(_, k) error("the lab wrote " .. tostring(k)) end }), cur
@@ -54,6 +67,15 @@ function renderer(look, part, mesh, facing, align)
             st.FacingMode = v; CALLS2[#CALLS2 + 1] = "facing " .. look .. " " .. part .. " " .. tostring(v)
         end }), st
 end
+local oldSFO = StaticFindObject
+function StaticFindObject(path)
+    if path == "/Script/Engine.StaticMeshComponent" then
+        return { IsValid = function() return true end, GetFName = function() return FName("StaticMeshComponent") end }
+    end
+    local n = path:match("^/Engine/BasicShapes/[%w_]+%.([%w_]+)$") or path:match("^/Game/StarterContent/Shapes/[%w_]+%.([%w_]+)$")
+    if n then return { IsValid = function() return true end, GetFName = function() return FName(n) end } end
+    return oldSFO(path)
+end
 RENDERERS = { NiagaraSpriteRendererProperties = {}, NiagaraMeshRendererProperties = {} }
 local oldFind = FindAllOf
 function FindAllOf(name) if RENDERERS[name] then return RENDERERS[name] end return oldFind(name) end
@@ -64,6 +86,7 @@ function new_mid(of)
     local m = { IsValid = function() return true end, GetFName = function() return FName("MID_" .. of) end,
         SetVectorParameterValue = function(self, n, v) CALLS2[#CALLS2 + 1] = string.format("vec %s %.3f %.3f %.3f", n:ToString(), v.R, v.G, v.B) end,
         SetTextureParameterValue = function(self, n, t) CALLS2[#CALLS2 + 1] = "tex " .. n:ToString() .. " " .. t:GetFName():ToString() end,
+        SetScalarParameterValue = function(self, n, v) CALLS2[#CALLS2 + 1] = string.format("scalar %s %.3f", n:ToString(), v) end,
         K2_GetVectorParameterValue = function(self, n) local c = GREYS[n:ToString()]; if not c then error("no such parameter") end return c end }
     return setmetatable({}, { __index = m, __newindex = function(_, k) error("the lab wrote " .. tostring(k)) end })
 end
@@ -123,7 +146,9 @@ check("[ -> own, logged", has(L, "LOOK KEYS MODE ([): own"))
 press(L, "OEM_FOUR")
 check("[ -> tint", has(L, "LOOK KEYS MODE ([): tint"))
 press(L, "OEM_FOUR")
-check("[ -> back to overlay", logs(L)[-1].find("LOOK KEYS MODE ([): overlay") >= 0 or any("LOOK KEYS MODE ([): overlay" in l for l in logs(L)[-2:]), logs(L)[-2:])
+check("[ -> mesh", has(L, "LOOK KEYS MODE ([): mesh"))
+press(L, "OEM_FOUR")
+check("[ -> back to overlay", any("LOOK KEYS MODE ([): overlay" in l for l in logs(L)[-2:]), logs(L)[-2:])
 check("mode switch alone makes no call", calls(L) == [], calls(L))
 
 print("=== overlay mode unchanged: M without an overlay still asks for L")
@@ -192,7 +217,7 @@ print("=== own mode: renderer survey and ring facing (Friendly mesh, Default spr
 L = lab()
 L.execute("PADS = { (sft_pad('hub_A3', 'Niagara_Portal_Friendly_White', 100)) }")
 L.execute("""
-RING, RINGST = renderer('Niagara_Portal_Friendly_White', 'portal_0', true, 2)
+RING, RINGST = renderer('Niagara_Portal_Friendly_White', 'Portal', true, 2)   -- in game: capitalised, no _0
 RENDERERS.NiagaraMeshRendererProperties = { RING, (renderer('Niagara_Portal_Garden', 'Vine1_0', true, 0)) }
 RENDERERS.NiagaraSpriteRendererProperties = { (renderer('Niagara_Portal_Friendly_White', 'sparks_0', false, 2, 0)), (renderer('Niagara_Portal', 'portalmap_1', false, 2, 2)) }
 """)
@@ -201,13 +226,13 @@ press(L, "U")
 check("U before / asks for / first, no call", has(L, "ring facing: press / (own mode) first") and calls(L) == [], calls(L))
 press(L, "OEM_TWO")
 check("/ in own mode: renderer survey of this look only (2)", has(L, "RENDERER SURVEY (/ in own mode): Niagara_Portal_Friendly_White on hub_A3: 2 renderer(s)"), logs(L)[-4:])
-check("ring marked, mesh, CameraPosition", has(L, "RING portal: MESH, facing CameraPosition"), logs(L)[-3:])
+check("ring marked, mesh, CameraPosition", has(L, "RING Portal: MESH, facing CameraPosition"), logs(L)[-3:])
 check("sparks sprite with alignment", has(L, "sparks: SPRITE, facing CustomFacingVector, alignment Unaligned"))
 check("survey writes nothing", calls(L) == [], calls(L))
 check("names the renderer read first", has(L, "untried native call next: FindAllOf on Niagara renderer properties, reading FacingMode / Alignment"))
 press(L, "U")
 c = calls(L)
-check("first U: only the write (CameraPosition -> CameraPlane), no restart", c == ["facing Niagara_Portal_Friendly_White portal_0 3"], c)
+check("first U: only the write (CameraPosition -> CameraPlane), no restart", c == ["facing Niagara_Portal_Friendly_White Portal 3"], c)
 check("write read back and logged", has(L, "written; reads back CameraPlane"))
 check("warns it is a run-time edit of the look's asset (every pad)", has(L, "run-time edit of the look's asset: EVERY pad with this look changes until the game restarts"))
 check("names the write first (enum byte)", has(L, "untried native call next: writing FacingMode (enum byte) on a renderer properties object"))
@@ -255,6 +280,114 @@ check("picture on the plain window goes into PortalImage", calls(L)[-1].startswi
 L.execute("GREYS = {}")
 press(L, "SCROLL_LOCK")
 check("unreadable instance: falls back to Friendly White's grey", has(L, "Grey levels: centre 0.109, centre 2 1.000, edge 4.840"), [l for l in logs(L) if "Grey" in l][-1:])
+
+print("=== tint mode: ring size (Radius (S))")
+L = lab()
+L.execute("PADS = { (sft_pad('hub_B1', 'Niagara_Portal', 100)) }")
+press(L, "OEM_FOUR"); press(L, "OEM_FOUR")
+press(L, "M")
+check("M before SCROLL LOCK asks for it, no call", has(L, "ring size: press SCROLL LOCK (tint mode)") and calls(L) == [], calls(L))
+press(L, "SCROLL_LOCK")
+press(L, "M"); press(L, "M")
+check("M M: Radius (S) 0.346 x1.21 = 0.419 logged", has(L, "RING SIZE (M/N in tint mode): M_Portal_Friendly_White Radius (S) 0.419 (cooked 0.346, x1.21)"), [l for l in logs(L) if "RING SIZE" in l])
+check("names SetScalarParameterValue first", has(L, "untried native call next: MaterialInstanceDynamic:SetScalarParameterValue"))
+check("scalar set on the instance", calls(L)[-1] == "scalar Radius (S) 0.419", calls(L)[-1])
+press(L, "N")
+check("N back to 0.381", calls(L)[-1] == "scalar Radius (S) 0.381", calls(L)[-1])
+press(L, "SCROLL_LOCK")
+press(L, "N")
+check("next ring (Friendly) starts again from its cooked 0.346", calls(L)[-1] == "scalar Radius (S) 0.315", calls(L)[-1])
+L.execute("for i = 1, 10 do KEYS['SCROLL_LOCK'](); pump() end")
+press(L, "M")
+check("plain M_WorldPortal: no ring size, no call", has(L, "ring size: M_WorldPortal has no Radius (S)") and not calls(L)[-1].startswith("scalar"), calls(L)[-1])
+check("tint-mode M never scales the effect", not any(x.startswith("ownscale") for x in calls(L)))
+
+print("=== mesh mode: ring on SM_Portal, one untried call per press")
+L = lab()
+L.execute("PADS = { (sft_pad('hub_B1', 'Niagara_Portal', 100)) }")
+for _ in range(3):
+    press(L, "OEM_FOUR")
+check("third [ = mesh mode", has(L, "LOOK KEYS MODE ([): mesh"))
+for k in ("OEM_PERIOD", "M", "LEFT_ARROW", "O", "U", "OEM_TWO", "L"):
+    press(L, k)
+L.execute("KEYS['U+SHIFT'](); pump()")
+check("before building: keys ask for SCROLL LOCK or say none, no call (L too: no overlay in mesh mode; U and Shift + U too)", calls(L) == [], calls(L))
+press(L, "SCROLL_LOCK")
+c = calls(L)
+check("step 1: AddComponentByClass(StaticMeshComponent, attached, identity, not deferred)", c[0] == "addcomp StaticMeshComponent false false W=1", c)
+check("step 1 places it at the effect (158 cm, yaw 90, x1)", c[1:] == ["mloc 0.0 0.0 158.0", "mrot 0 90 0", "mscale 1.000 1.000 1.000"], c)
+check("names AddComponentByClass first", has(L, "untried native call next: Actor:AddComponentByClass"))
+press(L, "SCROLL_LOCK")
+check("step 2: collision off only", calls(L)[-1] == "collision 0" and len(calls(L)) == 5, calls(L))
+check("names SetCollisionEnabled first", has(L, "untried native call next: PrimitiveComponent:SetCollisionEnabled(0)"))
+press(L, "SCROLL_LOCK")
+check("step 3: SM_Portal only", calls(L)[-1] == "mesh SM_Portal" and len(calls(L)) == 6, calls(L))
+check("names SetStaticMesh first", has(L, "untried native call next: StaticMeshComponent:SetStaticMesh"))
+press(L, "OEM_PERIOD")
+check(". before the material asks for the build", has(L, "mesh tint: build the shape first") and len(calls(L)) == 6, calls(L))
+press(L, "SCROLL_LOCK")
+c = calls(L)
+check("step 4: grey Friendly White instance as material 0", "kml M_Portal_Friendly_White" in c and c[-1] == "mmat 0 MID_M_Portal_Friendly_White", c[-3:])
+check("names SetMaterial on a StaticMeshComponent", has(L, "untried native call next: PrimitiveComponent:SetMaterial on a StaticMeshComponent"))
+press(L, "OEM_PERIOD"); press(L, "OEM_PERIOD")
+check(". tints the mesh ring (red, grey x RGB)", calls(L)[-1] == "vec PortalEdge 4.836 0.242 0.242", calls(L)[-1])
+press(L, "OEM_COMMA")
+check(", picture into PortalTexture", calls(L)[-1] == "tex PortalTexture TC_Portal_Warehouse", calls(L)[-1])
+press(L, "M")
+check("M scales all axes", calls(L)[-1] == "mscale 1.100 1.100 1.100", calls(L)[-1])
+press(L, "I"); press(L, "M")
+check("I -> X: M on X only", calls(L)[-1] == "mscale 1.210 1.100 1.100", calls(L)[-1])
+check("I logs the mesh axis", has(L, "MESH RING AXIS (I): M / N now scale X"))
+press(L, "I"); press(L, "N")
+check("I -> Y: N on Y only", calls(L)[-1] == "mscale 1.210 1.000 1.100", calls(L)[-1])
+press(L, "I"); press(L, "I"); press(L, "RIGHT_ARROW")
+check("axis all: RIGHT turns yaw +15", "mrot 0 105 0" in calls(L)[-3:], calls(L)[-3:])
+press(L, "P")
+check("P lowers it 10 cm", "mloc 0.0 0.0 148.0" in calls(L)[-3:], calls(L)[-3:])
+L.execute("KEYS['P+SHIFT'](); KEYS['P'](); pump()")
+check("Shift + P lowers it 1 cm", "mloc 0.0 0.0 147.0" in calls(L)[-3:], calls(L)[-3:])
+press(L, "SCROLL_LOCK")
+check("next SCROLL LOCK: next ring (Friendly), no new untried line", calls(L)[-1] == "mmat 0 MID_M_Portal_Friendly"
+      and sum("untried native call next: PrimitiveComponent:SetMaterial" in l for l in logs(L)) == 1, calls(L)[-1])
+L.execute("for i = 1, 10 do KEYS['SCROLL_LOCK'](); pump() end")
+check("11 rings, never the plain window; wraps to Friendly White", calls(L)[-1] == "mmat 0 MID_M_Portal_Friendly_White"
+      and not any(x == "mmat 0 MID_M_WorldPortal" for x in calls(L)), calls(L)[-1])
+press(L, "L")
+c = calls(L)
+check("L: square A = engine Plane, material put back, stood up by roll +90, pitch 0 (no gimbal lock)", "mesh Plane" in c[-6:] and "mmat 0 MID_M_Portal_Friendly_White" in c[-6:]
+      and "mrot 0 105 90" in c[-3:], c[-6:])
+check("L logs the shape", has(L, "MESH RING SHAPE (L): square A (roll +90)"))
+press(L, "L")
+check("square B: roll -90", "mrot 0 105 -90" in calls(L)[-3:], calls(L)[-3:])
+press(L, "L")
+check("square C: roll +90, yaw +90", "mrot 0 195 90" in calls(L)[-3:], calls(L)[-3:])
+press(L, "L")
+check("square D: roll -90, yaw +90", "mrot 0 195 -90" in calls(L)[-3:], calls(L)[-3:])
+press(L, "L")
+check("L cycles back to SM_Portal, no roll", "mesh SM_Portal" in calls(L)[-6:] and "mrot 0 105 0" in calls(L)[-3:], calls(L)[-6:])
+press(L, "OEM_TWO")
+check("/ logs the mesh ring's state", has(L, "MESH RING SURVEY (/): on hub_B1, step 4, shape SM_Portal"))
+press(L, "U")
+c = calls(L)
+check("U: back face = a second component, collision off before its shape, same ring", c[-10:-6] == ["addcomp StaticMeshComponent false false W=1", "collision 0", "mesh SM_Portal", "mmat 0 MID_M_Portal_Friendly_White"], c[-10:])
+check("back face placed yaw +180 (90 + 15 + 180 = 285)", any(x.startswith("mrot 0 285 ") for x in c[-8:]), c[-8:])
+press(L, "L")
+check("square A with a back face: back is yaw +180 with the same roll (back to back, no X)", "mrot 0 105 90" in calls(L)[-6:] and "mrot 0 285 90" in calls(L)[-6:], calls(L)[-8:])
+check("the back face gets the square too", sum(x == "mesh Plane" for x in calls(L)[-10:]) == 2, calls(L)[-10:])
+press(L, "L"); press(L, "L"); press(L, "L"); press(L, "L")
+check("back face logged", has(L, "MESH RING (U, back face added)") and has(L, "back face on"))
+press(L, "OEM_PERIOD")
+check("tint still one instance (front and back share it)", calls(L)[-1].startswith("vec PortalEdge"), calls(L)[-1])
+press(L, "M")
+check("M scales the back face too", sum(x.startswith("mscale ") for x in calls(L)[-6:]) == 2, calls(L)[-6:])
+press(L, "U")
+check("U again: back face off", calls(L)[-1] == "mdestroy" and has(L, "MESH RING BACK FACE (U): off: true"))
+press(L, "U")
+L.execute("KEYS['U+SHIFT'](); KEYS['U'](); pump()")
+check("Shift + U (plain U fired too): removes the whole ring, front and back", calls(L)[-2:] == ["mdestroy", "mdestroy"] and has(L, "MESH RING (Shift + U): removed (front and any back face): true"), calls(L)[-3:])
+press(L, "SCROLL_LOCK")
+check("after U, SCROLL LOCK starts a new one at step 1", calls(L)[-4].startswith("addcomp StaticMeshComponent"), calls(L)[-4:])
+check("mesh mode never scales or turns the pad's own effect", not any(x.startswith("ownscale") or x.startswith("ownrot") for x in calls(L)))
 
 print("=== tint mode: not a window look, no instance yet")
 L = lab()
