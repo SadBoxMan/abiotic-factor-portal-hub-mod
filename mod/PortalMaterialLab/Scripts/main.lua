@@ -2793,7 +2793,11 @@ LK.mesh_build = function()
         if not pad then return end
         local okB, b = pcall(function() local l = pl.RelativeLocation; return { X = l.X, Y = l.Y, Z = l.Z } end)
         local okR, r = pcall(function() local v = pl.RelativeRotation; return { Pitch = v.Pitch, Yaw = v.Yaw, Roll = v.Roll } end)
-        if not (okB and okR) then log("mesh ring: the effect's place can't be read") return end
+        if not okB then log("mesh ring: the effect's place can't be read") return end
+        -- Facing (LuciDin, 15 Nov): the ring faces the angle the pad was made at (the pad's own frame, as a look with billboarding
+        -- off does), not the effect's current turn, which own-mode LEFT / RIGHT may have changed. Only the height comes from the effect.
+        if okR then log(string.format("  the pad's effect is turned pitch %.1f yaw %.1f roll %.1f; the ring ignores that and faces the pad's own angle", r.Pitch, r.Yaw, r.Roll)) end
+        r = { Pitch = 0, Yaw = 0, Roll = 0 }
         local cls = StaticFindObject("/Script/Engine.StaticMeshComponent")
         if not valid(cls) then log("mesh ring: StaticMeshComponent class not found") return end
         log("---- MESH RING step 1/4 (SCROLL LOCK): add an empty StaticMeshComponent to " .. tostring(pad_id(pad)) .. " (" .. look .. ")")
@@ -2994,9 +2998,36 @@ LK.ring_obj = function(name)
         LK.own_tried = true
         log("  first load of our own cooked ring material next: " .. path .. " from PortalHubLooks_P (if the game crashes now, it was this load or its shaders)")
     end
-    local o = LK.obj(path)
+    local o = own and LK.load_own(path) or LK.obj(path)
     if own and not o then log("  " .. name .. " not found: is PortalHubLooks_P (.pak / .ucas / .utoc) in Content\\Paks\\~mods?") say("Own ring not found (pak installed?)", 3) end
     return o
+end
+-- Loading from our own pak (in game, 15 Nov: LoadAsset found nothing although the pak was mounted; UE4SS's LoadAsset looks the asset
+-- up in the game's asset registry, which knows only the game's own files). So: LoadAsset first (its error logged, not swallowed),
+-- then the hub's loader fallback, AssetRegistryHelpers:GetAsset with the package and asset names (loads by name, no registry
+-- lookup). GetAsset is untried in the lab: named before its first run here.
+LK.load_own = function(path)
+    local o = StaticFindObject(path)
+    if valid(o) then return o end
+    local okL, errL = pcall(LoadAsset, path)
+    o = StaticFindObject(path)
+    if valid(o) then log("  loaded with LoadAsset") return o end
+    log("  LoadAsset did not load it (" .. (okL and "no error" or one_line(errL)) .. "); next: AssetRegistryHelpers:GetAsset by name (the hub's loader fallback)")
+    local helpers = StaticFindObject("/Script/AssetRegistry.Default__AssetRegistryHelpers")
+    if not valid(helpers) then log("  AssetRegistryHelpers not found") return nil end
+    local pkg, name = path:match("^(.-)%.([^%.]+)$")
+    local okU, U = pcall(require, "UEHelpers")
+    local fname = (okU and type(U) == "table" and U.FindOrAddFName) or FName
+    if not LK.getasset_tried then
+        LK.getasset_tried = true
+        LK.untried("AssetRegistryHelpers:GetAsset({ PackageName, AssetName }) for our own pak's material (in the lab)")
+    end
+    local okG, res = pcall(function() return helpers:GetAsset({ PackageName = fname(pkg), AssetName = fname(name) }) end)
+    o = StaticFindObject(path)
+    if valid(o) then log("  loaded with GetAsset") return o end
+    if okG and valid(res) then log("  loaded with GetAsset (returned, not yet findable by path)") return res end
+    log("  GetAsset did not load it either (" .. (okG and "returned nothing" or one_line(res)) .. ")")
+    return nil
 end
 LK.ring_index = function(name)
     for i, n in ipairs(LK.TINT_RINGS) do if n == name then return i end end
@@ -3107,8 +3138,24 @@ if not pcall(function() RegisterKeyBind(Key.O, function() ExecuteInGameThread(fu
 if not pcall(function() RegisterKeyBind(Key.P, function() ExecuteInGameThread(function() LK.step_press(-10) end) end) end) then log("P could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.O, { ModifierKey.SHIFT }, function() ExecuteInGameThread(function() LK.step_press(1) end) end) end) then log("Shift + O could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.P, { ModifierKey.SHIFT }, function() ExecuteInGameThread(function() LK.step_press(-1) end) end) end) then log("Shift + P could not be bound") end
-if not pcall(function() RegisterKeyBind(Key.M, function() ExecuteInGameThread(function() LK.rescale(1.1) end) end) end) then log("M could not be bound") end
-if not pcall(function() RegisterKeyBind(Key.N, function() ExecuteInGameThread(function() LK.rescale(1 / 1.1) end) end) end) then log("N could not be bound") end
+-- M / N scale x1.1 / /1.1; Shift + M / N fine steps x1.01 / /1.01 (LuciDin, 15 Nov, CRD-043). A Shift press fires the plain bind too,
+-- so presses are gathered 40 ms on the game thread and the finest step wins (as O / P).
+LK.scale_press = function(f)
+    if LK.scale_pending then
+        if math.abs(math.log(f)) < math.abs(math.log(LK.scale_pending)) then LK.scale_pending = f end
+        return
+    end
+    LK.scale_pending = f
+    later(LK.STEP_WINDOW_MS, function()
+        local g = LK.scale_pending
+        LK.scale_pending = nil
+        LK.rescale(g)
+    end)
+end
+if not pcall(function() RegisterKeyBind(Key.M, function() ExecuteInGameThread(function() LK.scale_press(1.1) end) end) end) then log("M could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.N, function() ExecuteInGameThread(function() LK.scale_press(1 / 1.1) end) end) end) then log("N could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.M, { ModifierKey.SHIFT }, function() ExecuteInGameThread(function() LK.scale_press(1.01) end) end) end) then log("Shift + M could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.N, { ModifierKey.SHIFT }, function() ExecuteInGameThread(function() LK.scale_press(1 / 1.01) end) end) end) then log("Shift + N could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.LEFT_ARROW, function() ExecuteInGameThread(function() LK.side(-10) end) end) end) then log("LEFT could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.RIGHT_ARROW, function() ExecuteInGameThread(function() LK.side(10) end) end) end) then log("RIGHT could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.I, function() ExecuteInGameThread(LK.next_axis) end) end) then log("I could not be bound") end
@@ -3125,7 +3172,7 @@ if not pcall(function() RegisterKeyBind(Key.OEM_ONE, function() ExecuteInGameThr
 log("look keys (CRD-039, visual only): / = look survey, SCROLL LOCK = material instance, U = put it on the effect, . = colour, , = picture, L = overlay, O / P = overlay up / down, LEFT / RIGHT = sideways, M / N = overlay scale, I = scale axis")
 log("look heights (CRD-041, visual only): ; = next look on the nearest pad (all 32), then O / P = that look's height up / down 10 cm, Shift + O / P 1 cm (kept per look)")
 if not pcall(function() RegisterKeyBind(Key.OEM_FOUR, function() ExecuteInGameThread(LK.next_mode) end) end) then log("[ could not be bound") end
-log("look modes (CRD-042, visual only): [ = overlay / own / tint. own: M / N scale and LEFT / RIGHT turn the pad's own look (I = axis), O / P height, SCROLL LOCK reset, / renderers, U ring facing (whole look). tint: SCROLL LOCK grey ring in a window look, . tint, , picture, M / N ring size. mesh: SCROLL LOCK builds a ring on SM_Portal (4 steps), then as tint plus M/N/LEFT/RIGHT/O/P, L shape, U back face, Shift + U removes, Shift + SCROLL LOCK own arch / game's arch, PAUSE hides / shows the pad's own look (CRD-043)")
+log("look modes (CRD-042, visual only): [ = overlay / own / tint. own: M / N scale and LEFT / RIGHT turn the pad's own look (I = axis), O / P height, SCROLL LOCK reset, / renderers, U ring facing (whole look). tint: SCROLL LOCK grey ring in a window look, . tint, , picture, M / N ring size. mesh: SCROLL LOCK builds a ring on SM_Portal (4 steps), then as tint plus M/N/LEFT/RIGHT/O/P, L shape, U back face, Shift + U removes, Shift + SCROLL LOCK own arch / game's arch, PAUSE hides / shows the pad's own look; in every mode Shift + M / N scale in fine steps (x1.01) (CRD-043)")
 
 if not pcall(function() RegisterKeyBind(Key.PAGE_UP, function() ExecuteInGameThread(flag_registry_survey) end) end) then log("PAGE UP could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.PAGE_DOWN, function() ExecuteInGameThread(flag_native_probe) end) end) then log("PAGE DOWN could not be bound") end

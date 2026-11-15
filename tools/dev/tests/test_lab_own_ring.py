@@ -2,7 +2,8 @@
 # M_PortalHubLooks_Arch (PortalHubLooks_P, World Projects/PortalHubLooks) is one more ring in LK.TINT_RINGS, right after the game's
 # arch; in mesh mode Shift + SCROLL LOCK swaps the ring on the built shape between the game's arch and ours (gathered with the plain
 # SCROLL LOCK that fires with it); the first load is named in the log first; a missing pak is said, not crashed on; PAUSE (mesh
-# mode) hides / shows the pad's own look, and Shift + U shows it again.
+# mode) hides / shows the pad's own look, and Shift + U shows it again; the own material loads through GetAsset when LoadAsset
+# finds nothing; the ring faces the pad's own angle; Shift + M / N scale in fine steps.
 # Also cross-checks the lab against the material's build script: same asset path, chunk 120 label, and every parameter the lab sets
 # (tint colours, PortalTexture, Radius (S)) exists in the material with the radius the lab starts from.
 import sys, os, re
@@ -138,8 +139,8 @@ press(L, "SCROLL_LOCK")
 check("next: ours (12th)", calls(L)[-1] == "mmat 0 MID_M_PortalHubLooks_Arch", calls(L)[-1])
 for _ in range(3):
     press(L, "L")
-check("L x3: square C (engine Plane, roll +90, yaw +90) with our arch put back", "mesh Plane" in calls(L)[-6:] and "mmat 0 MID_M_PortalHubLooks_Arch" in calls(L)[-6:]
-      and "mrot 0 180 90" in calls(L)[-3:], calls(L)[-6:])
+check("L x3: square C (engine Plane, roll +90, yaw +90 from the pad's own angle) with our arch put back", "mesh Plane" in calls(L)[-6:] and "mmat 0 MID_M_PortalHubLooks_Arch" in calls(L)[-6:]
+      and "mrot 0 90 90" in calls(L)[-3:], calls(L)[-6:])
 n = len(calls(L))
 L.execute("KEYS['SCROLL_LOCK'](); KEYS['SCROLL_LOCK'](); pump()")
 check("two plain presses inside 40 ms count once (gathered)", calls(L)[n:] == ["kml M_Portal_Friendly_White", "mmat 0 MID_M_Portal_Friendly_White"], calls(L)[n:])
@@ -202,6 +203,76 @@ L.execute("KEYS['U+SHIFT'](); KEYS['U'](); pump()")
 check("Shift + U: ring removed and the own look shown again", calls(L)[-2:] == ["mdestroy", "ownvis true false"] and has(L, "OWN LOOK SHOWN (Shift + U)"), calls(L)[-3:])
 press(L, "PAUSE")
 check("next PAUSE hides again (state cleared by Shift + U)", calls(L)[-1] == "ownvis false false", calls(L)[-1])
+
+print("=== own pak: LoadAsset finds nothing (in game, 15 Nov), GetAsset by name loads it")
+L = lab()
+L.execute("""
+OWN_VIA_GETASSET, OWN_LOADED = true, false
+local oldSFO2 = StaticFindObject
+function StaticFindObject(path)
+    if path == "/Script/AssetRegistry.Default__AssetRegistryHelpers" then
+        return { IsValid = function() return true end, GetFName = function() return FName("Default__AssetRegistryHelpers") end,
+            GetAsset = function(self, d) CALLS2[#CALLS2 + 1] = "getasset " .. d.PackageName:ToString() .. " " .. d.AssetName:ToString(); OWN_LOADED = true end }
+    end
+    if path:find("^/Game/Mods/PortalHubLooks/") and OWN_VIA_GETASSET and not OWN_LOADED then return nil end
+    return oldSFO2(path)
+end
+function LoadAsset(p) if p:find("PortalHubLooks") then error("asset not found in the asset registry") end end
+""")
+mesh_built(L, steps=3)
+n = len(calls(L))
+L.execute("KEYS['SCROLL_LOCK+SHIFT'](); pump()")
+c = calls(L)[n:]
+check("GetAsset by package and asset name, then our arch goes on", c == ["getasset /Game/Mods/PortalHubLooks/Materials/M_PortalHubLooks_Arch M_PortalHubLooks_Arch", "kml M_PortalHubLooks_Arch", "mmat 0 MID_M_PortalHubLooks_Arch"], c)
+check("LoadAsset's error is logged, not swallowed", has(L, "LoadAsset did not load it (") and has(L, "asset not found in the asset registry"))
+check("GetAsset named as untried before it runs", has(L, "untried native call next: AssetRegistryHelpers:GetAsset({ PackageName, AssetName }) for our own pak's material"))
+check("logged how it loaded", has(L, "loaded with GetAsset"))
+L.execute("KEYS['SCROLL_LOCK+SHIFT'](); pump(); KEYS['SCROLL_LOCK+SHIFT'](); pump()")
+check("next time it is already in memory: no second GetAsset", sum(x.startswith("getasset") for x in calls(L)) == 1 and calls(L)[-1] == "mmat 0 MID_M_PortalHubLooks_Arch", calls(L)[-3:])
+L = lab()
+L.execute("""
+local oldSFO3 = StaticFindObject
+function StaticFindObject(path)
+    if path == "/Script/AssetRegistry.Default__AssetRegistryHelpers" then
+        return { IsValid = function() return true end, GetAsset = function(self, d) CALLS2[#CALLS2 + 1] = "getasset" end }
+    end
+    return oldSFO3(path)
+end
+OWN_PAK = false
+""")
+mesh_built(L, steps=3)
+L.execute("KEYS['SCROLL_LOCK+SHIFT'](); pump()")
+check("pak really missing: both tried, then 'not found', ring not put on", "getasset" in calls(L) and has(L, "GetAsset did not load it either") and has(L, "not found: is PortalHubLooks_P")
+      and not any(x.startswith("mmat") for x in calls(L)), calls(L)[-3:])
+
+print("=== facing: the ring faces the pad's own angle, not the effect's turn")
+L = lab()
+mesh_built(L, steps=1)
+check("the effect's turn (yaw 90 in the mock) is logged and ignored: ring yaw 0", "mrot 0 0 0" in calls(L) and has(L, "the pad's effect is turned pitch 0.0 yaw 90.0 roll 0.0; the ring ignores that"), calls(L))
+
+print("=== fine scale: Shift + M / N (x1.01), every mode")
+check("Shift + M and Shift + N bound to fine steps", re.search(r"RegisterKeyBind\(Key\.M, \{ ModifierKey\.SHIFT \}, function\(\) ExecuteInGameThread\(function\(\) LK\.scale_press\(1\.01\)", src)
+      and re.search(r"RegisterKeyBind\(Key\.N, \{ ModifierKey\.SHIFT \}, function\(\) ExecuteInGameThread\(function\(\) LK\.scale_press\(1 / 1\.01\)", src))
+L = lab()
+mesh_built(L, steps=1)
+L.execute("KEYS['M+SHIFT'](); KEYS['M'](); pump()")
+check("mesh: Shift + M (plain M fired too) = x1.01 only", calls(L)[-1] == "mscale 1.010 1.010 1.010", calls(L)[-1])
+L.execute("KEYS['N+SHIFT'](); KEYS['N'](); pump()")
+check("mesh: Shift + N = /1.01 (back to 1.000)", calls(L)[-1] == "mscale 1.000 1.000 1.000", calls(L)[-1])
+press(L, "M")
+check("plain M still x1.1", calls(L)[-1] == "mscale 1.100 1.100 1.100", calls(L)[-1])
+L.execute("KEYS['M'](); KEYS['M'](); pump()")
+check("two plain M inside 40 ms count once", calls(L)[-1] == "mscale 1.210 1.210 1.210", calls(L)[-1])
+L = lab()
+L.execute("PADS = { (sft_pad('hub_A3', 'Niagara_Portal_Friendly_Red', 100)) }")
+press(L, "OEM_FOUR")
+L.execute("KEYS['M+SHIFT'](); KEYS['M'](); pump()")
+check("own mode: Shift + M scales the pad's own look x1.01", calls(L)[-1] == "ownscale 1.010 1.010 1.010", calls(L)[-1])
+L = lab()
+L.execute("PADS = { (sft_pad('hub_B1', 'Niagara_Portal', 100)) }")
+press(L, "OEM_FOUR"); press(L, "OEM_FOUR"); press(L, "SCROLL_LOCK")
+L.execute("KEYS['N+SHIFT'](); KEYS['N'](); pump()")
+check("tint mode: Shift + N ring size /1.01 (0.346 -> 0.343)", calls(L)[-1] == "scalar Radius (S) 0.343", calls(L)[-1])
 
 failed = [n for n, ok in results if not ok]
 print("\n%d checks, %d failed" % (len(results), len(failed)))

@@ -230,8 +230,10 @@ press(L, "L")
 check("then starts over with Garden", calls(L)[-3] == "spawn Niagara_Portal_Garden lt=0 pool=0", calls(L)[-3:])
 
 print("=== overlay fit: O / P / M / N")
-for k in ("M", "N", "I", "LEFT_ARROW", "RIGHT_ARROW"):
+for k in ("I", "LEFT_ARROW", "RIGHT_ARROW"):
     check(k + " bound once", len(re.findall(r"Key\.%s\b" % k, src)) == 1)
+for k in ("M", "N"):
+    check(k + " bound twice: plain and Shift (CRD-043 fine scale)", len(re.findall(r"Key\.%s\b" % k, src)) == 2)
 for k in ("O", "P"):
     check(k + " bound twice: plain and Shift (CRD-041)", len(re.findall(r"Key\.%s\b" % k, src)) == 2)
 L = lab()
