@@ -69,15 +69,19 @@ def mesh_built(L, steps=3):
 
 src = open(LAB, encoding="utf-8").read()
 build = open(BUILD, encoding="utf-8").read()
-GEO = re.findall(r'\{ name = "(MI_Geo\w+)", w = ([\d.]+), h = ([\d.]+) \}', src)
-NAMES = [g[0] for g in GEO]
+SHAPES_SRC = re.findall(r'\{ "(\w+)", ([\d.]+), ([\d.]+) \}', re.search(r"^LK\.GEO_SHAPES = \{(.*)\}$", src, re.M).group(1))
+TYPES_SRC = re.findall(r'"(\w+)"', re.search(r"^LK\.GEO_TYPES = \{(.*)\}$", src, re.M).group(1))
+NAMES = ["MI_Geo%s_%s" % (t, s) for s, _, _ in SHAPES_SRC for t in TYPES_SRC]   # the lab's loop: shape by shape, each type
 
 print("=== Geo list and keys")
 shapes = ["Arch", "Gothic", "Square", "Door", "Round", "Oval"]
-check("12 Geo rings: 6 shapes x swirl / window, in LuciDin's order", NAMES == ["MI_Geo%s_%s" % (s, st) for s in shapes for st in ("Swirl", "Window")], NAMES)
-sizes = {n: (float(w), float(h)) for n, w, h in GEO}
-check("starting sizes: square 1 x 1 m, door 1.75 x 3 m (LuciDin)", sizes["MI_GeoSquare_Swirl"] == (1.0, 1.0) and sizes["MI_GeoDoor_Window"] == (1.75, 3.0), sizes)
-check("swirl and window of a shape start the same size", all(sizes["MI_Geo%s_Swirl" % s] == sizes["MI_Geo%s_Window" % s] for s in shapes))
+types = ["Con", "Col", "Ren", "Pri"]
+check("6 shapes in LuciDin's order", [s for s, _, _ in SHAPES_SRC] == shapes, SHAPES_SRC)
+check("4 types from opaque to clear: Conchoidal, Colloform, Reniform, Prismatic (LuciDin)", TYPES_SRC == types, TYPES_SRC)
+check("the lab builds its list shape by shape, each type, as MI_Geo<Type>_<Shape>",
+      'local name = "MI_Geo" .. t .. "_" .. s[1]' in src and "for _, s in ipairs(LK.GEO_SHAPES) do" in src and "for _, t in ipairs(LK.GEO_TYPES) do" in src)
+sizes = {s: (float(w), float(h)) for s, w, h in SHAPES_SRC}
+check("starting sizes: square 1 x 1 m, door 1.75 x 3 m (LuciDin)", sizes["Square"] == (1.0, 1.0) and sizes["Door"] == (1.75, 3.0), sizes)
 check("the plain ring list is the game's again (no own ring in it)", "PortalHubLooks" not in re.search(r"^LK\.TINT_RINGS = \{(.*?)\}", src, re.S | re.M).group(1))
 check("Shift + SCROLL LOCK bound to LK.shift_scroll", re.search(r"RegisterKeyBind\(Key\.SCROLL_LOCK, \{ ModifierKey\.SHIFT \}, function\(\) ExecuteInGameThread\(LK\.shift_scroll\)", src))
 check("plain SCROLL LOCK still bound to LK.make_mid", re.search(r"RegisterKeyBind\(Key\.SCROLL_LOCK, function\(\) ExecuteInGameThread\(LK\.make_mid\)", src))
@@ -94,16 +98,21 @@ check("DistortionEdge (the arch's fringe) is one of the tint colours", re.search
 print("=== lab and material build script agree")
 geo_dir = re.search(r'^GEO_DIR = BASE \+ "([^"]+)"', build, re.M).group(1)
 base = re.search(r'^BASE = "([^"]+)"', build, re.M).group(1)
-lab_dir = re.search(r'LK\.RING_PATHS\[g\.name\] = "([^"]+)" \.\. g\.name', src).group(1)
+lab_dir = re.search(r'LK\.RING_PATHS\[name\] = "([^"]+)" \.\. name', src).group(1)
 check("lab folder = the script's instance folder (" + base + geo_dir + ")", lab_dir == base + geo_dir + "/", lab_dir)
 sh = re.findall(r'\("(\w+)", ([\d.]+)\)', re.search(r"^SHAPES = \[(.*?)\]$", build, re.M).group(1))
 st = re.findall(r'"(\w+)": \{', re.search(r"^STYLES = \{(.*?)^\}", build, re.M | re.S).group(1))
-script_names = ["MI_Geo%s_%s" % (a, b) for a, _ in sh for b in st]
-check("the script makes exactly the lab's 12 instances", script_names == NAMES, script_names)
+script_names = ["MI_Geo%s_%s" % (b, a) for a, _ in sh for b in st]   # the script's loop: name = "MI_Geo" + style + "_" + shape
+check("the script names its instances MI_Geo<Type>_<Shape>", 'name = "MI_Geo" + style + "_" + shape' in build)
+check("the script makes exactly the lab's 24 instances", script_names == NAMES and len(NAMES) == 24, script_names)
+check("the script clears the whole Geo folder first (the first 12 names go)", "eal.list_assets(GEO_DIR, recursive=True, include_folder=False)" in build)
 shape_val = {a: float(v) for a, v in sh}
 check("shape values: arch 0, gothic 1, square = door = 2 (rectangle), round 3, oval 4",
       shape_val == {"Arch": 0.0, "Gothic": 1.0, "Square": 2.0, "Door": 2.0, "Round": 3.0, "Oval": 4.0}, shape_val)
-check("window style: scene only, no swirl over it", re.search(r'"Window": \{"SceneMix": 1\.0, "SwirlOverScene": 0\.0', build))
+check("Con: no scene (opaque swirl)", re.search(r'"Con": \{"SceneMix": 0\.0\}', build))
+check("Col: the master's defaults (swirl over a faint scene)", re.search(r'"Col": \{\}', build))
+check("Ren: scene, the swirl only ripples it", re.search(r'"Ren": \{"SceneMix": 1\.0, "SwirlOverScene": 0\.0, "DistortMultiply": 0\.03', build))
+check("Pri: scene, no ripple at all (clearest)", re.search(r'"Pri": \{"SceneMix": 1\.0, "SwirlOverScene": 0\.0, "DistortMultiply": 0\.0, "DistortDistance": 0\.0\}', build))
 check("label chunk 120 in the build script", re.search(r"^CHUNK = 120$", build, re.M))
 check("the project cooks its own folder", '+DirectoriesToAlwaysCook=(Path="%s")' % base in open(GAME_INI, encoding="utf-8").read())
 params = {p for p in re.findall(r'\(\s*"\w+",\s*"([^"]+)",', build)}
@@ -127,39 +136,41 @@ press(L, "SCROLL_LOCK")   # step 3: SM_Portal
 n = len(calls(L))
 shift_sl(L)
 c = calls(L)[n:]
-check("first Geo: arched door swirl, on the plane (square C), the plain press gathered",
-      c[:3] == ["kml MI_GeoArch_Swirl", "mesh Plane", "mmat 0 MID_MI_GeoArch_Swirl"], c)
+check("first Geo: Conchoidal arched door, on the plane (square C), the plain press gathered",
+      c[:3] == ["kml MI_GeoCon_Arch", "mesh Plane", "mmat 0 MID_MI_GeoCon_Arch"], c)
 check("placed at 1.0 x 2.0 m, stood up as square C (roll +90, yaw +90 from the pad)", c[3:] == ["mloc 0.0 0.0 158.0", "mrot 0 90 90", "mscale 1.000 2.000 1.000"], c)
-check("first load named before it runs", has(L, "first load of our own cooked ring material next: /Game/Mods/PortalHubLooks/Geo/MI_GeoArch_Swirl.MI_GeoArch_Swirl"))
-check("logged with its starting size", has(L, "GEO RING (Shift + SCROLL LOCK): 1/12 MI_GeoArch_Swirl, starting size 1.00 m wide x 2.00 m tall"))
+check("first load named before it runs", has(L, "first load of our own cooked ring material next: /Game/Mods/PortalHubLooks/Geo/MI_GeoCon_Arch.MI_GeoCon_Arch"))
+check("logged with its starting size", has(L, "GEO RING (Shift + SCROLL LOCK): 1/24 MI_GeoCon_Arch, starting size 1.00 m wide x 2.00 m tall"))
 check("SetMaterial on a StaticMeshComponent named once (first time)", sum("untried native call next: PrimitiveComponent:SetMaterial" in l for l in logs(L)) == 1)
 n = len(calls(L))
 shift_sl(L)
 c = calls(L)[n:]
-check("second: arch window; shape already square C (no SetStaticMesh)", c[:2] == ["kml MI_GeoArch_Window", "mmat 0 MID_MI_GeoArch_Window"] and not any(x.startswith("mesh ") for x in c), c)
-for _ in range(5):
+check("second: Colloform arch; shape already square C (no SetStaticMesh)", c[:2] == ["kml MI_GeoCol_Arch", "mmat 0 MID_MI_GeoCol_Arch"] and not any(x.startswith("mesh ") for x in c), c)
+shift_sl(L); shift_sl(L)
+check("3rd and 4th: Reniform, then Prismatic arch", "mmat 0 MID_MI_GeoPri_Arch" in calls(L)[-4:] and "kml MI_GeoRen_Arch" in calls(L), calls(L)[-4:])
+for _ in range(9):
     shift_sl(L)
-check("7th: door swirl at 1.75 x 3.0 m", calls(L)[-1] == "mscale 1.750 3.000 1.000" and "mmat 0 MID_MI_GeoDoor_Swirl" in calls(L)[-4:], calls(L)[-4:])
-for _ in range(5):
+check("13th: Conchoidal door at 1.75 x 3.0 m", calls(L)[-1] == "mscale 1.750 3.000 1.000" and "mmat 0 MID_MI_GeoCon_Door" in calls(L)[-4:], calls(L)[-4:])
+for _ in range(11):
     shift_sl(L)
-check("12th: oval window", "mmat 0 MID_MI_GeoOval_Window" in calls(L)[-4:], calls(L)[-4:])
+check("24th: Prismatic oval", "mmat 0 MID_MI_GeoPri_Oval" in calls(L)[-4:], calls(L)[-4:])
 shift_sl(L)
-check("then round again to the arch swirl", "mmat 0 MID_MI_GeoArch_Swirl" in calls(L)[-4:], calls(L)[-4:])
+check("then round again to the Conchoidal arch", "mmat 0 MID_MI_GeoCon_Arch" in calls(L)[-4:], calls(L)[-4:])
 check("first-load line only once", sum("first load of our own" in l for l in logs(L)) == 1)
 press(L, "OEM_PERIOD"); press(L, "OEM_PERIOD")
 check(". tints the Geo ring (red, grey x RGB; DistortionEdge unreadable in this mock, left alone)",
       calls(L)[-3:] == ["vec PortalCenterColor 0.109 0.005 0.005", "vec PortalCenterColor2 1.000 0.050 0.050", "vec PortalEdge 4.836 0.242 0.242"], calls(L)[-3:])
-check("tint log names the Geo ring", has(L, "MESH RING TINT (.): red = RGB 1.00, 0.05, 0.05 (MI_GeoArch_Swirl)"))
+check("tint log names the Geo ring", has(L, "MESH RING TINT (.): red = RGB 1.00, 0.05, 0.05 (MI_GeoCon_Arch)"))
 press(L, "OEM_COMMA")
 check(", puts a scene in its PortalTexture", calls(L)[-1].startswith("tex PortalTexture TC_"), calls(L)[-1])
 press(L, "M")
 check("M scales it from its starting size (x1.1 = 1.1 x 2.2 m)", calls(L)[-1] == "mscale 1.100 2.200 1.100", calls(L)[-1])
 press(L, "OEM_TWO")
-check("/ names the Geo ring", has(L, "ring MI_GeoArch_Swirl"))
+check("/ names the Geo ring", has(L, "ring MI_GeoCon_Arch"))
 press(L, "SCROLL_LOCK")
 check("plain SCROLL LOCK after a Geo ring: the game's rings again (Friendly White)", calls(L)[-1] == "mmat 0 MID_M_Portal_Friendly_White", calls(L)[-1])
 shift_sl(L)
-check("Shift + SCROLL LOCK goes on with the next Geo (arch window)", "mmat 0 MID_MI_GeoArch_Window" in calls(L)[-4:], calls(L)[-4:])
+check("Shift + SCROLL LOCK goes on with the next Geo (Colloform arch)", "mmat 0 MID_MI_GeoCol_Arch" in calls(L)[-4:], calls(L)[-4:])
 L.execute("KEYS['SCROLL_LOCK'](); KEYS['SCROLL_LOCK'](); pump()")
 check("two plain presses inside 40 ms count once (gathered)", calls(L)[-1] == "mmat 0 MID_M_Portal_Friendly", calls(L)[-2:])
 
@@ -192,7 +203,7 @@ n = len(calls(L))
 shift_sl(L)
 c = calls(L)[n:]
 check("GetAsset by package and asset name, then the Geo ring goes on",
-      c[:2] == ["getasset /Game/Mods/PortalHubLooks/Geo/MI_GeoArch_Swirl MI_GeoArch_Swirl", "kml MI_GeoArch_Swirl"] and "mmat 0 MID_MI_GeoArch_Swirl" in c, c)
+      c[:2] == ["getasset /Game/Mods/PortalHubLooks/Geo/MI_GeoCon_Arch MI_GeoCon_Arch", "kml MI_GeoCon_Arch"] and "mmat 0 MID_MI_GeoCon_Arch" in c, c)
 check("LoadAsset's error is logged, not swallowed", has(L, "LoadAsset did not load it (") and has(L, "asset not found in the asset registry"))
 check("GetAsset named as untried before it runs", has(L, "untried native call next: AssetRegistryHelpers:GetAsset({ PackageName, AssetName }) for our own pak's material"))
 check("logged how it loaded", has(L, "loaded with GetAsset"))
@@ -203,11 +214,11 @@ L.execute("OWN_PAK = false")
 mesh_built(L)
 n = len(calls(L))
 shift_sl(L)
-check("not installed: said in the log, no call, shape not changed", has(L, "MI_GeoArch_Swirl not found: is PortalHubLooks_P (.pak / .ucas / .utoc) in Content\\Paks\\~mods?")
+check("not installed: said in the log, no call, shape not changed", has(L, "MI_GeoCon_Arch not found: is PortalHubLooks_P (.pak / .ucas / .utoc) in Content\\Paks\\~mods?")
       and calls(L)[n:] == [], calls(L)[n:])
 L.execute("OWN_PAK = nil")
 shift_sl(L)
-check("installed later: the next press tries the same (first) Geo ring and finds it", "mmat 0 MID_MI_GeoArch_Swirl" in calls(L)[-4:], calls(L)[-4:])
+check("installed later: the next press tries the same (first) Geo ring and finds it", "mmat 0 MID_MI_GeoCon_Arch" in calls(L)[-4:], calls(L)[-4:])
 
 print("=== other modes")
 L = lab()

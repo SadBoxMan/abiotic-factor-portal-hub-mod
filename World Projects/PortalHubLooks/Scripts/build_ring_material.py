@@ -8,8 +8,8 @@
 #
 # What it makes (running it again rebuilds the master and the instances from scratch, keeps the label and the dummy):
 #   /Game/Mods/PortalHubLooks/Materials/M_PortalHubLooks_Geo   the master material (Masked, Unlit, Two Sided; Niagara sprite and mesh usage)
-#   /Game/Mods/PortalHubLooks/Geo/MI_Geo<Shape>_<Style>        12 instances: 6 shapes (Arch, Gothic, Square, Door, Round, Oval) x
-#                                                              2 styles (Swirl, Window)
+#   /Game/Mods/PortalHubLooks/Geo/MI_Geo<Type>_<Shape>         24 instances: 4 types (Con, Col, Ren, Pri; see STYLES) x
+#                                                              6 shapes (Arch, Gothic, Square, Door, Round, Oval)
 #   /Game/Mods/PortalHubLooks/PAL_PortalHubLooks               Primary Asset Label: chunk 120, labels its own folder only
 #                                                              (Apply Recursively off, so referenced game paths stay out of the chunk)
 #   /Game/Particles/RenderTargets/TC_Portal_Warehouse          a DUMMY cube map at the game's path (a tiny gradient of our own):
@@ -27,7 +27,7 @@
 #     the same as the front (TrueBack = 0);
 #   * the scene is the cube map looked up with a direction from the surface plus an optional, side-aware parallax shift.
 # LuciDin's shapes (15 Nov): Arched Door, Gothic Arch (pointed top), Square (1 m x 1 m), Door (first 2 m x 0.75 m, then 3 m tall x 1.75 m wide), Round (like a
-# default portal), Oval (like a Friendly portal); each as a swirl and as a window (clear scene, no swirl). The sizes come from the mesh
+# default portal), Oval (like a Friendly portal); each in four types (LuciDin, 15 Nov: Conchoidal, Colloform, Reniform, Prismatic; see STYLES). The sizes come from the mesh
 # (the lab's mesh-ring scale; the lab sets each one's starting size); the material only takes the shape and its proportions.
 import os
 import unreal
@@ -94,9 +94,16 @@ VECTORS = [
     ("SceneTint",  "SceneTint",          (1.0, 1.0, 1.0, 1.0)),       # scene x this
 ]
 SHAPES = [("Arch", 0.0), ("Gothic", 1.0), ("Square", 2.0), ("Door", 2.0), ("Round", 3.0), ("Oval", 4.0)]
+# Four types (LuciDin, 15 Nov), from opaque swirl to clear window:
+#   Con  Conchoidal  swirl, opaque: no scene (as the Friendly portals show none)
+#   Col  Colloform   swirl over a faint scene (the first "Swirl" style)
+#   Ren  Reniform    window: clearer scene, the swirl still ripples it (the first "Window" style)
+#   Pri  Prismatic   window: no swirl, no ripple, the clearest scene
 STYLES = {
-    "Swirl": {},
-    "Window": {"SceneMix": 1.0, "SwirlOverScene": 0.0, "DistortMultiply": 0.03, "DistortDistance": 0.5},
+    "Con": {"SceneMix": 0.0},
+    "Col": {},
+    "Ren": {"SceneMix": 1.0, "SwirlOverScene": 0.0, "DistortMultiply": 0.03, "DistortDistance": 0.5},
+    "Pri": {"SceneMix": 1.0, "SwirlOverScene": 0.0, "DistortMultiply": 0.0, "DistortDistance": 0.0},
 }
 
 HLSL = r"""
@@ -238,11 +245,8 @@ if not isinstance(cube, unreal.TextureCube):
     raise SystemExit(1)
 
 # ---- master material (rebuilt from scratch; instances first, they depend on it) --------------------------------------------------
-for shape, _ in SHAPES:
-    for style in STYLES:
-        p = GEO_DIR + "/MI_Geo" + shape + "_" + style
-        if eal.does_asset_exist(p):
-            eal.delete_asset(p)
+for p in (eal.list_assets(GEO_DIR, recursive=True, include_folder=False) if eal.does_directory_exist(GEO_DIR) else []):
+    eal.delete_asset(p.split(".")[0])   # every instance in the Geo folder (also the first MI_Geo<Shape>_<Swirl|Window> names)
 mat_path = MAT_DIR + "/" + MAT_NAME
 if eal.does_asset_exist(mat_path):
     log("old master deleted:", eal.delete_asset(mat_path))
@@ -329,11 +333,11 @@ log("opacity mask:", mel.connect_material_property(alpha, "", unreal.MaterialPro
 mel.recompile_material(mat)
 log("saved material:", eal.save_asset(mat_path, only_if_is_dirty=False))
 
-# ---- 12 instances: shape x style ------------------------------------------------------------------------------------------------
+# ---- 24 instances: type x shape -------------------------------------------------------------------------------------------------
 made = []
 for shape, sval in SHAPES:
     for style, over in STYLES.items():
-        name = "MI_Geo" + shape + "_" + style
+        name = "MI_Geo" + style + "_" + shape
         mi = at.create_asset(name, GEO_DIR, unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
         mel.set_material_instance_parent(mi, mat)
         mel.set_material_instance_scalar_parameter_value(mi, "Shape", sval)

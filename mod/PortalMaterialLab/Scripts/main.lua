@@ -2986,23 +2986,28 @@ LK.mesh_survey = function()
 end
 
 -- Our own "Geo" portals (CRD-043; LuciDin, 15 Nov): one master material, M_PortalHubLooks_Geo, cooked into PortalHubLooks_P (chunk 120,
--- World Projects/PortalHubLooks), and 12 instances: 6 shapes (arched door, gothic arch, square, door, round, oval) x 2 styles (swirl,
--- window: clear scene, no swirl). Two-sided with a true backside, swirl clockwise from the front, shape worked out in real centimetres
+-- World Projects/PortalHubLooks), and 24 instances MI_Geo<Type>_<Shape>: 6 shapes (arched door, gothic arch, square, door, round,
+-- oval) x 4 types (Con Conchoidal: swirl, opaque; Col Colloform: swirl over a faint scene; Ren Reniform: window, the swirl still
+-- ripples it; Pri Prismatic: window, no swirl, clearest). Two-sided with a true backside, the front facing out from the pad, swirl
+-- clockwise from the front, shape worked out in real centimetres
 -- from the surface, so the mesh-ring scale sets the size and the proportions stay right; tint through PortalCenterColor /
 -- PortalCenterColor2 / PortalEdge / DistortionEdge, scene through PortalTexture. In mesh mode (shape built, step 3 or later) Shift +
 -- SCROLL LOCK puts the next Geo ring on: the engine plane stood up as square C, at that shape's starting size (sizes in metres = the
 -- plane's scale; Round and Oval are first guesses at a default and a Friendly portal, tuned in game with M / N and Shift + M / N).
 -- SCROLL LOCK and Shift + SCROLL LOCK are gathered 40 ms (Shift wins), as U is. Loading from our pak is named in the log first.
-LK.GEO = {
-    { name = "MI_GeoArch_Swirl", w = 1.0, h = 2.0 }, { name = "MI_GeoArch_Window", w = 1.0, h = 2.0 },
-    { name = "MI_GeoGothic_Swirl", w = 1.0, h = 2.0 }, { name = "MI_GeoGothic_Window", w = 1.0, h = 2.0 },
-    { name = "MI_GeoSquare_Swirl", w = 1.0, h = 1.0 }, { name = "MI_GeoSquare_Window", w = 1.0, h = 1.0 },
-    { name = "MI_GeoDoor_Swirl", w = 1.75, h = 3.0 }, { name = "MI_GeoDoor_Window", w = 1.75, h = 3.0 },   -- LuciDin, 15 Nov: 3 m x 1.75 m
-    { name = "MI_GeoRound_Swirl", w = 1.8, h = 1.8 }, { name = "MI_GeoRound_Window", w = 1.8, h = 1.8 },
-    { name = "MI_GeoOval_Swirl", w = 1.4, h = 2.0 }, { name = "MI_GeoOval_Window", w = 1.4, h = 2.0 },
-}
+-- Shapes with their starting size in metres (width, height); Door 3 m x 1.75 m (LuciDin, 15 Nov). Order: shape by shape, each in the
+-- four types from opaque to clear, so Shift + SCROLL LOCK compares a shape's types side by side.
+LK.GEO_SHAPES = { { "Arch", 1.0, 2.0 }, { "Gothic", 1.0, 2.0 }, { "Square", 1.0, 1.0 }, { "Door", 1.75, 3.0 }, { "Round", 1.8, 1.8 }, { "Oval", 1.4, 2.0 } }
+LK.GEO_TYPES = { "Con", "Col", "Ren", "Pri" }
+LK.GEO = {}
 LK.RING_PATHS = {}
-for _, g in ipairs(LK.GEO) do LK.RING_PATHS[g.name] = "/Game/Mods/PortalHubLooks/Geo/" .. g.name .. "." .. g.name end
+for _, s in ipairs(LK.GEO_SHAPES) do
+    for _, t in ipairs(LK.GEO_TYPES) do
+        local name = "MI_Geo" .. t .. "_" .. s[1]
+        LK.GEO[#LK.GEO + 1] = { name = name, w = s[2], h = s[3] }
+        LK.RING_PATHS[name] = "/Game/Mods/PortalHubLooks/Geo/" .. name .. "." .. name
+    end
+end
 LK.ring_obj = function(name)
     local own = LK.RING_PATHS[name]
     local path = own or ("/Game/Particles/Materials/" .. name .. "." .. name)
@@ -3208,7 +3213,7 @@ if not pcall(function() RegisterKeyBind(Key.OEM_ONE, function() ExecuteInGameThr
 log("look keys (CRD-039, visual only): / = look survey, SCROLL LOCK = material instance, U = put it on the effect, . = colour, , = picture, L = overlay, O / P = overlay up / down, LEFT / RIGHT = sideways, M / N = overlay scale, I = scale axis")
 log("look heights (CRD-041, visual only): ; = next look on the nearest pad (all 32), then O / P = that look's height up / down 10 cm, Shift + O / P 1 cm (kept per look)")
 if not pcall(function() RegisterKeyBind(Key.OEM_FOUR, function() ExecuteInGameThread(LK.next_mode) end) end) then log("[ could not be bound") end
-log("look modes (CRD-042, visual only): [ = overlay / own / tint. own: M / N scale and LEFT / RIGHT turn the pad's own look (I = axis), O / P height, SCROLL LOCK reset, / renderers, U ring facing (whole look). tint: SCROLL LOCK grey ring in a window look, . tint, , picture, M / N ring size. mesh: SCROLL LOCK builds a ring on SM_Portal (4 steps), then as tint plus M/N/LEFT/RIGHT/O/P, L shape, U back face, Shift + U removes, Shift + SCROLL LOCK next Geo ring (12: 6 shapes x swirl / window), PAUSE hides / shows the pad's own look; in every mode Shift + M / N scale in fine steps (x1.01) (CRD-043)")
+log("look modes (CRD-042, visual only): [ = overlay / own / tint. own: M / N scale and LEFT / RIGHT turn the pad's own look (I = axis), O / P height, SCROLL LOCK reset, / renderers, U ring facing (whole look). tint: SCROLL LOCK grey ring in a window look, . tint, , picture, M / N ring size. mesh: SCROLL LOCK builds a ring on SM_Portal (4 steps), then as tint plus M/N/LEFT/RIGHT/O/P, L shape, U back face, Shift + U removes, Shift + SCROLL LOCK next Geo ring (24: 6 shapes x Con / Col / Ren / Pri), PAUSE hides / shows the pad's own look; in every mode Shift + M / N scale in fine steps (x1.01) (CRD-043)")
 
 if not pcall(function() RegisterKeyBind(Key.PAGE_UP, function() ExecuteInGameThread(flag_registry_survey) end) end) then log("PAGE UP could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.PAGE_DOWN, function() ExecuteInGameThread(flag_native_probe) end) end) then log("PAGE DOWN could not be bound") end

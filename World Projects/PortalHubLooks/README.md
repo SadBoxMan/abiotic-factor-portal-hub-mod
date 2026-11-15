@@ -7,11 +7,11 @@ A UE 5.4 project (same engine as the game, like World A-D) that cooks Portal Hub
 |---|---|
 | Project | `AbioticFactor.uproject` (the name must stay `AbioticFactor` so the pak mounts under the game's content) |
 | Master material | `/Game/Mods/PortalHubLooks/Materials/M_PortalHubLooks_Geo` |
-| 12 instances | `/Game/Mods/PortalHubLooks/Geo/MI_Geo<Shape>_<Style>`: shapes Arch (arched door), Gothic (pointed arch), Square, Door, Round, Oval; styles Swirl, Window (clear scene, no swirl) |
+| 24 instances | `/Game/Mods/PortalHubLooks/Geo/MI_Geo<Type>_<Shape>`: types Con (Conchoidal: swirl, opaque), Col (Colloform: swirl over a faint scene), Ren (Reniform: window, swirl still ripples it), Pri (Prismatic: window, no swirl, clearest); shapes Arch (arched door), Gothic (pointed arch), Square, Door, Round, Oval |
 | First version | `/Game/Mods/PortalHubLooks/Materials/M_PortalHubLooks_Arch` (round arch only, superseded; still cooked until LuciDin decides to remove it) |
 | Chunk label | `/Game/Mods/PortalHubLooks/PAL_PortalHubLooks`: chunk **120** (container id `bcced51e259b6887`), labels its own folder only, Apply Recursively **off** |
 | Dummy scene | `/Game/Particles/RenderTargets/TC_Portal_Warehouse`: a tiny gradient cube map of our own, at the game's path. It is only the default scene while cooking: it cooks into chunk 0 (never installed), so in game the material finds the game's real Mall cube map |
-| Build script | `Scripts/build_ring_material.py` (headless editor; makes the master, the 12 instances, the label and the dummy) |
+| Build script | `Scripts/build_ring_material.py` (headless editor; makes the master, the 24 instances, the label and the dummy) |
 
 ## The material
 
@@ -30,7 +30,8 @@ Custom (HLSL) node fed by parameters. Unlike the game's arch it is **Two Sided**
   `SwirlOverScene`, `DistortMultiply`, `DistortDistance`, and `SceneParallax` (0 = flat picture; more = the scene shifts with the view).
 - **Colours**: `PortalCenterColor` (dark swirl), `PortalCenterColor2` (bright swirl), `PortalEdge` (edge glow), `DistortionEdge`
   (edge flicker), plus `EdgeWidth` / `EdgeWobble` (cm), `EdgePower`, `EdgeFlicker`, `Brightness`.
-- The Window style sets `SceneMix` 1, `SwirlOverScene` 0 and a light ripple (`DistortMultiply` 0.03).
+- Types: Con sets `SceneMix` 0; Col keeps the defaults; Ren sets `SceneMix` 1, `SwirlOverScene` 0 and a light ripple
+  (`DistortMultiply` 0.03); Pri sets `SceneMix` 1, `SwirlOverScene` 0 and no ripple (`DistortMultiply` 0).
 
 Usage: static meshes (always), Niagara sprites and Niagara mesh particles. Meant for a flat face (the engine plane); the lab puts it
 on `/Engine/BasicShapes/Plane` stood up as "square C".
