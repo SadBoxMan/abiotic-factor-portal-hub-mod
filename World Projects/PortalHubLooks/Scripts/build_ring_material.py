@@ -141,7 +141,9 @@ if (s == 0 || s == 1) {
     float o = (s == 1) ? saturate(Pointed) * R : 0.0;
     float apex = sqrt(R * R + 2.0 * R * o);
     float cy = top + apex;
-    float dC = max(length(float2(q.x + o, q.y - cy)) - (R + o), q.y - cy);
+    /* the top's circle is NOT cut at the springing line (cutting both parts there left a zero-distance seam inside: a glowing,
+       frayed line across the arch, in game 15 Nov); it reaches into the box, cut only at the foot */
+    float dC = max(length(float2(q.x + o, q.y - cy)) - (R + o), q.y - bot);
     float dB = max(q.x - hw, max(cy - q.y, q.y - bot));
     d = min(dC, dB);
 } else if (s == 2) {
