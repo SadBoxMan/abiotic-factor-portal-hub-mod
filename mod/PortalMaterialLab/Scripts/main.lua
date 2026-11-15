@@ -2403,6 +2403,285 @@ LK.rescale = function(f)
     log("---- OVERLAY FIT (M/N): " .. LK.OVERLAYS[LK.overlay].look .. ": " .. LK.fit_text() .. (ok and "" or (" FAILED: " .. one_line(err))))
     say("Overlay " .. LK.fit_text())
 end
+-- Look scale, facing and grey tint (CRD-042, LuciDin 14 Nov: "research altering the scale (X/Y and both) as well as the billboarding",
+-- "a Grayscale version of the portals that RGB values can be passed on to (test Friendly and Default first)"). Dev only, visual only.
+-- [ switches what the look keys do: overlay (CRD-039, as before) -> own (the nearest pad's OWN look) -> tint (grey ring in a window).
+--   own:  M / N scale the pad's own effect x1.1 / /1.1 on the axis I picks (all, X, Y, Z); LEFT / RIGHT turn it 15 degrees (all or Z =
+--         yaw, X = roll, Y = pitch); O / P height as before; SCROLL LOCK puts scale and turn back; / lists the look's renderers (ring
+--         mesh or sprite, facing, alignment); U writes the look's RING renderer's next facing mode, the next U restarts the effect
+--         (one untried call per press). A run-time edit of the look's asset: every pad with that look changes until the game restarts;
+--         U on round to the start puts it back.
+--   tint: SCROLL LOCK puts the next ring material (Friendly White, Friendly, Garden, Torii, ...) as an instance into a WINDOW look's
+--         User.PortalTexture (Default, Blue/Green/Redverse, Dark, Fog); . steps the tint (white, red, green, blue, gold, purple, cyan):
+--         the ring's own colours turned grey, times the RGB; , puts a picture into that ring's PortalTexture (its faint layer).
+-- Enum values (UE 5.4): mesh FacingMode 0 Default, 1 Velocity, 2 CameraPosition, 3 CameraPlane; sprite FacingMode 0 FaceCamera,
+-- 1 FaceCameraPlane, 2 CustomFacingVector, 3 FaceCameraPosition, 4 FaceCameraDistanceBlend; sprite Alignment 0 Unaligned,
+-- 1 VelocityAligned, 2 CustomAlignment, 3 Automatic.
+LK.MODES = { "overlay", "own", "tint" }
+LK.mode = 1
+LK.mode_name = function() return LK.MODES[LK.mode] end
+LK.next_mode = function()
+    LK.mode = LK.mode % #LK.MODES + 1
+    local m = LK.mode_name()
+    local help = {
+        overlay = "M/N scale and LEFT/RIGHT move the overlay (L), O/P its height (CRD-039)",
+        own = "M/N scale and LEFT/RIGHT turn the nearest pad's own look (I picks the axis), SCROLL LOCK resets, / renderers, U ring facing (global)",
+        tint = "SCROLL LOCK next ring in a window look, . next tint, , picture in that ring",
+    }
+    log("---- LOOK KEYS MODE ([): " .. m .. ": " .. help[m])
+    say("Look keys: " .. m)
+end
+LK.MESH_FACING = { [0] = "Default", "Velocity", "CameraPosition", "CameraPlane" }
+LK.SPRITE_FACING = { [0] = "FaceCamera", "FaceCameraPlane", "CustomFacingVector", "FaceCameraPosition", "FaceCameraDistanceBlend" }
+LK.SPRITE_ALIGN = { [0] = "Unaligned", "VelocityAligned", "CustomAlignment", "Automatic" }
+LK.RING_PARTS = { portal = true, portalmap = true, Blackhole = true, rift = true }
+
+-- own look: scale and turn ------------------------------------------------------------------------------------------------------
+LK.own = { pl = nil, id = nil, base = nil, rot = nil, sx = 1, sy = 1, sz = 1, pitch = 0, yaw = 0, roll = 0 }
+LK.own_target = function(tag)
+    local pad, pl, look = LK.target(tag)
+    if not pad then return nil end
+    local o = LK.own
+    if not (valid(o.pl) and o.id == pad_id(pad) and LK.addr(o.pl) == LK.addr(pl)) then
+        local okS, s = pcall(function() local v = pl.RelativeScale3D; return { X = v.X, Y = v.Y, Z = v.Z } end)
+        local okR, r = pcall(function() local v = pl.RelativeRotation; return { Pitch = v.Pitch, Yaw = v.Yaw, Roll = v.Roll } end)
+        if not (okS and okR) then log(tag .. ": the effect's scale or turn can't be read") return nil end
+        LK.own = { pl = pl, id = pad_id(pad), base = s, rot = r, sx = 1, sy = 1, sz = 1, pitch = 0, yaw = 0, roll = 0 }
+        o = LK.own
+        log(string.format("  %s: pad %s starts at scale %.2f, %.2f, %.2f, turned pitch %.1f yaw %.1f roll %.1f", tag, tostring(o.id),
+            s.X, s.Y, s.Z, r.Pitch, r.Yaw, r.Roll))
+    end
+    return pad, pl, look
+end
+LK.own_text = function()
+    local o = LK.own
+    return string.format("scale X %.2f Y %.2f Z %.2f, turn pitch %+d yaw %+d roll %+d (axis %s)", o.sx, o.sy, o.sz, o.pitch, o.yaw, o.roll, LK.AXES[LK.axis])
+end
+LK.own_scale = function(f)
+    local pad, pl, look = LK.own_target("own look scale")
+    if not pad then return end
+    local o, a = LK.own, LK.AXES[LK.axis]
+    if a == "all" or a == "X" then o.sx = o.sx * f end
+    if a == "all" or a == "Y" then o.sy = o.sy * f end
+    if a == "all" or a == "Z" then o.sz = o.sz * f end
+    LK.untried("SceneComponent:SetRelativeScale3D on the pad's own effect")
+    local ok, err = pcall(function() pl:SetRelativeScale3D({ X = o.base.X * o.sx, Y = o.base.Y * o.sy, Z = o.base.Z * o.sz }) end)
+    log("---- OWN LOOK SCALE (M/N): " .. tostring(o.id) .. " (" .. look .. "): " .. LK.own_text() .. (ok and "" or (" FAILED: " .. one_line(err))))
+    say("Own look " .. LK.own_text())
+end
+LK.own_turn = function(d)
+    local pad, pl, look = LK.own_target("own look turn")
+    if not pad then return end
+    local o, a = LK.own, LK.AXES[LK.axis]
+    if a == "X" then o.roll = o.roll + d elseif a == "Y" then o.pitch = o.pitch + d else o.yaw = o.yaw + d end
+    LK.untried("SceneComponent:K2_SetRelativeRotation on the pad's own effect")
+    local ok, err = pcall(function()
+        pl:K2_SetRelativeRotation({ Pitch = o.rot.Pitch + o.pitch, Yaw = o.rot.Yaw + o.yaw, Roll = o.rot.Roll + o.roll }, false, {}, true)
+    end)
+    log("---- OWN LOOK TURN (LEFT/RIGHT): " .. tostring(o.id) .. " (" .. look .. "): " .. LK.own_text() .. (ok and "" or (" FAILED: " .. one_line(err))))
+    say("Own look " .. LK.own_text())
+end
+LK.own_reset = function()
+    local pad, pl, look = LK.own_target("own look reset")
+    if not pad then return end
+    local o = LK.own
+    -- only the calls already used on this effect (one untried call per press): scale back if scaled, turn back if turned
+    local okS, okR = "not scaled", "not turned"
+    if o.sx ~= 1 or o.sy ~= 1 or o.sz ~= 1 then okS = pcall(function() pl:SetRelativeScale3D(o.base) end) end
+    if o.pitch ~= 0 or o.yaw ~= 0 or o.roll ~= 0 then okR = pcall(function() pl:K2_SetRelativeRotation(o.rot, false, {}, true) end) end
+    o.sx, o.sy, o.sz, o.pitch, o.yaw, o.roll = 1, 1, 1, 0, 0, 0
+    log("---- OWN LOOK RESET (SCROLL LOCK): " .. tostring(o.id) .. " (" .. look .. "): scale back " .. tostring(okS) .. ", turn back " .. tostring(okR))
+    say("Own look reset")
+end
+
+-- own look: renderers and facing (the loaded look's own renderer objects) ---------------------------------------------------------
+LK.renderers = function(look)
+    local found = {}
+    for _, cls in ipairs({ "NiagaraSpriteRendererProperties", "NiagaraMeshRendererProperties" }) do
+        for _, r in ipairs(FindAllOf(cls) or {}) do
+            local okN, fn = pcall(function() return r:GetFullName() end)
+            if okN and type(fn) == "string" and fn:find("/Game/Particles/" .. look .. "." .. look .. ":", 1, true) then
+                local part = fn:match(":([%w_]+)%.[%w_]+$") or "?"
+                found[#found + 1] = { r = r, mesh = cls:find("Mesh", 1, true) ~= nil, part = part:gsub("_%d+$", "") }
+            end
+        end
+    end
+    return found
+end
+LK.renderer_text = function(e)
+    local okF, f = pcall(function() return e.r.FacingMode end)
+    local text = string.format("%s: %s, facing %s", e.part, e.mesh and "MESH" or "SPRITE",
+        okF and ((e.mesh and LK.MESH_FACING or LK.SPRITE_FACING)[f] or tostring(f)) or "unreadable")
+    if not e.mesh then
+        local okA, a = pcall(function() return e.r.Alignment end)
+        text = text .. ", alignment " .. (okA and (LK.SPRITE_ALIGN[a] or tostring(a)) or "unreadable")
+    end
+    return text, okF and f or nil
+end
+LK.renderer_survey = function()
+    local pad, pl, look = LK.target("renderer survey")
+    if not pad then return end
+    LK.untried("FindAllOf on Niagara renderer properties, reading FacingMode / Alignment")
+    local list = LK.renderers(look)
+    LK.renderers_read = true
+    log("---- RENDERER SURVEY (/ in own mode): " .. look .. " on " .. tostring(pad_id(pad)) .. ": " .. #list .. " renderer(s)")
+    for _, e in ipairs(list) do log("  " .. (LK.RING_PARTS[e.part] and "RING " or "     ") .. LK.renderer_text(e)) end
+    say("Renderers of " .. look .. ": " .. #list .. " (see the log)")
+end
+-- One untried call per press (dispatcher, CRD-042): U writes the ring's FacingMode (an EnumProperty, one byte, in the 6 Nov object
+-- dump) and reads it back; the NEXT U on the same pad's effect restarts the effect (ReinitializeSystem) so the renderer is rebuilt.
+LK.facing = {}   -- [look] = { start = mode }
+LK.facing_pending = nil   -- { pl = effect, look = look } after a write, until the restart press
+LK.ring_facing = function()
+    local pad, pl, look = LK.target("ring facing")
+    if not pad then return end
+    local p = LK.facing_pending
+    if p and valid(p.pl) and LK.addr(p.pl) == LK.addr(pl) then
+        LK.facing_pending = nil
+        log("---- RING FACING RESTART (U in own mode, second press): " .. look .. " on " .. tostring(pad_id(pad)) ..
+            ": restarting the effect so the written facing is used (this look's facing stays changed on EVERY pad until the game restarts)")
+        LK.untried("NiagaraComponent:ReinitializeSystem")
+        local okR, errR = pcall(function() pl:ReinitializeSystem() end)
+        log("  ReinitializeSystem: " .. (okR and "ok" or one_line(errR)) .. ". Walk around the pad: does the ring turn to you now? U again = next facing")
+        say("Effect restarted: walk around it")
+        return
+    end
+    LK.facing_pending = nil
+    if not LK.renderers_read then log("ring facing: press / (own mode) first, so the renderer read is tried on its own") say("Press / first", 2) return end
+    local ring
+    for _, e in ipairs(LK.renderers(look)) do if LK.RING_PARTS[e.part] then ring = e end end
+    if not ring then log("ring facing: no ring renderer found for " .. look) say("No ring renderer found", 2) return end
+    local _, cur = LK.renderer_text(ring)
+    if cur == nil then log("ring facing: the ring's FacingMode can't be read") return end
+    local names = ring.mesh and LK.MESH_FACING or LK.SPRITE_FACING
+    local count = ring.mesh and 4 or 5
+    local st = LK.facing[look] or { start = cur }
+    LK.facing[look] = st
+    local nxt = (cur + 1) % count
+    log("---- RING FACING (U in own mode): " .. look .. " ring " .. ring.part .. " (" .. (ring.mesh and "mesh" or "sprite") .. "): " ..
+        (names[cur] or cur) .. " -> " .. (names[nxt] or nxt) .. " (look's own start: " .. (names[st.start] or st.start) ..
+        "). This is a run-time edit of the look's asset: EVERY pad with this look changes until the game restarts")
+    LK.untried("writing FacingMode (enum byte) on a renderer properties object")
+    local okW, err = pcall(function() ring.r.FacingMode = nxt end)
+    if not okW then log("  write failed: " .. one_line(err)) return end
+    local _, back = LK.renderer_text(ring)
+    log("  written; reads back " .. tostring(back and (names[back] or back) or "unreadable") ..
+        ". Watch the ring first (it may not change yet), then press U again to restart the effect")
+    LK.facing_pending = { pl = pl, look = look }
+    say("Ring facing written: " .. tostring(names[nxt] or nxt) .. " (U again = restart)")
+end
+
+-- tint: a grey ring in a window look ------------------------------------------------------------------------------------------------
+LK.TINT_RINGS = { "M_Portal_Friendly_White", "M_Portal_Friendly", "M_Portal_Garden", "M_Portal_Torii", "M_Portal_Salem",
+    "M_Portal_Shadowgate2", "M_Portal_Shadowgate_Blue", "M_Portal_Botanical_Green", "M_Portal_Botanical_Red", "M_WorldPortal_Warehouse",
+    "M_Portal_Arch", "M_WorldPortal" }
+LK.TINTS = {
+    { n = "white (grey as is)", v = { 1.0, 1.0, 1.0 } }, { n = "red", v = { 1.0, 0.05, 0.05 } }, { n = "green", v = { 0.05, 1.0, 0.05 } },
+    { n = "blue", v = { 0.05, 0.1, 1.0 } }, { n = "gold", v = { 1.0, 0.7, 0.1 } }, { n = "purple", v = { 0.6, 0.1, 1.0 } },
+    { n = "cyan", v = { 0.05, 0.9, 1.0 } },
+}
+LK.TINT_PARAMS = { "PortalCenterColor", "PortalCenterColor2", "PortalEdge" }
+-- Friendly White's own values (cooked file, 21 Aug): the fallback grey when the instance can't be read.
+LK.WHITE_GREY = { PortalCenterColor = 0.109, PortalCenterColor2 = 1.0, PortalEdge = 4.84 }
+LK.tint = { pad = nil, mid = nil, ring = 0, step = 0, grey = nil, look = nil }
+LK.grey_of = function(mid)
+    local grey = {}
+    for _, p in ipairs(LK.TINT_PARAMS) do
+        local ok, c = pcall(function() return mid:K2_GetVectorParameterValue(FName(p)) end)
+        if ok and type(c) ~= "nil" and type(c) ~= "string" and c.R then
+            grey[p] = 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B
+        else
+            grey[p] = LK.WHITE_GREY[p]
+        end
+    end
+    return grey
+end
+LK.tint_ring = function()
+    local pad, pl, look = LK.target("grey ring")
+    if not pad then return end
+    if not LK.WINDOW_LOOKS[look] then
+        log("grey ring: " .. look .. " is not a window look (only Default, Blue/Green/Redverse, Dark, Fog take a ring material)")
+        say("Window looks only (use ; for Default)", 2)
+        return
+    end
+    local t = LK.tint
+    if not (valid(t.pad) and pad_id(t.pad) == pad_id(pad)) then t.ring = 0 end
+    t.ring = t.ring % #LK.TINT_RINGS + 1
+    local name = LK.TINT_RINGS[t.ring]
+    local parent = LK.obj("/Game/Particles/Materials/" .. name .. "." .. name)
+    local lib = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
+    log("---- GREY RING (SCROLL LOCK in tint mode): " .. name .. " into User.PortalTexture of " .. tostring(pad_id(pad)) .. " (" .. look .. ")")
+    if not (parent and valid(lib)) then log("  material or KismetMaterialLibrary not found") return end
+    local ok, mid = pcall(function() return lib:CreateDynamicMaterialInstance(pad, parent, FName("None"), 0) end)
+    if not (ok and valid(mid)) then log("  no instance (" .. one_line(mid) .. ")") return end
+    local okS, err = pcall(function() pl:SetVariableMaterial(FName("User.PortalTexture"), mid) end)
+    LK.untried("MaterialInstanceDynamic:K2_GetVectorParameterValue")
+    local grey = LK.grey_of(mid)
+    t.pad, t.mid, t.step, t.grey, t.look = pad, mid, 0, grey, look
+    log(string.format("  put in: %s. Grey levels: centre %.3f, centre 2 %.3f, edge %.3f. Does it draw in the window (swirl, square, checker, nothing)?",
+        okS and "ok" or one_line(err), grey.PortalCenterColor, grey.PortalCenterColor2, grey.PortalEdge))
+    say("Window ring: " .. name:gsub("^M_", ""))
+end
+LK.tint_step = function()
+    local t = LK.tint
+    if not (valid(t.mid) and valid(t.pad)) then log("tint: press SCROLL LOCK (tint mode) at a window-look pad first") say("SCROLL LOCK first", 2) return end
+    t.step = t.step % #LK.TINTS + 1
+    local c = LK.TINTS[t.step]
+    log(string.format("---- TINT (. in tint mode): %s = RGB %.2f, %.2f, %.2f on %s (%s)", c.n, c.v[1], c.v[2], c.v[3], tostring(pad_id(t.pad)), LK.TINT_RINGS[t.ring]))
+    for _, p in ipairs(LK.TINT_PARAMS) do
+        local g = t.grey[p] or 1.0
+        local v = { R = g * c.v[1], G = g * c.v[2], B = g * c.v[3], A = 1.0 }
+        local ok, err = pcall(function() t.mid:SetVectorParameterValue(FName(p), v) end)
+        log(string.format("  %s = %.3f, %.3f, %.3f%s", p, v.R, v.G, v.B, ok and "" or (" FAILED: " .. one_line(err))))
+    end
+    say("Tint: " .. c.n)
+end
+LK.tint_picture = function()
+    local t = LK.tint
+    if not (valid(t.mid) and valid(t.pad)) then log("tint picture: press SCROLL LOCK (tint mode) first") say("SCROLL LOCK first", 2) return end
+    LK.picture = LK.picture % #LK.CUBES + 1
+    local name = LK.CUBES[LK.picture]
+    local cube = LK.obj("/Game/Particles/RenderTargets/" .. name .. "." .. name)
+    local param = LK.TINT_RINGS[t.ring] == "M_WorldPortal" and "PortalImage" or "PortalTexture"
+    log("---- TINT PICTURE (, in tint mode): " .. name .. " into " .. param .. " of the window ring on " .. tostring(pad_id(t.pad)))
+    if not cube then log("  cube map not found") return end
+    local ok, err = pcall(function() t.mid:SetTextureParameterValue(FName(param), cube) end)
+    log("  " .. (ok and "set" or one_line(err)))
+    say("Picture: " .. name)
+end
+
+-- Mode switch: the existing look keys call these instead in own / tint mode (overlay mode = CRD-039 as before).
+LK.by_mode = function(name, own, tint)
+    local base = LK[name]
+    LK[name] = function(...)
+        local m = LK.mode_name()
+        if m == "own" and own then return own(...) end
+        if m == "tint" and tint then return tint(...) end
+        return base(...)
+    end
+end
+LK.by_mode("survey", LK.renderer_survey, nil)
+LK.by_mode("make_mid", LK.own_reset, LK.tint_ring)
+LK.by_mode("next_colour", nil, LK.tint_step)
+LK.by_mode("next_picture", nil, LK.tint_picture)
+LK.by_mode("apply", LK.ring_facing, function() log("U does nothing in tint mode ([ switches mode)") say("U: nothing in tint mode", 2) end)
+LK.by_mode("rescale", LK.own_scale, nil)
+LK.by_mode("side", function(d) LK.own_turn(d > 0 and 15 or -15) end, nil)
+LK.nudge_base = LK.nudge
+LK.by_mode("nudge", function(dz)
+    local fx = LK.fx
+    LK.fx = nil   -- own mode: O / P move the pad's own look even with an overlay out
+    local ok, err = pcall(LK.nudge_base, dz)
+    LK.fx = fx
+    if not ok then log("own look height: " .. one_line(err)) end
+end, nil)
+LK.by_mode("next_axis", function()
+    LK.axis = LK.axis % #LK.AXES + 1
+    local a = LK.AXES[LK.axis]
+    log("---- OWN LOOK AXIS (I): M / N now scale " .. a .. "; LEFT / RIGHT turn " .. (a == "X" and "roll" or (a == "Y" and "pitch" or "yaw")))
+    say("Own look axis: " .. a)
+end, nil)
+
 if not pcall(function() RegisterKeyBind(Key.O, function() ExecuteInGameThread(function() LK.step_press(10) end) end) end) then log("O could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.P, function() ExecuteInGameThread(function() LK.step_press(-10) end) end) end) then log("P could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.O, { ModifierKey.SHIFT }, function() ExecuteInGameThread(function() LK.step_press(1) end) end) end) then log("Shift + O could not be bound") end
@@ -2421,6 +2700,8 @@ if not pcall(function() RegisterKeyBind(Key.U, function() ExecuteInGameThread(LK
 if not pcall(function() RegisterKeyBind(Key.OEM_ONE, function() ExecuteInGameThread(LK.next_look) end) end) then log("; could not be bound") end
 log("look keys (CRD-039, visual only): / = look survey, SCROLL LOCK = material instance, U = put it on the effect, . = colour, , = picture, L = overlay, O / P = overlay up / down, LEFT / RIGHT = sideways, M / N = overlay scale, I = scale axis")
 log("look heights (CRD-041, visual only): ; = next look on the nearest pad (all 32), then O / P = that look's height up / down 10 cm, Shift + O / P 1 cm (kept per look)")
+if not pcall(function() RegisterKeyBind(Key.OEM_FOUR, function() ExecuteInGameThread(LK.next_mode) end) end) then log("[ could not be bound") end
+log("look modes (CRD-042, visual only): [ = overlay / own / tint. own: M / N scale and LEFT / RIGHT turn the pad's own look (I = axis), O / P height, SCROLL LOCK reset, / renderers, U ring facing (whole look). tint: SCROLL LOCK grey ring in a window look, . tint, , picture")
 
 if not pcall(function() RegisterKeyBind(Key.PAGE_UP, function() ExecuteInGameThread(flag_registry_survey) end) end) then log("PAGE UP could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.PAGE_DOWN, function() ExecuteInGameThread(flag_native_probe) end) end) then log("PAGE DOWN could not be bound") end
