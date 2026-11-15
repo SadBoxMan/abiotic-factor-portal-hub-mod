@@ -34,6 +34,20 @@
 !/World Projects/World [A-D]/World_[A-D]/Content/Mods/
 /World Projects/World [A-D]/World_[A-D]/Content/Mods/*
 !/World Projects/World [A-D]/World_[A-D]/Content/Mods/World_[A-D]/
+# our own ring material project (CRD-043): its own files only; the built pak stays out (World Projects/Builds keeps A-D only)
+!/World Projects/PortalHubLooks/
+/World Projects/PortalHubLooks/*
+!/World Projects/PortalHubLooks/AbioticFactor.uproject
+!/World Projects/PortalHubLooks/README.md
+!/World Projects/PortalHubLooks/Config/
+/World Projects/PortalHubLooks/Config/Layouts/
+!/World Projects/PortalHubLooks/Scripts/
+/World Projects/PortalHubLooks/Scripts/*.txt
+/World Projects/PortalHubLooks/Scripts/*.hdr
+!/World Projects/PortalHubLooks/Content/
+/World Projects/PortalHubLooks/Content/*
+!/World Projects/PortalHubLooks/Content/Mods/
+!/World Projects/PortalHubLooks/Content/Particles/
 
 # editor backups
 *.bak

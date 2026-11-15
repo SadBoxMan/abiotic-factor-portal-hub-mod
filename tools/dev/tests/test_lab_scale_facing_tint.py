@@ -74,6 +74,8 @@ function StaticFindObject(path)
     end
     local n = path:match("^/Engine/BasicShapes/[%w_]+%.([%w_]+)$") or path:match("^/Game/StarterContent/Shapes/[%w_]+%.([%w_]+)$")
     if n then return { IsValid = function() return true end, GetFName = function() return FName(n) end } end
+    local own = path:match("^/Game/Mods/PortalHubLooks/Materials/[%w_]+%.([%w_]+)$")   -- CRD-043: our own pak, installed unless OWN_PAK = false
+    if own then if OWN_PAK == false then return nil end return { IsValid = function() return true end, GetFName = function() return FName(own) end } end
     return oldSFO(path)
 end
 RENDERERS = { NiagaraSpriteRendererProperties = {}, NiagaraMeshRendererProperties = {} }
@@ -273,8 +275,8 @@ press(L, "OEM_COMMA")
 check(", puts a picture in the ring's PortalTexture", calls(L)[-1] == "tex PortalTexture TC_Portal_Warehouse", calls(L)[-1])
 press(L, "SCROLL_LOCK")
 check("next ring: Friendly (parent)", "kml M_Portal_Friendly" in calls(L) and calls(L)[-1] == "varmat User.PortalTexture MID_M_Portal_Friendly", calls(L)[-2:])
-L.execute("for i = 1, 10 do KEYS['SCROLL_LOCK']() end")
-check("12th ring: plain M_WorldPortal (window back)", calls(L)[-1] == "varmat User.PortalTexture MID_M_WorldPortal", calls(L)[-1])
+L.execute("for i = 1, 11 do KEYS['SCROLL_LOCK']() end")
+check("13th ring: plain M_WorldPortal (window back; 12th is our own arch, CRD-043)", calls(L)[-1] == "varmat User.PortalTexture MID_M_WorldPortal", calls(L)[-1])
 press(L, "OEM_COMMA")
 check("picture on the plain window goes into PortalImage", calls(L)[-1].startswith("tex PortalImage "), calls(L)[-1])
 L.execute("GREYS = {}")
@@ -297,7 +299,7 @@ check("N back to 0.381", calls(L)[-1] == "scalar Radius (S) 0.381", calls(L)[-1]
 press(L, "SCROLL_LOCK")
 press(L, "N")
 check("next ring (Friendly) starts again from its cooked 0.346", calls(L)[-1] == "scalar Radius (S) 0.315", calls(L)[-1])
-L.execute("for i = 1, 10 do KEYS['SCROLL_LOCK'](); pump() end")
+L.execute("for i = 1, 11 do KEYS['SCROLL_LOCK'](); pump() end")
 press(L, "M")
 check("plain M_WorldPortal: no ring size, no call", has(L, "ring size: M_WorldPortal has no Radius (S)") and not calls(L)[-1].startswith("scalar"), calls(L)[-1])
 check("tint-mode M never scales the effect", not any(x.startswith("ownscale") for x in calls(L)))
@@ -349,8 +351,8 @@ check("Shift + P lowers it 1 cm", "mloc 0.0 0.0 147.0" in calls(L)[-3:], calls(L
 press(L, "SCROLL_LOCK")
 check("next SCROLL LOCK: next ring (Friendly), no new untried line", calls(L)[-1] == "mmat 0 MID_M_Portal_Friendly"
       and sum("untried native call next: PrimitiveComponent:SetMaterial" in l for l in logs(L)) == 1, calls(L)[-1])
-L.execute("for i = 1, 10 do KEYS['SCROLL_LOCK'](); pump() end")
-check("11 rings, never the plain window; wraps to Friendly White", calls(L)[-1] == "mmat 0 MID_M_Portal_Friendly_White"
+L.execute("for i = 1, 11 do KEYS['SCROLL_LOCK'](); pump() end")
+check("12 rings (our own arch too, CRD-043), never the plain window; wraps to Friendly White", calls(L)[-1] == "mmat 0 MID_M_Portal_Friendly_White"
       and not any(x == "mmat 0 MID_M_WorldPortal" for x in calls(L)), calls(L)[-1])
 press(L, "L")
 c = calls(L)

@@ -2630,7 +2630,7 @@ end
 -- tint: a grey ring in a window look ------------------------------------------------------------------------------------------------
 LK.TINT_RINGS = { "M_Portal_Friendly_White", "M_Portal_Friendly", "M_Portal_Garden", "M_Portal_Torii", "M_Portal_Salem",
     "M_Portal_Shadowgate2", "M_Portal_Shadowgate_Blue", "M_Portal_Botanical_Green", "M_Portal_Botanical_Red", "M_WorldPortal_Warehouse",
-    "M_Portal_Arch", "M_WorldPortal" }
+    "M_Portal_Arch", "M_PortalHubLooks_Arch", "M_WorldPortal" }
 LK.TINTS = {
     { n = "white (grey as is)", v = { 1.0, 1.0, 1.0 } }, { n = "red", v = { 1.0, 0.05, 0.05 } }, { n = "green", v = { 0.05, 1.0, 0.05 } },
     { n = "blue", v = { 0.05, 0.1, 1.0 } }, { n = "gold", v = { 1.0, 0.7, 0.1 } }, { n = "purple", v = { 0.6, 0.1, 1.0 } },
@@ -2664,9 +2664,9 @@ LK.tint_ring = function()
     if not (valid(t.pad) and pad_id(t.pad) == pad_id(pad)) then t.ring = 0 end
     t.ring = t.ring % #LK.TINT_RINGS + 1
     local name = LK.TINT_RINGS[t.ring]
-    local parent = LK.obj("/Game/Particles/Materials/" .. name .. "." .. name)
-    local lib = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
     log("---- GREY RING (SCROLL LOCK in tint mode): " .. name .. " into User.PortalTexture of " .. tostring(pad_id(pad)) .. " (" .. look .. ")")
+    local parent = LK.ring_obj(name)
+    local lib = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
     if not (parent and valid(lib)) then log("  material or KismetMaterialLibrary not found") return end
     local ok, mid = pcall(function() return lib:CreateDynamicMaterialInstance(pad, parent, FName("None"), 0) end)
     if not (ok and valid(mid)) then log("  no instance (" .. one_line(mid) .. ")") return end
@@ -2711,7 +2711,7 @@ end
 -- cooked value (21 Aug files; the scalar is not read back, so no second untried call). Uniform only: one radius, no X / Y.
 LK.RADIUS = { M_Portal_Friendly_White = 0.346, M_Portal_Friendly = 0.346, M_Portal_Garden = 0.37, M_Portal_Torii = 0.37,
     M_Portal_Salem = 0.583, M_Portal_Shadowgate2 = 0.583, M_Portal_Shadowgate_Blue = 0.583, M_Portal_Botanical_Green = 0.37,
-    M_Portal_Botanical_Red = 0.37, M_WorldPortal_Warehouse = 0.4, M_Portal_Arch = 0.236 }
+    M_Portal_Botanical_Red = 0.37, M_WorldPortal_Warehouse = 0.4, M_Portal_Arch = 0.236, M_PortalHubLooks_Arch = 0.30 }
 LK.tint_radius = function(f)
     local t = LK.tint
     if not (valid(t.mid) and valid(t.pad)) then log("ring size: press SCROLL LOCK (tint mode) at a window-look pad first") say("SCROLL LOCK first", 2) return end
@@ -2775,11 +2775,11 @@ LK.mesh_place = function(tag)
     log("---- MESH RING (" .. tag .. "): " .. LK.mesh_text() .. (valid(m.back) and ", back face on" or "") .. (fail and (" FAILED: " .. one_line(fail)) or ""))
     say("Mesh ring " .. LK.mesh_text())
 end
-LK.mesh_ring_mid = function()
+LK.mesh_ring_mid = function(idx)
     local m = LK.mesh
-    m.ring = m.ring % (#LK.TINT_RINGS - 1) + 1   -- every ring but the plain window
+    m.ring = idx or (m.ring % (#LK.TINT_RINGS - 1) + 1)   -- every ring but the plain window (idx: Shift + SCROLL LOCK, CRD-043)
     local name = LK.TINT_RINGS[m.ring]
-    local parent = LK.obj("/Game/Particles/Materials/" .. name .. "." .. name)
+    local parent = LK.ring_obj(name)
     local lib = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
     if not (parent and valid(lib)) then log("  material or KismetMaterialLibrary not found: " .. name) return nil end
     local ok, mid = pcall(function() return lib:CreateDynamicMaterialInstance(m.pad, parent, FName("None"), 0) end)
@@ -2830,9 +2830,15 @@ LK.mesh_build = function()
         say(ok and "Mesh ring 3/4: shape on" or "SetStaticMesh FAILED", ok and 0 or 3)
         return
     end
-    local mid, name = LK.mesh_ring_mid()
-    if not mid then return end
-    log("---- MESH RING " .. (m.step == 3 and "step 4/4" or "next ring") .. " (SCROLL LOCK): " .. name .. " on the shape (material 0)")
+    LK.mesh_set_ring(nil, "SCROLL LOCK")
+end
+-- Puts ring idx (nil = the next one) on the built shape (step 3 or later); SCROLL LOCK and Shift + SCROLL LOCK (CRD-043).
+LK.mesh_set_ring = function(idx, tag)
+    local m = LK.mesh
+    local before = m.ring
+    local mid, name = LK.mesh_ring_mid(idx)
+    if not mid then m.ring = idx and before or m.ring return end
+    log("---- MESH RING " .. (m.step == 3 and "step 4/4" or "next ring") .. " (" .. tag .. "): " .. name .. " on the shape (material 0)")
     if m.step == 3 then LK.untried("PrimitiveComponent:SetMaterial on a StaticMeshComponent") end
     local ok, err = pcall(function() m.comp:SetMaterial(0, mid) end)
     if not ok then log("  " .. one_line(err)) return end
@@ -2971,6 +2977,52 @@ LK.mesh_survey = function()
     say("Mesh ring: see the log")
 end
 
+-- Our own ring material (CRD-043): M_PortalHubLooks_Arch, cooked into PortalHubLooks_P (chunk 120, World Projects/PortalHubLooks).
+-- Two-sided, swirl and arch shape worked out from the surface (UV), so ONE face reads the same from both sides; tint through
+-- PortalCenterColor / PortalCenterColor2 / PortalEdge, scene through PortalTexture, size through Radius (S). It is one more ring in
+-- LK.TINT_RINGS (tint and mesh mode), right after the game's arch. In mesh mode Shift + SCROLL LOCK swaps the ring on the built
+-- shape between the game's arch and ours (A / B); SCROLL LOCK and Shift + SCROLL LOCK are gathered 40 ms (Shift wins), as U is.
+-- Loading it is the only new thing (same calls as every other ring): the first load is named in the log before it runs.
+LK.OWN_RING = "M_PortalHubLooks_Arch"
+LK.GAME_ARCH = "M_Portal_Arch"
+LK.RING_PATHS = { M_PortalHubLooks_Arch = "/Game/Mods/PortalHubLooks/Materials/M_PortalHubLooks_Arch.M_PortalHubLooks_Arch" }
+LK.ring_obj = function(name)
+    local own = LK.RING_PATHS[name]
+    local path = own or ("/Game/Particles/Materials/" .. name .. "." .. name)
+    if own and not LK.own_tried then
+        LK.own_tried = true
+        log("  first load of our own cooked ring material next: " .. path .. " from PortalHubLooks_P (if the game crashes now, it was this load or its shaders)")
+    end
+    local o = LK.obj(path)
+    if own and not o then log("  " .. name .. " not found: is PortalHubLooks_P (.pak / .ucas / .utoc) in Content\\Paks\\~mods?") say("Own ring not found (pak installed?)", 3) end
+    return o
+end
+LK.ring_index = function(name)
+    for i, n in ipairs(LK.TINT_RINGS) do if n == name then return i end end
+end
+LK.mesh_own_ring = function()
+    local m = LK.mesh
+    if not LK.mesh_ready("own ring A / B", 3) then return end
+    local to = LK.TINT_RINGS[m.ring] == LK.OWN_RING and LK.GAME_ARCH or LK.OWN_RING
+    LK.mesh_set_ring(LK.ring_index(to), "Shift + SCROLL LOCK, " .. (to == LK.OWN_RING and "own arch" or "game's arch"))
+end
+LK.sl_gate = function(kind)
+    if LK.sl_pending then
+        if kind == "shift" then LK.sl_pending = "shift" end
+        return
+    end
+    LK.sl_pending = kind
+    later(LK.STEP_WINDOW_MS, function()
+        local k = LK.sl_pending
+        LK.sl_pending = nil
+        if k == "shift" then LK.mesh_own_ring() else LK.mesh_build() end
+    end)
+end
+LK.shift_scroll = function()
+    if LK.mode_name() == "mesh" then LK.sl_gate("shift") return end
+    log("Shift + SCROLL LOCK: mesh mode only (own arch / game's arch on the mesh ring; [ switches mode)")
+end
+
 -- Mode switch: the existing look keys call these instead in own / tint mode (overlay mode = CRD-039 as before).
 LK.by_mode = function(name, own, tint, mesh)
     local base = LK[name]
@@ -2984,7 +3036,7 @@ LK.by_mode = function(name, own, tint, mesh)
 end
 LK.by_mode("survey", LK.renderer_survey, nil, LK.mesh_survey)
 LK.by_mode("next_overlay", nil, nil, LK.mesh_next_shape)
-LK.by_mode("make_mid", LK.own_reset, LK.tint_ring, LK.mesh_build)
+LK.by_mode("make_mid", LK.own_reset, LK.tint_ring, function() LK.sl_gate("plain") end)
 LK.by_mode("next_colour", nil, LK.tint_step, LK.mesh_tint)
 LK.by_mode("next_picture", nil, LK.tint_picture, LK.mesh_picture)
 LK.by_mode("apply", LK.ring_facing, function() log("U does nothing in tint mode ([ switches mode)") say("U: nothing in tint mode", 2) end, function() LK.u_gate("plain") end)
@@ -3021,6 +3073,7 @@ if not pcall(function() RegisterKeyBind(Key.RIGHT_ARROW, function() ExecuteInGam
 if not pcall(function() RegisterKeyBind(Key.I, function() ExecuteInGameThread(LK.next_axis) end) end) then log("I could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.OEM_TWO, function() ExecuteInGameThread(LK.survey) end) end) then log("/ could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.SCROLL_LOCK, function() ExecuteInGameThread(LK.make_mid) end) end) then log("SCROLL LOCK could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.SCROLL_LOCK, { ModifierKey.SHIFT }, function() ExecuteInGameThread(LK.shift_scroll) end) end) then log("Shift + SCROLL LOCK could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.OEM_PERIOD, function() ExecuteInGameThread(LK.next_colour) end) end) then log(". could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.OEM_COMMA, function() ExecuteInGameThread(LK.next_picture) end) end) then log(", could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.L, function() ExecuteInGameThread(LK.next_overlay) end) end) then log("L could not be bound") end
@@ -3030,7 +3083,7 @@ if not pcall(function() RegisterKeyBind(Key.OEM_ONE, function() ExecuteInGameThr
 log("look keys (CRD-039, visual only): / = look survey, SCROLL LOCK = material instance, U = put it on the effect, . = colour, , = picture, L = overlay, O / P = overlay up / down, LEFT / RIGHT = sideways, M / N = overlay scale, I = scale axis")
 log("look heights (CRD-041, visual only): ; = next look on the nearest pad (all 32), then O / P = that look's height up / down 10 cm, Shift + O / P 1 cm (kept per look)")
 if not pcall(function() RegisterKeyBind(Key.OEM_FOUR, function() ExecuteInGameThread(LK.next_mode) end) end) then log("[ could not be bound") end
-log("look modes (CRD-042, visual only): [ = overlay / own / tint. own: M / N scale and LEFT / RIGHT turn the pad's own look (I = axis), O / P height, SCROLL LOCK reset, / renderers, U ring facing (whole look). tint: SCROLL LOCK grey ring in a window look, . tint, , picture, M / N ring size. mesh: SCROLL LOCK builds a ring on SM_Portal (4 steps), then as tint plus M/N/LEFT/RIGHT/O/P, L shape, U back face, Shift + U removes")
+log("look modes (CRD-042, visual only): [ = overlay / own / tint. own: M / N scale and LEFT / RIGHT turn the pad's own look (I = axis), O / P height, SCROLL LOCK reset, / renderers, U ring facing (whole look). tint: SCROLL LOCK grey ring in a window look, . tint, , picture, M / N ring size. mesh: SCROLL LOCK builds a ring on SM_Portal (4 steps), then as tint plus M/N/LEFT/RIGHT/O/P, L shape, U back face, Shift + U removes, Shift + SCROLL LOCK own arch / game's arch (CRD-043)")
 
 if not pcall(function() RegisterKeyBind(Key.PAGE_UP, function() ExecuteInGameThread(flag_registry_survey) end) end) then log("PAGE UP could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.PAGE_DOWN, function() ExecuteInGameThread(flag_native_probe) end) end) then log("PAGE DOWN could not be bound") end
