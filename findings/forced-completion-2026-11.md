@@ -126,8 +126,21 @@ re-point the zone simply waits on `DemoNeverSet` again.
 
 ## 5. In-game reads
 
-None were run (no install was approved, and the lab is not installed right now). One read-only check is worth doing before the build
-card, with an existing lab key (no new key, no code change):
+**Done 15 November, 01:44-01:45 (CRD-040, lab from HEAD ce12935, read only).** LuciDin entered each world by a hub portal in manual mode
+(B-1 to `wall_start`, B-2 to `DistantShore`), then pressed NUMPAD 7 and PAGE UP. The test save had 222 flags set, none `DemoNeverSet`.
+No "Ref was not function".
+
+- **GATE Arch Defense:** `V_TheWall.V_TheWall:PersistentLevel.Vignette_Zone_C_0` at -334930, 333386, 13206 (extent 17935 x 14697 x
+  10000). It gives `Buff_InVignette_TimeScramble`, not the plain `Buff_InVignette`, and its **world flag is `DemoNeverSet`**. The player
+  carried `Debuff_PortalSickness`. Pads that set a flag: `wall_start`, `wall_entrance`, `wall_return` set `Residence_Wall` (set in this
+  save); `wall_exit` (at -334833, 329613) sets `RES_ExitWall` (not set). Neither is the zone's flag, so neither lifts the sickness.
+- **Some Distant Shore:** `V_DistantShore.V_DistantShore:PersistentLevel.Vignette_Zone_C_0` at 332356, -333983, 1588 (extent 10000
+  cubed), `Buff_InVignette`, **world flag `DemoNeverSet`**, and `Debuff_PortalSickness` on the player. No pad in the world sets a flag.
+- Both zones stayed in memory after the player left (the Wall's was still listed from inside Distant Shore, and the other way round). The
+  only zones on `DemoNeverSet` were these two; the hub's custom-world zones (at 1.1-1.4 million) are far from both.
+- So the CRD-038 inference holds: the zone match is on `DemoNeverSet`, within 1 km of each zone's position above.
+
+The planned reads were:
 
 | Key | Run it in | What it logs |
 |---|---|---|
@@ -140,5 +153,47 @@ Writing a flag to a save (the build card's own test) needs LuciDin's yes and a s
 ## Open questions for LuciDin
 
 1. Answered (14 November): ARCH Defense and Distant Shore only. Albatross gives no portal sickness.
-2. Where the switch goes in the editor: HUB EXITS tab, or a tab of its own?
-3. Does it ship in 1.0 (after the touch-ups, before CRD-035), or wait for 1.x?
+2. Answered (14 November): neither. The switch sits in the slot side panel, next to EXIT MODE / BUFFS, and shows only when the
+   selected portal leads to one of those two worlds ("The switch should appear if the selected portal is one of those two worlds").
+3. Answered (14 November): it ships in 1.0 ("Yes, this should ship with the 1.0 release").
+
+## 6. As built (CRD-040, 15 November)
+
+The rulings changed section 4's config shape: the key is **per portal**, not a global block.
+
+- **Config:** `forceComplete = true` in a portal entry, like `manualBuffs`. A world counts as forced while any portal to it in the
+  config (every entry is an enabled slot: a slot switched off is wiped) has the key. The key on any other destination, a custom world
+  included, is ignored with a log line (`config entry N: forceComplete is only for ...`).
+- **Editor:** a FORCE COMPLETE ON/OFF button left of BUFFS in the side panel, and one amber line under the exit-mode note ("Force
+  complete lifts portal sickness for good in this save; switch off to undo."), both shown only for `wall_start` and `DistantShore`. OFF by
+  default. Picking or typing any other destination clears it (moving between the two worlds keeps it); a slot switched off is wiped.
+- **Hub:** `state.force` (no new main-chunk local). The world table holds each world's key, the game's flag its zone waits on, its title
+  and where its zone stands (section 5's reads). Every 2 s from the tracker, host only (client mode does nothing):
+  a forced world's `Vignette_Zone_C` within 1 km of its spot that still waits on the game's flag is pointed at
+  `PortalHub_force_wall_Completed` / `PortalHub_force_distantshore_Completed` (again after each stream-in). No object scan runs on the tracker tick (CRD-032): the zone is looked for only while a player is in that world (this player within 1 km, or any player's pad use that led there in the last minute, from the AttemptTeleport hook, a mode-4 portal's manual portal included), then kept; each tick only checks the kept zone is valid and reads its flag; an invalid one is looked for again (5 tries 2 s apart, then every 10 s). Then, once per load (a new
+  player controller) and only once `HasWorldFlagsLoaded`, the hub's row is added to `DT_WorldFlags` and the flag is set if the save does
+  not have it. A world not forced has its hub flag cleared once per load if the save has it, with a gray message (the undo). Only the
+  hub's own rows are ever passed to `SetWorldFlag`; a zone on any other flag is never touched. Lab NUMPAD 3 clears these flags too.
+- **Re-pointing alone is not enough (save-write test, 15 November).** A zone streams in with the player and gives
+  `Debuff_PortalSickness` on that first overlap (`Vignette_Zone_C:DelayedPortalSicknessCheck`), and a later flag change does not take an
+  applied debuff off. Run 1: both flags set, both zones re-pointed about 2 s after entry, the sickness stayed in both worlds. So the hub
+  also:
+  - **catches the zone as it streams in:** while a world is forced, the host watches the Vignette zone class (`NotifyOnNewObject`, set up
+    once after the class is in memory; the callback only queues `state.later`) and re-points the zone on the game thread as soon as its
+    flag has read in. It matches the zone by its map in the zone's full name (`/Game/Maps/V_TheWall.`, `/Game/Maps/V_DistantShore.`),
+    because a new zone's position can still read 0, 0, 0. Retest: both zones caught on the first look, 55-65 ms after the pad use, yet
+    one of two first entries still got the sickness (the zone's own check runs in the same few ms);
+  - **takes the sickness off:** once the zone waits for the hub's flag and that flag is set, the hub removes `Debuff_PortalSickness`
+    from this machine's player in that world and from players whose pad use led there in the last minute, with the game's own
+    `CharacterBuffComponent:Server_RemoveBuff(BuffDebuffRowHandle { RowName }, true, EBodyLimbs 0 = AllBones, false)` (types from the
+    object dump). Lab F9 tried the call first (`returned true`, 1 -> 0, still 0 two seconds later; one untried call per press, with
+    `Server_RemoveSpecificBuffs` on a second press, never needed). It runs from the 2 s check while the zone is the hub's (cached, no
+    scan), right after a zone is found, and 0.3 s after a stream-in catch. Host only.
+- **Save-write test (15 November, Mod Testing, after a save backup):** with FORCE COMPLETE on for both worlds, LuciDin reports equipment
+  working in both worlds on first entry and after re-entering. That run's UE4SS.log was overwritten by the next launch, so it rests on his
+  report. Switched off, the next load showed both gray messages, and `Debuff_PortalSickness` was back in both worlds, untouched by the hub
+  (logged). No crash and no "Ref was not function" in any of the six runs.
+- **Tests:** `tools/dev/tests/test_hub_force_completion.py` (106 checks), `test_lab_remove_sickness.py` (22), `test_gui.py` and
+  `test_luaconfig.py` (the switch and the key).
+- **Commits:** adaada1 (hub + editor), 50194e1 (stream-in watch), 54f7735 (map-name match), 506413d (taking the sickness off), d383b85
+  (lab F9).
