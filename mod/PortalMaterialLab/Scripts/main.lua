@@ -11,6 +11,7 @@
 --   F5              no-clip on / off (changes the player: capsule passes through walls but keeps overlaps for level streaming, flying)
 --   F7              infinite health on / off (changes the player: sets its own Invincible flag, checked again every 2 s while on, so a
 --                   new character after a load gets it too; no hook). For recording MHEs in dangerous worlds (CRD-031).
+--   F9              take portal sickness off this player (CRD-040 survey; one game call per press, logged; changes the player)
 --   F2              save the player's position (world and world-relative, for ArriveSpot / ExitSpot) to the log and saved_positions.txt
 --   INSERT          Hub Exit preview and MHE: put a portal at the last F2 spot that leads to the last hub-room portal used, and save that spot
 --                   as the Manual Hub Exit (MHE) of the world it is in, in the HUB's manual_exits.lua; a hub portal in exit mode "manual" to that
@@ -26,7 +27,7 @@
 --                   look's height by 10 cm, Shift + O / P by 1 cm (kept per look; starting heights from portal-heights.csv next to
 --                   the lab if present). Logs one LOOK HEIGHT line per change for tools/dev/portal_heights_from_log.py
 --   (no key)        every pad use is logged by a passive hook on AttemptTeleport: which pad, where it leads, which flag and buffs it gives
--- Keys stay clear of the game's own bindings: F1 is its player list, F10 its HUD toggle, + its pager (NUMPAD 1 and 2 belong to PortalHub, F6 to PortalLogger; F7 and F8 are unbound in the game's input config). Note: Shift + a numpad digit does not work,
+-- Keys stay clear of the game's own bindings: F1 is its player list, F10 its HUD toggle, + its pager (NUMPAD 1 and 2 belong to PortalHub, F6 to PortalLogger; F7, F8 and F9 are unbound in the game's input config). Note: Shift + a numpad digit does not work,
 -- because with Num Lock on Shift turns the digit into Home / arrow keys.
 -- Rule: every object is checked with IsValid() before anything is called on it (a call on an invalid object crashes the game).
 
@@ -939,6 +940,58 @@ local function vignette_buff_survey()
 end
 RegisterKeyBind(Key.NUM_SEVEN, function() ExecuteInGameThread(vignette_buff_survey) end)
 
+-- F9 (CRD-040 survey, testing; writes to this player): take Debuff_PortalSickness off this player with the game's own
+-- CharacterBuffComponent calls, to learn whether the hub can lift it from players already inside a forced world (the zone gives it on
+-- entry, before the hub can re-point the zone). One untried call per press, named in the log just before it runs: a press tries
+-- Server_RemoveBuff(BuffRow, bRemoveEntireStack, Limb, bExpiredByTime) (BuffDebuffRowHandle { RowName }, true, 0 = EBodyLimbs::AllBones,
+-- false); if that leaves the sickness, the next press tries Server_RemoveSpecificBuffs(BuffRows, bSpecificLimbs, Limbs) ({ { RowName } },
+-- false, {}), then it starts over. Lists the sickness before, right after and 2 s later. Host only (Server_ calls). F9 is in none of the
+-- game's input mappings (pakchunk0) nor LuciDin's rebinds (checked 15 November).
+do
+    local SICK = "Debuff_PortalSickness"
+    local nextCall = "Server_RemoveBuff"
+    local function sick_count(bc)
+        local n = 0
+        pcall(function() bc.CurrentBuffs:ForEach(function(_, e) if handle_row(e:get().BuffRow) == SICK then n = n + 1 end end) end)
+        return n
+    end
+    local function remove_sickness()
+        log("---- PORTAL SICKNESS REMOVE TEST (F9)")
+        local pc = player_controller()
+        local pawn = pc and pc.Pawn
+        if not (pawn and pawn:IsValid()) then log("  no player pawn"); return end
+        local bc = nil
+        pcall(function() bc = pawn.BuffComponent end)
+        if not (bc and bc:IsValid()) then log("  no buff component"); return end
+        vignette_status("  status")
+        local before = sick_count(bc)
+        log("  " .. SICK .. " before: " .. before)
+        if before == 0 then log("  nothing to remove; enter a world that gives portal sickness first"); log("---- PORTAL SICKNESS REMOVE TEST done"); return end
+        local call = nextCall
+        log("  calling " .. call .. " now")
+        local ok, ret
+        if call == "Server_RemoveBuff" then
+            ok, ret = pcall(function() return bc:Server_RemoveBuff({ RowName = FName(SICK) }, true, 0, false) end)
+        else
+            ok, ret = pcall(function() return bc:Server_RemoveSpecificBuffs({ { RowName = FName(SICK) } }, false, {}) end)
+        end
+        local after = sick_count(bc)
+        log(string.format("  %s: %s %s; after: %d", call, ok and "returned" or "failed:", tostring(ret):match("^[^\r\n]*"), after))
+        if call == "Server_RemoveBuff" and after > 0 then
+            nextCall = "Server_RemoveSpecificBuffs"
+            log("  the sickness is still there: the next F9 press tries Server_RemoveSpecificBuffs")
+        else
+            nextCall = "Server_RemoveBuff"
+        end
+        later(2000, function()
+            if not (bc and bc:IsValid()) then log("  2 s later: the buff component is gone"); return end
+            log("  2 s later: " .. SICK .. " " .. sick_count(bc) .. " (0 = removed and not given back)")
+            log("---- PORTAL SICKNESS REMOVE TEST done")
+        end)
+    end
+    if not pcall(function() RegisterKeyBind(Key.F9, function() ExecuteInGameThread(remove_sickness) end) end) then log("F9 could not be bound") end
+end
+
 -- NUMPAD 3 (testing): clear every Portal Hub completion flag ("PortalHub_<world>_Completed") in this world save, so a vignette world
 -- applies portal sickness again. Uses the game's own WorldFlagSubsystem:SetWorldFlag(flag, false, context); says so on screen.
 -- Handles carry the row name only, as the hub's do since CRD-011 (the game's WorldFlagRowHandle has no DataTablePath since v1.5.0).
@@ -996,6 +1049,7 @@ end
 RegisterKeyBind(Key.NUM_THREE, function() ExecuteInGameThread(clear_hub_flags) end)
 log("test key: NUMPAD 3 = clear Portal Hub completion flags in this save (portal sickness comes back on the next entry)")
 log("survey key: NUMPAD 7 = vignette zones, the player's buffs and tags (read-only)")
+log("test key: F9 = take portal sickness off this player (CRD-040 survey; one game call per press; writes to the player)")
 
 ------------------------------------------------------------------------------------------------------------------------
 -- Lighting browser, NUMPAD 0 / * / slash / . (17 October 2026). Every row of the game's lighting table (DT_LevelFX) is a possible
