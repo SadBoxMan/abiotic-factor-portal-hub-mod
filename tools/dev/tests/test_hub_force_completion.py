@@ -316,6 +316,86 @@ h.tick(12)
 check("watch: client, no watch", h.ev("NOTIFY[ZC]") is None)
 done(h)
 
+# ---- the sickness the zone gave in the same moment is taken off (lab F9 proved the call, 15 November): once the zone waits for the hub's
+# flag and the flag is set, every player in that world (this machine's player, and players whose pad use led there) loses it
+SICKMOCK = """
+function buffcomp(sick)
+    local bc = { IsValid = function() return true end, removes = {} }
+    bc.list = sick and { "Buff_InVignette", "Debuff_PortalSickness" } or { "Buff_InVignette" }
+    bc.CurrentBuffs = { ForEach = function(self, fn) for i, r in ipairs(bc.list) do fn(i, { get = function() return { BuffRow = { RowName = FName(r) } } end }) end end }
+    bc.Server_RemoveBuff = function(self, row, stack, limb, expired)
+        bc.removes[#bc.removes + 1] = row.RowName.s .. "/" .. tostring(stack) .. "/" .. tostring(limb) .. "/" .. tostring(expired)
+        local out = {} for _, r in ipairs(bc.list) do if r ~= row.RowName.s then out[#out + 1] = r end end
+        bc.list = out
+        return true
+    end
+    return bc
+end
+PAWN.BuffComponent = buffcomp(true)
+PAWN.GetFName = function() return FName("Player_Host") end
+"""
+h = Hub(SHORE_P % ", forceComplete = true", ZONES3 + SICKMOCK)
+h.tick(6)
+check("sickness: player outside the world: not touched", h.ev("#PAWN.BuffComponent.removes") == 0)
+at(h, SHORE_AT); h.tick(6)
+check("sickness: taken off this machine's player in the forced world, once (row, entire stack, AllBones, not expired)",
+      h.ev("#PAWN.BuffComponent.removes") == 1 and h.ev("PAWN.BuffComponent.removes[1]") == "Debuff_PortalSickness/true/0/false",
+      (h.ev("#PAWN.BuffComponent.removes"), h.ev("PAWN.BuffComponent.removes[1]")))
+check("sickness: logged", h.has("portal sickness taken off Player_Host in Some Distant Shore (returned true; 0 left)"), [l for l in h.logs() if "taken off" in l])
+check("sickness: other buffs kept", h.ev("#PAWN.BuffComponent.list") == 1)
+h.tick(10)
+check("sickness: no further calls while it is gone", h.ev("#PAWN.BuffComponent.removes") == 1)
+h.run("PAWN.BuffComponent.list[#PAWN.BuffComponent.list + 1] = 'Debuff_PortalSickness'"); h.tick(6)
+check("sickness: given again (e.g. a re-entry race): taken off again", h.ev("#PAWN.BuffComponent.removes") == 2 and h.ev("#PAWN.BuffComponent.list") == 1)
+done(h)
+
+# not before the hub's flag is set (the zone would only give it back)
+h = Hub(SHORE_P % ", forceComplete = true", ZONES3 + SICKMOCK + "FLAGS_LOADED = false")
+at(h, SHORE_AT); h.tick(12)
+check("sickness: flags not loaded / flag not set: not touched", h.ev("#PAWN.BuffComponent.removes") == 0)
+h.run("FLAGS_LOADED = true"); h.tick(6)
+check("sickness: once the flag is set: taken off", h.ev("#PAWN.BuffComponent.removes") == 1)
+done(h)
+
+# not forced: never touched; client: never touched
+h = Hub(SHORE_P % "", ZONES3 + SICKMOCK)
+at(h, SHORE_AT); h.tick(12)
+check("sickness: world not forced: not touched", h.ev("#PAWN.BuffComponent.removes") == 0)
+done(h)
+h = Hub(SHORE_P % ", forceComplete = true", ZONES3 + SICKMOCK + "PC.HasAuthority = function() return false end; PC.IsLocalController = function() return true end")
+at(h, SHORE_AT); h.tick(12)
+check("sickness: client: not touched", h.ev("#PAWN.BuffComponent.removes") == 0)
+done(h)
+
+# another player whose pad use led into the world (the host stays in the Facility) loses it too; one standing elsewhere does not
+h = Hub(SHORE_P % ", forceComplete = true", ZONES3 + SICKMOCK + HOOK_EXTRAS + """
+FRIEND = { IsValid = function() return true end, BuffComponent = buffcomp(true), GetFName = function() return FName("Player_Friend") end,
+           K2_GetActorLocation = function() return { X = %d, Y = %d, Z = 500 } end }
+FAR = { IsValid = function() return true end, BuffComponent = buffcomp(true), GetFName = function() return FName("Player_Far") end,
+        K2_GetActorLocation = function() return { X = 0, Y = 0, Z = 0 } end }
+""" % (SHORE_AT[0] + 1000, SHORE_AT[1]))
+h.run("NOTIFY['/Game/Blueprints/Environment/Teleporters/BP_Teleporter_HomeWorld.BP_Teleporter_HomeWorld_C']()")
+h.tick(6)
+if h.ev("HOOK_FN") is not None:
+    h.run("HOOK_FN({ get = function() return pad_obj('DistantShore') end }, { get = function() return FRIEND end })")
+    h.run("HOOK_FN({ get = function() return pad_obj('fog_start') end }, { get = function() return FAR end })")
+    h.tick(6)
+    check("sickness: the friend who went in loses it", h.ev("#FRIEND.BuffComponent.removes") == 1 and h.ev("#FRIEND.BuffComponent.list") == 1,
+          h.ev("#FRIEND.BuffComponent.removes"))
+    check("sickness: a player who went elsewhere keeps theirs", h.ev("#FAR.BuffComponent.removes") == 0)
+    check("sickness: the host (in the Facility) not touched", h.ev("#PAWN.BuffComponent.removes") == 0)
+else:
+    check("sickness: the hook was registered", False, "no hook")
+done(h)
+
+# the stream-in catch sweeps 0.3 s later, without waiting for the 2 s tick
+h = Hub(SHORE_P % ", forceComplete = true", WATCH + SICKMOCK)
+h.tick(6)                                         # flag set, watch on
+at(h, SHORE_AT)
+h.run("CZ = zone(%d, %d, 'DemoNeverSet'); NOTIFY[ZC](CZ); pump(); pump()" % SHORE_AT)
+check("sickness: the stream-in catch takes it off right away", h.ev("#PAWN.BuffComponent.removes") == 1, h.ev("#PAWN.BuffComponent.removes"))
+done(h)
+
 check("the game's flag is never passed to SetWorldFlag (every run above)", not any(c.startswith(GAME_FLAG) for c in ALL_CALLS), ALL_CALLS)
 check("only hub flags are ever passed to SetWorldFlag", all(c.startswith("PortalHub_force_") for c in ALL_CALLS), ALL_CALLS)
 

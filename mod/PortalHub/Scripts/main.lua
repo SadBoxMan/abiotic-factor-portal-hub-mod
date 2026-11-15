@@ -153,7 +153,7 @@ end
 --   "/Game/Maps/<map>.", known from the moment it is created), and where its zone stands (read in game with the
 --   lab, 15 November: V_TheWall / V_DistantShore PersistentLevel.Vignette_Zone_C_0, both on DemoNeverSet). A zone is matched within 1 km
 --   of that spot, and only while it still waits on the game's flag. The rest of the code is with the presence tracker (state.force.tick).
-state.force = { on = {}, done = {}, zone = {}, wake = {}, misses = {}, scanAt = {}, inside = {}, worlds = {
+state.force = { on = {}, done = {}, set = {}, zone = {}, wake = {}, misses = {}, scanAt = {}, inside = {}, arrivals = {}, worlds = {
     wall_start   = { key = "wall",         flag = "DemoNeverSet", title = "GATE Arch Defense Facility", map = "V_TheWall",      at = { -334930, 333386 } },
     DistantShore = { key = "distantshore", flag = "DemoNeverSet", title = "Some Distant Shore",         map = "V_DistantShore", at = { 332356, -333983 } },
 } }
@@ -1619,7 +1619,57 @@ function state.force.arrive(pad, char)
     local loc = nil
     if char then pcall(function() loc = char:K2_GetActorLocation() end) end
     for d, w in pairs(F.worlds) do
-        if F.on[d] and (d == dest or F.near(w, loc)) then F.wake[d], F.misses[d] = os.clock(), 0 end
+        if F.on[d] and (d == dest or F.near(w, loc)) then
+            F.wake[d], F.misses[d] = os.clock(), 0
+            if char then
+                F.arrivals[d] = F.arrivals[d] or {}
+                F.arrivals[d][obj_key(char)] = { char = char, t = os.clock() }
+            end
+        end
+    end
+end
+
+-- The zone gives Debuff_PortalSickness on entry, often in the same few ms in which the hub re-points it (15 November: the stream-in catch
+-- came 55-65 ms after the pad use, and one of two entries still got the sickness). Once the zone waits for the hub's flag and the flag is
+-- set, the game would not give it again, so the hub takes it off any player in that world: this machine's player within 1 km, and players
+-- whose pad use led there in the last minute (state.force.arrive). The game's own call, as the pad's buffs are given (CRD-012):
+-- CharacterBuffComponent:Server_RemoveBuff(BuffDebuffRowHandle { RowName }, entire stack, EBodyLimbs 0 = AllBones, not expired); lab F9
+-- tried it in game (15 November: returned true, 1 -> 0, still 0 two seconds later).
+state.force.SICK = "Debuff_PortalSickness"
+function state.force.sick(char)
+    local bc, n = nil, 0
+    pcall(function() bc = char.BuffComponent end)
+    if not (bc and bc:IsValid()) then return nil, 0 end
+    pcall(function()
+        bc.CurrentBuffs:ForEach(function(_, e)
+            local okR, r = pcall(function() return e:get().BuffRow.RowName:ToString() end)
+            if okR and r == state.force.SICK then n = n + 1 end
+        end)
+    end)
+    return bc, n
+end
+
+function state.force.sweep(dest, w)
+    local F = state.force
+    if not F.set[dest] then return end            -- only once the hub's flag is set (else the zone would give it again)
+    local chars = {}
+    local pawn = local_pawn()
+    if pawn then chars[obj_key(pawn)] = pawn end
+    for k, a in pairs(F.arrivals[dest] or {}) do
+        if os.clock() - a.t < 60 and a.char:IsValid() then chars[k] = a.char else F.arrivals[dest][k] = nil end
+    end
+    for _, c in pairs(chars) do
+        local okL, l = pcall(function() return c:K2_GetActorLocation() end)
+        if okL and F.near(w, l) then
+            local bc, n = F.sick(c)
+            if bc and n > 0 then
+                local ok, ret = pcall(function() return bc:Server_RemoveBuff({ RowName = FName(F.SICK) }, true, 0, false) end)
+                local _, left = F.sick(c)
+                local okN, name = pcall(function() return c:GetFName():ToString() end)
+                log(string.format("forced completion: portal sickness taken off %s in %s (%s; %d left)", okN and name or "a player", w.title,
+                    ok and ("returned " .. tostring(ret)) or ("failed: " .. tostring(ret):match("^[^\r\n]*")), left))
+            end
+        end
     end
 end
 
@@ -1627,7 +1677,7 @@ function state.force.zone_tick(dest, w, row, loc)
     local F = state.force
     local z = F.zone[dest]
     if z and z:IsValid() then
-        if F.point(z, w, row) then return end
+        if F.point(z, w, row) then F.sweep(dest, w) return end
     end
     F.zone[dest] = nil
     local here = F.near(w, loc)
@@ -1638,7 +1688,7 @@ function state.force.zone_tick(dest, w, row, loc)
     if F.scanAt[dest] and os.clock() - F.scanAt[dest] < wait and (F.misses[dest] or 0) > 0 then return end
     F.scanAt[dest] = os.clock()
     F.zone[dest] = F.find(w, row)
-    if F.zone[dest] then F.misses[dest] = 0 else F.misses[dest] = (F.misses[dest] or 0) + 1 end
+    if F.zone[dest] then F.misses[dest] = 0; F.sweep(dest, w) else F.misses[dest] = (F.misses[dest] or 0) + 1 end
 end
 
 function state.force.tick(pc, pawn)
@@ -1650,7 +1700,7 @@ function state.force.tick(pc, pawn)
     local fs = flag_subsystem(pc)
     if not (fs and fs:IsValid()) or not flags_loaded(fs) then return end
     local key = obj_key(pc)
-    if F.load ~= key then F.load, F.done, F.zone, F.cleared = key, {}, {}, false end    -- a new controller is a new load
+    if F.load ~= key then F.load, F.done, F.set, F.zone, F.cleared = key, {}, {}, {}, false end    -- a new controller is a new load
     if next(F.on) then F.watch() end
     local loc = nil
     if pawn then pcall(function() loc = pawn:K2_GetActorLocation() end) end
@@ -1662,8 +1712,11 @@ function state.force.tick(pc, pawn)
             if ensure_flag_row({ id = "force_" .. w.key }) then       -- the row must be in DT_WorldFlags to ask for, set or clear it
                 F.done[dest] = true
                 local okH, has = pcall(function() return fs:HasWorldFlag(pc, flag_handle(row)) end)
-                if F.on[dest] and not (okH and has == true) then
+                if F.on[dest] and okH and has == true then
+                    F.set[dest] = true
+                elseif F.on[dest] then
                     local okS, err = pcall(function() fs:SetWorldFlag(flag_handle(row), true, pc) end)
+                    if okS then F.set[dest] = true end
                     log("forced completion: " .. row .. (okS and " set: portal sickness lifted in " .. w.title or (" could not be set: " .. tostring(err))))
                 elseif not F.on[dest] and okH and has == true then
                     pcall(function() fs:SetWorldFlag(flag_handle(row), false, pc) end)
@@ -1730,6 +1783,7 @@ function state.force.born(z)
             if F.point(z, w, "PortalHub_force_" .. w.key .. "_Completed") then
                 F.zone[dest], F.misses[dest] = z, 0
                 log("forced completion: " .. w.title .. "'s zone caught as it streamed in (" .. tries .. " look(s))")
+                state.later(300, function() F.sweep(dest, w) end)     -- whoever it gave the sickness to in that same moment
             else
                 log("forced completion: " .. w.title .. "'s zone streamed in waiting for " .. tostring(cur) .. ", not the game's flag; left alone")
             end
