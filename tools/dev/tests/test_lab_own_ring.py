@@ -111,6 +111,8 @@ for p in ("PortalCenterColor", "PortalCenterColor2", "PortalEdge", "DistortionEd
     check("material has " + p, p in params, sorted(params))
 check("material has a PortalTexture texture parameter", '"parameter_name", "PortalTexture"' in build)
 check("true backside by default (TrueBack 1.0)", re.search(r'\("TrueBack",\s*"TrueBack",\s*1\.0\)', build))
+check("front = the side facing out from the pad on square C (FlipFront 1.0: the plane's back side; LuciDin at Dunkel Forest's MHE)",
+      re.search(r'\("FlipFront",\s*"FlipFront",\s*1\.0\)', build) and "(FlipFront > 0.5 ? -1.0 : 1.0)" in build)
 check("swirl turns clockwise from the front (angle minus time x speed, y down)", "atan2(pn.y, pn.x) - t * SwirlSpeed" in build)
 check("material: two-sided, masked, unlit, Niagara sprite usage", all(x in build for x in ('"two_sided", True', "BLEND_MASKED", "MSM_UNLIT", '"used_with_niagara_sprites", True')))
 check("shape size read from the surface (pixel derivatives of the camera-relative position)", "ddx(P)" in build and "WPT_CAMERA_RELATIVE" in build)

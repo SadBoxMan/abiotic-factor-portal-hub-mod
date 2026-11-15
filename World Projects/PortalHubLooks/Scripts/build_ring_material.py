@@ -21,7 +21,8 @@
 # NoiseScale2 2.818, PortalTexture = TC_Portal_Warehouse), but every part is worked out from the SURFACE, not the view direction:
 #   * the shape is a distance field in real centimetres: the surface's size per UV is read from the pixel derivatives of the
 #     (camera-relative) world position, so a tall, narrow arch keeps a round top round; any scale, any mesh;
-#   * the swirl is noise in polar coordinates around the shape's centre, turning clockwise (seen from the front) with time;
+#   * the swirl is noise in polar coordinates around the shape's centre, turning clockwise (seen from the front) with time; the
+#     front is the side facing out from the pad on the lab's square C (FlipFront = 1: the plane's back side; LuciDin, 15 Nov);
 #   * the back face is a true backside (TrueBack = 1: mirror image, swirl turning the other way, as seen from behind), or reads
 #     the same as the front (TrueBack = 0);
 #   * the scene is the cube map looked up with a direction from the surface plus an optional, side-aware parallax shift.
@@ -61,6 +62,8 @@ SCALARS = [
     ("Shape",      "Shape",           0.0),    # 0 arched door, 1 gothic (pointed) arch, 2 rectangle (square, door), 3 round, 4 oval
     ("Pointed",    "Pointed",         1.0),    # gothic only: 0 = round top, 1 = equilateral pointed arch
     ("TrueBack",   "TrueBack",        1.0),    # 1 = the back face is a true backside (mirror image), 0 = reads like the front
+    ("FlipFront",  "FlipFront",       1.0),    # 1 = the portal's front is the plane's BACK side: on the lab's "square C" plane that is
+                                               # the side facing out from the pad (LuciDin, 15 Nov, at Dunkel Forest's MHE); 0 = plane front
     ("EdgeWidth",  "EdgeWidth",       6.0),    # width of the glowing edge band, cm
     ("EdgePower",  "EdgePower",       2.0),    # how fast the edge glow fades inwards
     ("EdgeWobble", "EdgeWobble",      3.0),    # how much the noise frays the outline, cm (the shape is inset by this)
@@ -123,7 +126,7 @@ if (abs(det) > 1e-12) {
 W = max(W, 1.0); H = max(H, 1.0);
 /* back face: true backside (as seen from behind) or the front's reading */
 float side = Side < 0.0 ? -1.0 : 1.0;
-float fx = TrueBack > 0.5 ? 1.0 : side;
+float fx = (TrueBack > 0.5 ? 1.0 : side) * (FlipFront > 0.5 ? -1.0 : 1.0);   /* FlipFront: mirror, so the plane's back side reads as the front */
 float x = (UV.x - 0.5) * W * fx;      /* cm from the centre line, + right */
 float y = UV.y * H;                    /* cm from the top */
 /* shape: a distance in cm, negative inside */

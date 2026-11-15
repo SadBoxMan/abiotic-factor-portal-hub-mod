@@ -23,8 +23,9 @@ Custom (HLSL) node fed by parameters. Unlike the game's arch it is **Two Sided**
   scale sets the size and a round top stays round on a tall, narrow arch. Square and Door are the same rectangle at different sizes.
 - **Swirl**: noise on circles around the shape's centre, turning **clockwise** seen from the front (`SwirlSpeed`, negative =
   anticlockwise), `NoiseScale`, `NoiseScale2`, `SwirlTwist`, `InflowSpeed`, `SwirlLow` / `SwirlHigh`.
-- **Back face**: `TrueBack` 1 (default) = a true backside (mirror image, swirl turning the other way, as seen from behind); 0 = reads
-  like the front.
+- **Front and back**: the front is the side facing out from the pad on the lab's square C, which is the plane's back side
+  (`FlipFront` 1, default; LuciDin at Dunkel Forest's MHE); `TrueBack` 1 (default) = the other side is a true backside (mirror image,
+  swirl turning the other way, as seen from behind); 0 = both sides read like the front.
 - **Scene**: `PortalTexture` (any cube map), `SceneTint`, `SceneZoom`, `SceneYaw`, `SceneBlur`, `SceneBright`, `SceneMix`,
   `SwirlOverScene`, `DistortMultiply`, `DistortDistance`, and `SceneParallax` (0 = flat picture; more = the scene shifts with the view).
 - **Colours**: `PortalCenterColor` (dark swirl), `PortalCenterColor2` (bright swirl), `PortalEdge` (edge glow), `DistortionEdge`
