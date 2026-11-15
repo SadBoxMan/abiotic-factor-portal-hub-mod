@@ -149,12 +149,13 @@ end
 -- game never sets. forceComplete = true on a hub portal to one of them points that world's zone at a hub-owned flag
 -- ("PortalHub_force_<key>_Completed") and sets it; the game's own flag is never set (it gates other story content). A world counts as
 -- forced while any portal to it has the key; with none left, the hub clears its own flag on the next load (the undo). Host only.
---   destination -> key (the hub flag's name), the game's flag the zone waits on, the title, and where its zone stands (read in game with the
+--   destination -> key (the hub flag's name), the game's flag the zone waits on, the title, its map (the zone's full name holds
+--   "/Game/Maps/<map>.", known from the moment it is created), and where its zone stands (read in game with the
 --   lab, 15 November: V_TheWall / V_DistantShore PersistentLevel.Vignette_Zone_C_0, both on DemoNeverSet). A zone is matched within 1 km
 --   of that spot, and only while it still waits on the game's flag. The rest of the code is with the presence tracker (state.force.tick).
 state.force = { on = {}, done = {}, zone = {}, wake = {}, misses = {}, scanAt = {}, inside = {}, worlds = {
-    wall_start   = { key = "wall",         flag = "DemoNeverSet", title = "GATE Arch Defense Facility", at = { -334930, 333386 } },
-    DistantShore = { key = "distantshore", flag = "DemoNeverSet", title = "Some Distant Shore",         at = { 332356, -333983 } },
+    wall_start   = { key = "wall",         flag = "DemoNeverSet", title = "GATE Arch Defense Facility", map = "V_TheWall",      at = { -334930, 333386 } },
+    DistantShore = { key = "distantshore", flag = "DemoNeverSet", title = "Some Distant Shore",         map = "V_DistantShore", at = { 332356, -333983 } },
 } }
 local is_client             -- true on a joining player's machine (client mode, CRD-027); defined with the presence tracker below
 local spawn_all             -- spawns the hub portals (defined at the end; the tracker also calls it, CRD-028)
@@ -1710,20 +1711,34 @@ function state.force.born(z)
     local function look()
         tries = tries + 1
         if not (z and z:IsValid()) or is_client() then return end
+        local okN, name = pcall(function() return z:GetFullName() end)
+        name = okN and type(name) == "string" and name or ""
         local okC, cur = pcall(function() return z.PortalSicknessWorldFlag.RowName:ToString() end)
-        local okL, l = pcall(function() return z:K2_GetActorLocation() end)
-        local ready = okC and cur and cur ~= "None" and cur ~= "" and okL and l
-        if ready then
-            for dest, w in pairs(F.worlds) do
-                if F.on[dest] and F.near(w, l) and F.point(z, w, "PortalHub_force_" .. w.key .. "_Completed") then
-                    F.zone[dest], F.misses[dest] = z, 0
-                    log("forced completion: " .. w.title .. "'s zone caught as it streamed in (" .. tries .. " look(s))")
-                    return
-                end
-            end
-            return                                    -- another zone (another world, or a custom world's)
+        local flagIn = okC and cur and cur ~= "None" and cur ~= ""
+        -- which forced world: by its map in the zone's name (a new zone's position can still read 0, 0, 0), else by position
+        local dest, w = nil, nil
+        for d, ww in pairs(F.worlds) do
+            if F.on[d] and name:find("/Game/Maps/" .. ww.map .. ".", 1, true) then dest, w = d, ww end
         end
-        if tries < 10 then state.later(50, look) end
+        if not dest then
+            local okL, l = pcall(function() return z:K2_GetActorLocation() end)
+            for d, ww in pairs(F.worlds) do
+                if F.on[d] and okL and l and (l.X ~= 0 or l.Y ~= 0) and F.near(ww, l) then dest, w = d, ww end
+            end
+        end
+        if flagIn and dest then
+            if F.point(z, w, "PortalHub_force_" .. w.key .. "_Completed") then
+                F.zone[dest], F.misses[dest] = z, 0
+                log("forced completion: " .. w.title .. "'s zone caught as it streamed in (" .. tries .. " look(s))")
+            else
+                log("forced completion: " .. w.title .. "'s zone streamed in waiting for " .. tostring(cur) .. ", not the game's flag; left alone")
+            end
+            return
+        end
+        if tries < 10 then state.later(50, look) return end
+        if dest or name:find("/Game/Maps/V_", 1, true) then        -- say why, for a world's zone (not the hub's own zones of custom worlds)
+            log(string.format("forced completion: a vignette zone streamed in (%s), flag %s; not caught", name ~= "" and name or "no name", tostring(cur)))
+        end
     end
     state.later(0, look)
 end
