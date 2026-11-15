@@ -13,7 +13,7 @@ Facility, Some Distant Shore). No third-party mod was read.
 ## Verdict
 
 - **Possible and safe, with one firm rule: never set the game's flag. Re-point the world's zone at a hub-owned flag instead.**
-  The three worlds that can't be completed all wait on one shared flag, `DemoNeverSet`, which the game never sets. The same flag also
+  The two worlds that can't be completed most likely wait on one shared flag, `DemoNeverSet`, which the game never sets. The same flag also
   gates content in `DT_Quests`, `Facility_Pens` and `Facility_Residence`, so setting it would change story and Facility state in ways
   nobody has mapped.
 - The hub already does the safe version for custom worlds. `apply_vignette_type` adds `PortalHub_<id>_Completed` to `DT_WorldFlags`
@@ -22,9 +22,10 @@ Facility, Some Distant Shore). No third-party mod was read.
 - **"Completed" in this game means one thing only: portal sickness is lifted for good in that world.** Equipment, the jetpack included,
   then works there. Nothing found records completion anywhere else: no "completed" text exists for portal worlds in the string tables,
   and these worlds have no true-exit reward. So forcing it changes no rewards and no story. It makes those worlds easier.
-- **Third world in the same position: Albatross (`V_ISLAND`).** It also names `DemoNeverSet`. It is the final story world
-  (`EndBossDefeated`, `End_Boss_FightStartedOnce`), so the sickness there is plainly deliberate. Offering it is LuciDin's call (see
-  "Open questions").
+- **Only these two worlds are outliers (LuciDin, 14 November, from play).** ARCH Defense and Distant Shore both lock equipment, and
+  every other world that gives portal sickness has a way to lift it. Albatross (`V_ISLAND`) also names `DemoNeverSet` in its map, but
+  it gives no portal sickness, so it is not a candidate. The flag is used by something else there, which shows that a name in a map's
+  name table is a clue, not proof of the zone's flag.
 
 ## 1. How the game records a portal world as completed
 
@@ -51,19 +52,19 @@ Facility, Some Distant Shore). No third-party mod was read.
 ## 2. Why ARCH Defense and Distant Shore can't be completed
 
 - `V_TheWall.umap` and `V_DistantShore.umap` each hold a `Vignette_Zone`. The only `DT_WorldFlags` names in their name tables are
-  `DemoNeverSet` (both) and `Wall_AG_met` (the Wall). `V_ISLAND.umap` (Albatross) also names `DemoNeverSet`. No other world map does.
-  As the name suggests, `DemoNeverSet` is a flag that is never set. So these zones keep the sickness on forever: **this is by design,
-  not a missing trigger.**
-  - Inference, not yet read in game: the map files use unversioned properties, so the name table shows that the map uses
-    `DemoNeverSet` but not which property holds it. The zone's `PortalSicknessWorldFlag` is the only flag property these maps need,
-    and the wiki agrees ("Some Distant Shore cannot be completed", so the jetpack can't be used there). The data is also from 21 August,
-    before v1.5.0. Test 1 below confirms both with an existing lab key.
+  `DemoNeverSet` (both) and `Wall_AG_met` (the Wall). As the name suggests, `DemoNeverSet` is a flag that is never set. Both worlds
+  keep the sickness on forever (LuciDin, from play: both lock equipment; the wiki says Distant Shore cannot be completed and the jetpack
+  can't be used there). **This is by design, not a missing trigger.**
+  - Which flag their zones wait on is still an inference, not yet read in game. The map files use unversioned properties, so the name
+    table shows that a map uses `DemoNeverSet` but not which property holds it. `V_ISLAND.umap` (Albatross) also names `DemoNeverSet`
+    yet gives no sickness, so the name alone proves nothing. The data is also from 21 August, before v1.5.0. The build card must read
+    each zone's flag in game first (test 1 below), and match the zone by its own flag value, whatever that turns out to be.
 - Some Distant Shore (wiki): a secret world reached from a Portal Toilet. It has a true exit (walking into the "ocean" goes to the Data
   Farm bathroom), but that exit sets no flag. It gives no reward, and its only achievement comes on the first visit.
 - GATE Arch Defense Facility (wiki): a required story world. On the first visit the player is held in a forcefield until Garrick tells
   the Gatekeeper to let them out. Its pod holds the Motion Module and Excursion Suit recipes. Its pads are `wall_start`, `wall_exit`,
   `wall_return`. No completion is described.
-- **Other worlds:** only Albatross shares the same zone flag. Homes (`H_Cabin`, `H_Garden`, `H_Japan`) have no sickness. `V_Tile`
+- **Other worlds:** none (LuciDin: every other world that gives portal sickness can be completed). Albatross gives no sickness. Homes (`H_Cabin`, `H_Garden`, `H_Japan`) have no sickness. `V_Tile`
   (IS-0031) is not a vignette in `DT_Levels`. `V_Dummy` and `V_Intro` hold no zone.
 
 ## 3. Is a forced completion possible and safe?
@@ -72,8 +73,8 @@ Facility, Some Distant Shore). No third-party mod was read.
 
 1. `ensure_flag_row` for a hub row, `PortalHub_force_<key>_Completed`. Keeping the `PortalHub_..._Completed` shape lets lab NUMPAD 3
    clear it too.
-2. Find that world's `Vignette_Zone_C` (within 1 km of a known pad: `wall_start`, the Distant Shore arrival, `island_start`) whose
-   `PortalSicknessWorldFlag.RowName` is `DemoNeverSet`. Write `z.PortalSicknessWorldFlag = { RowName = FName(row) }`, the same write as
+2. Find that world's `Vignette_Zone_C` (within 1 km of a known pad: `wall_start` or the Distant Shore arrival) whose
+   `PortalSicknessWorldFlag.RowName` is the flag test 1 reads (expected `DemoNeverSet`). Write `z.PortalSicknessWorldFlag = { RowName = FName(row) }`, the same write as
    `apply_vignette_type`. Check `IsValid` first and read the value back.
 3. `SetWorldFlag({ RowName = FName(row) }, true, pc)` once, after `HasWorldFlagsLoaded()` is true (the CRD-001 early-ask bug).
 
@@ -81,7 +82,7 @@ Facility, Some Distant Shore). No third-party mod was read.
 - Rewards: none. These worlds have no true-exit buff, and the jetpack and equipment unlocking is the whole effect.
 - Story: none. No game flag is set and `DemoNeverSet` stays clear, so `DT_Quests`, the Pens and the Residence are untouched.
 - Portal room: nothing. The game shows no completion state there.
-- **Never set `DemoNeverSet` itself.** That would "complete" all three worlds at once and flip whatever the quests and the two Facility
+- **Never set `DemoNeverSet` itself.** That would "complete" both worlds at once and flip whatever the quests and the two Facility
   maps gate on it.
 
 **Save integrity:** the save gains one plain name per forced world, the same kind of entry the hub already writes for custom worlds. If
@@ -138,6 +139,6 @@ Writing a flag to a save (the build card's own test) needs LuciDin's yes and a s
 
 ## Open questions for LuciDin
 
-1. Which worlds go in the switch: ARCH Defense and Distant Shore only, or Albatross too (final story world, sickness deliberate)?
+1. Answered (14 November): ARCH Defense and Distant Shore only. Albatross gives no portal sickness.
 2. Where the switch goes in the editor: HUB EXITS tab, or a tab of its own?
 3. Does it ship in 1.0 (after the touch-ups, before CRD-035), or wait for 1.x?
