@@ -22,6 +22,8 @@
 --   /  SCROLL LOCK  U  .  ,  L   portal looks (CRD-039), on the pad nearest the player: / look survey (read-only); SCROLL LOCK makes a
 --                   dynamic material instance of the ring (U puts it on non-window looks), . cycles its colour, , cycles its picture (cube map), L cycles an overlay look with
 --                   only some parts on (O / P move it up / down, M / N scale it). Visual only, on this machine, nothing saved (hub NUMPAD 1 respawns hub pads; a reload resets the game's)
+--   ;               look heights (CRD-041): the next of the 32 looks on the nearest pad, at that look's height; O / P then set the current
+--                   look's height (kept per look). Logs one LOOK HEIGHT line per change for tools/dev/portal_heights_from_log.py
 --   (no key)        every pad use is logged by a passive hook on AttemptTeleport: which pad, where it leads, which flag and buffs it gives
 -- Keys stay clear of the game's own bindings: F1 is its player list, F10 its HUD toggle, + its pager (NUMPAD 1 and 2 belong to PortalHub, F6 to PortalLogger; F7 and F8 are unbound in the game's input config). Note: Shift + a numpad digit does not work,
 -- because with Num Lock on Shift turns the digit into Home / arrow keys.
@@ -2266,8 +2268,84 @@ LK.pad_height = function(dz)
     log("---- PORTAL HEIGHT (O/P): " .. tostring(id) .. " (" .. look .. "): " .. text .. (ok and "" or (" FAILED: " .. one_line(err))))
     say(string.format("Portal look %+d cm (%.1f)", f.dz, f.base.Z + f.dz))
 end
+-- Look heights (CRD-041, LuciDin 14 Nov: "get the heights of each portal"): ; puts the next of the 32 looks on the nearest pad
+-- (ParticleLoop:SetAsset, as the hub does) and moves it to that look's height; with ; in use on that pad, O / P change the CURRENT
+-- look's height. Heights are kept per look (absolute cm above the pad) for the whole session, across pads, and start at LuciDin's
+-- picks where he has one, else at the pad's own height. Each change logs one LOOK HEIGHT line, which
+-- tools/dev/portal_heights_from_log.py reads into docs/portal-heights.csv. Visual only; hub NUMPAD 1 respawns hub pads.
+LK.LOOKS = { "Niagara_Portal", "Niagara_Portal_Blueverse", "Niagara_Portal_Botanical_Green", "Niagara_Portal_Botanical_Red",
+    "Niagara_Portal_Dark", "Niagara_Portal_Door", "Niagara_Portal_Fog", "Niagara_Portal_Friendly",
+    "Niagara_Portal_Friendly_Black", "Niagara_Portal_Friendly_Blue", "Niagara_Portal_Friendly_Brown",
+    "Niagara_Portal_Friendly_Cyan", "Niagara_Portal_Friendly_Glitched", "Niagara_Portal_Friendly_Green",
+    "Niagara_Portal_Friendly_Lime", "Niagara_Portal_Friendly_Orange", "Niagara_Portal_Friendly_Pink",
+    "Niagara_Portal_Friendly_Purple", "Niagara_Portal_Friendly_Red", "Niagara_Portal_Friendly_White",
+    "Niagara_Portal_Friendly_Yellow", "Niagara_Portal_Garden", "Niagara_Portal_Greenverse",
+    "Niagara_Portal_NightRDoor_2", "Niagara_Portal_Redverse", "Niagara_Portal_Rift",
+    "Niagara_Portal_Salem", "Niagara_Portal_Shadowgate2", "Niagara_Portal_SnowFlurry", "Niagara_Portal_SunDisk",
+    "Niagara_Portal_Tiny", "Niagara_Portal_Torii" }
+LK.PICKS = { Niagara_Portal_Friendly_Red = 108, Niagara_Portal = 118, Niagara_Portal_Botanical_Red = 138, Niagara_Portal_Door = 158 }
+LK.heights = {}
+LK.cyc = { pl = nil, id = nil, base = nil, idx = 0 }
+LK.addr = function(o) local ok, a = pcall(function() return o:GetAddress() end); return ok and a or o end
+LK.cyc_on = function(pad, pl)
+    return valid(LK.cyc.pl) and LK.cyc.id == pad_id(pad) and LK.addr(LK.cyc.pl) == LK.addr(pl)
+end
+LK.height_line = function(look)
+    local c = LK.cyc
+    local h = LK.heights[look]
+    return string.format("---- LOOK HEIGHT: %s | game default %.1f cm | set %.1f cm | offset %+.1f cm | pad %s (%d/%d)",
+        look, c.base.Z, h, h - c.base.Z, tostring(c.id), c.idx, #LK.LOOKS)
+end
+LK.set_height = function(look, tag)
+    local c = LK.cyc
+    local h = LK.heights[look]
+    local ok, err = pcall(function() c.pl:K2_SetRelativeLocation({ X = c.base.X, Y = c.base.Y, Z = h }, false, {}, true) end)
+    log(LK.height_line(look) .. (ok and "" or (" FAILED: " .. one_line(err))))
+    say(string.format("%s: %.0f cm (%s)", look:gsub("^Niagara_Portal_?", ""):gsub("^$", "Default"), h, tag))
+end
+LK.height_table = function()
+    log("---- LOOK HEIGHTS so far (" .. tostring(LK.cyc.id) .. "):")
+    for _, look in ipairs(LK.LOOKS) do
+        if LK.heights[look] then log(string.format("  %s = %.1f cm", look, LK.heights[look])) end
+    end
+end
+LK.next_look = function()
+    local pad, pl, look = LK.target("look heights")
+    if not pad then return end
+    local c = LK.cyc
+    if not LK.cyc_on(pad, pl) then
+        local okB, b = pcall(function() local l = pl.RelativeLocation; return { X = l.X, Y = l.Y, Z = l.Z } end)
+        if not okB then log("look heights: the effect's position can't be read (" .. one_line(b) .. ")") return end
+        local start = 0
+        for i, n in ipairs(LK.LOOKS) do if n == look then start = i end end
+        LK.cyc = { pl = pl, id = pad_id(pad), base = b, idx = start }
+        c = LK.cyc
+        log(string.format("---- LOOK HEIGHTS (;): pad %s, its own look %s, game default height %.1f cm; ; steps through all %d looks, O / P set each one's height",
+            tostring(c.id), look, b.Z, #LK.LOOKS))
+    end
+    if c.idx >= #LK.LOOKS then LK.height_table() end
+    c.idx = c.idx % #LK.LOOKS + 1
+    local name = LK.LOOKS[c.idx]
+    local sys = LK.obj("/Game/Particles/" .. name .. "." .. name)
+    if not sys then log("look heights: look not found: " .. name) return end
+    local ok, err = pcall(function() pl:SetAsset(sys, true); pl:Activate(true) end)
+    if not ok then log("look heights: SetAsset " .. name .. " failed: " .. one_line(err)) return end
+    if not LK.heights[name] then LK.heights[name] = LK.PICKS[name] or c.base.Z end
+    LK.set_height(name, ";")
+end
 LK.nudge = function(dz)
-    if not valid(LK.fx) then LK.pad_height(dz) return end
+    if not valid(LK.fx) then
+        local pad = LK.nearest_pad()
+        local plv = pad and pad.ParticleLoop
+        if pad and valid(plv) and LK.cyc_on(pad, plv) and LK.cyc.idx > 0 then
+            local name = LK.LOOKS[LK.cyc.idx]
+            LK.heights[name] = LK.heights[name] + dz
+            LK.set_height(name, dz > 0 and "O" or "P")
+            return
+        end
+        LK.pad_height(dz)
+        return
+    end
     LK.oz = LK.oz + dz
     LK.place("O/P")
 end
@@ -2305,7 +2383,9 @@ if not pcall(function() RegisterKeyBind(Key.OEM_PERIOD, function() ExecuteInGame
 if not pcall(function() RegisterKeyBind(Key.OEM_COMMA, function() ExecuteInGameThread(LK.next_picture) end) end) then log(", could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.L, function() ExecuteInGameThread(LK.next_overlay) end) end) then log("L could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.U, function() ExecuteInGameThread(LK.apply) end) end) then log("U could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.OEM_ONE, function() ExecuteInGameThread(LK.next_look) end) end) then log("; could not be bound") end
 log("look keys (CRD-039, visual only): / = look survey, SCROLL LOCK = material instance, U = put it on the effect, . = colour, , = picture, L = overlay, O / P = overlay up / down, LEFT / RIGHT = sideways, M / N = overlay scale, I = scale axis")
+log("look heights (CRD-041, visual only): ; = next look on the nearest pad (all 32), then O / P = that look's height up / down 10 cm (kept per look)")
 
 if not pcall(function() RegisterKeyBind(Key.PAGE_UP, function() ExecuteInGameThread(flag_registry_survey) end) end) then log("PAGE UP could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.PAGE_DOWN, function() ExecuteInGameThread(flag_native_probe) end) end) then log("PAGE DOWN could not be bound") end
