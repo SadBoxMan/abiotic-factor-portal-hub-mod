@@ -258,6 +258,41 @@ def test_exit_modes():
     check("exitMode" not in out and 'exits = "manual"' in out, "a portal added to the template carries its own mode, no exitMode")
 
 
+FORCE = '''return {
+    portals = {
+        { slot = "A-4", name = "Shore", destination = "DistantShore", exits = "manual", forceComplete = true },
+        { slot = "B-1", name = "Wall", destination = "wall_start", exits = "manual" },
+    },
+}
+'''
+
+
+def test_force_complete():
+    # CRD-040: forceComplete = true on a portal entry, like manualBuffs
+    c = HubConfig(text=FORCE)
+    check(c.portals["A-4"].force_complete is True and not c.portals["B-1"].force_complete, "forceComplete read")
+    check(c.portals["A-4"].extras == [], "forceComplete is a known field")
+    round_trip_same(FORCE, "forceComplete")
+
+    def edit(c):
+        c.portals["A-4"].force_complete = False
+        c.portals["B-1"].force_complete = True
+        c.portals["C-1"] = Portal(slot="C-1", name="Shore 2", destination="DistantShore", exits="manual", force_complete=True)
+    c, out = edited(edit, FORCE)
+    check('{ slot = "A-4", name = "Shore", destination = "DistantShore", exits = "manual" },' in out, "forceComplete removed")
+    check('{ slot = "B-1", name = "Wall", destination = "wall_start", exits = "manual", forceComplete = true },' in out, "forceComplete added")
+    check('{ slot = "C-1", name = "Shore 2", destination = "DistantShore", exits = "manual", forceComplete = true },' in out,
+          "new portal with forceComplete")
+    if LUA is not None:
+        t = lua(out)
+        check(t["portals"][1]["forceComplete"] is True and "forceComplete" not in t["portals"][0], "real Lua agrees (forceComplete)")   # 0-based lists
+    c2 = HubConfig(text=out)
+    check(c2.portals["B-1"].force_complete and c2.render() == out, "forceComplete reads back and round trips")
+    c3 = HubConfig(text=FORCE)
+    c3.wipe_portal("A-4")
+    check(not c3.portals["A-4"].force_complete and "forceComplete" not in c3.render(), "a wiped slot drops forceComplete")
+
+
 def test_mhe():
     # the template has  -- mhe = {},  commented out
     def off(c):
@@ -399,6 +434,7 @@ if __name__ == "__main__":
     test_reading()
     test_edits()
     test_exit_modes()
+    test_force_complete()
     test_mhe()
     test_wipe()
     test_manual_exits_file()

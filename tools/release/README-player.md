@@ -71,6 +71,12 @@ Set it per portal in the editor, where **manual** is called **M.H.E.** and is wh
 portal in `config.lua`; a portal with no `exits` uses **game**). With **manual**, the **Buffs** switch also gives you the buffs of the
 world's true exit at the Manual Hub Exit. It is off by default because it makes the game much easier.
 
+**Force complete (GATE Arch Defense Facility and Some Distant Shore only).** The game never lifts the portal sickness in these two
+worlds, so your equipment stays locked there. With a portal to one of them selected, the editor shows a **Force Complete** switch next to
+Buffs (`forceComplete = true` on the portal in `config.lua`). Switched on, the hub lifts the sickness in that world for good in this save.
+It changes no story or rewards: the game's own flag is never set. It is off by default. To undo it, switch it off (or remove the portal):
+the sickness comes back the next time you load the save.
+
 ## 5. Manual Hub Exits and the Failsafe Exit
 
 A **Manual Hub Exit (MHE)** is an extra exit portal placed inside a world that always leads back to the hub. 1.0 ships an MHE in

@@ -145,6 +145,17 @@ function state.later(ms, fn)
     ms = math.floor(ms)
     if ExecuteInGameThreadWithDelay then ExecuteInGameThreadWithDelay(ms, fn) else ExecuteWithDelay(ms, function() ExecuteInGameThread(fn) end) end
 end
+-- Forced completion (CRD-040, opt-in): two base-game worlds never lift portal sickness, because their Vignette_Zone waits on a flag the
+-- game never sets. forceComplete = true on a hub portal to one of them points that world's zone at a hub-owned flag
+-- ("PortalHub_force_<key>_Completed") and sets it; the game's own flag is never set (it gates other story content). A world counts as
+-- forced while any portal to it has the key; with none left, the hub clears its own flag on the next load (the undo). Host only.
+--   destination -> key (the hub flag's name), the game's flag the zone waits on, the title, and where its zone stands (read in game with the
+--   lab, 15 November: V_TheWall / V_DistantShore PersistentLevel.Vignette_Zone_C_0, both on DemoNeverSet). A zone is matched within 1 km
+--   of that spot, and only while it still waits on the game's flag. The rest of the code is with the presence tracker (state.force.tick).
+state.force = { on = {}, done = {}, zone = {}, wake = {}, misses = {}, scanAt = {}, inside = {}, worlds = {
+    wall_start   = { key = "wall",         flag = "DemoNeverSet", title = "GATE Arch Defense Facility", at = { -334930, 333386 } },
+    DistantShore = { key = "distantshore", flag = "DemoNeverSet", title = "Some Distant Shore",         at = { 332356, -333983 } },
+} }
 local is_client             -- true on a joining player's machine (client mode, CRD-027); defined with the presence tracker below
 local spawn_all             -- spawns the hub portals (defined at the end; the tracker also calls it, CRD-028)
 
@@ -234,7 +245,7 @@ end
 
 -- Turn config.lua into a checked list of entries; bad entries are logged and skipped.
 local function resolve_config()
-    local entries, used, dests = {}, {}, {}
+    local entries, used, dests, forced = {}, {}, {}, {}
     for i, p in ipairs(Config.portals or {}) do
         local slot = Slots.byId[p.slot]
         if not slot then
@@ -314,8 +325,14 @@ local function resolve_config()
             }
             local e = entries[#entries]
             if manual then e.manualId = e.id .. "_manual" end
+            if p.forceComplete == true then
+                if not world and state.force.worlds[p.destination] then forced[p.destination] = true
+                else log("config entry " .. i .. ": forceComplete is only for GATE Arch Defense (wall_start) and Some Distant Shore (DistantShore); ignored for " .. p.destination) end
+            end
         end
     end
+    state.force.on = forced
+    for dest in pairs(forced) do log("forced completion: on for " .. state.force.worlds[dest].title .. " (forceComplete on a portal to " .. dest .. ")") end
     local byId, byManual, hubMode, acts = {}, {}, {}, {}
     for _, e in ipairs(entries) do
         byId[e.id] = e
@@ -1555,6 +1572,109 @@ local function watch_flags(pc)
     end
 end
 
+-- Forced completion (CRD-040; the worlds are listed at state.force). Every 2 s from the tracker, host only. A forced world's zone is pointed
+-- at the hub's flag whenever it is loaded and still waits on the game's flag (a streamed zone comes back with the game's flag), and the
+-- hub's flag is set once per load once the save's flags are loaded. A world no longer forced has the hub's flag cleared once per load, if
+-- set. Only the hub's own flag is ever passed to SetWorldFlag.
+-- No object scans on the tracker tick (CRD-032): the zone is looked for (FindAllOf) only while a player is in that world (this machine's
+-- player within 1 km of it, or any player whose pad use led there in the last minute: state.force.arrive, from the AttemptTeleport hook),
+-- every 2 s for the first 5 tries, then every 10 s. A found zone is kept; each tick only checks it is still valid and reads its flag.
+state.force.NEAR = 100000 * 100000      -- 1 km, squared (units are cm)
+function state.force.near(w, loc)
+    if not loc then return false end
+    local dx, dy = loc.X - w.at[1], loc.Y - w.at[2]
+    return dx * dx + dy * dy < state.force.NEAR
+end
+
+-- a zone's flag: point it at ours if it still waits on the game's flag; true if it is this world's zone (on either flag)
+function state.force.point(z, w, row)
+    local okC, cur = pcall(function() return z.PortalSicknessWorldFlag.RowName:ToString() end)
+    if not okC then return false end
+    if cur == row then return true end
+    if cur ~= w.flag then return false end
+    pcall(function() z.PortalSicknessWorldFlag = flag_handle(row) end)
+    local okB, back = pcall(function() return z.PortalSicknessWorldFlag.RowName:ToString() end)
+    log("forced completion: " .. w.title .. "'s zone now waits for " .. tostring(okB and back or "?") .. " (was " .. w.flag .. ")")
+    return true
+end
+
+function state.force.find(w, row)
+    for _, z in ipairs(FindAllOf("Vignette_Zone_C") or {}) do
+        if z:IsValid() then
+            local ok, l = pcall(function() return z:K2_GetActorLocation() end)
+            if ok and state.force.near(w, l) and state.force.point(z, w, row) then return z end
+        end
+    end
+    return nil
+end
+
+-- any player's pad use (host, AttemptTeleport hook): if it leads into a forced world, look for that world's zone for the next minute
+function state.force.arrive(pad, char)
+    local F = state.force
+    local okD, dest = pcall(function() return pad.DestinationTeleporterID:ToString() end)
+    dest = okD and dest or nil
+    local m = dest and state.byManual[dest]       -- a mode-4 hub portal leads to the world's manual portal
+    if m then dest = m.dest end
+    local loc = nil
+    if char then pcall(function() loc = char:K2_GetActorLocation() end) end
+    for d, w in pairs(F.worlds) do
+        if F.on[d] and (d == dest or F.near(w, loc)) then F.wake[d], F.misses[d] = os.clock(), 0 end
+    end
+end
+
+function state.force.zone_tick(dest, w, row, loc)
+    local F = state.force
+    local z = F.zone[dest]
+    if z and z:IsValid() then
+        if F.point(z, w, row) then return end
+    end
+    F.zone[dest] = nil
+    local here = F.near(w, loc)
+    if here and not F.inside[dest] then F.misses[dest] = 0 end          -- this machine's player just came in: look at once
+    F.inside[dest] = here
+    if not (here or (F.wake[dest] and os.clock() - F.wake[dest] < 60)) then return end
+    local wait = (F.misses[dest] or 0) < 5 and 2 or 10
+    if F.scanAt[dest] and os.clock() - F.scanAt[dest] < wait and (F.misses[dest] or 0) > 0 then return end
+    F.scanAt[dest] = os.clock()
+    F.zone[dest] = F.find(w, row)
+    if F.zone[dest] then F.misses[dest] = 0 else F.misses[dest] = (F.misses[dest] or 0) + 1 end
+end
+
+function state.force.tick(pc, pawn)
+    local F = state.force
+    if F.at and os.clock() - F.at < 2 then return end
+    F.at = os.clock()
+    if is_client() then return end            -- the host's hub does this for everyone
+    if not next(F.on) and F.cleared then return end
+    local fs = flag_subsystem(pc)
+    if not (fs and fs:IsValid()) or not flags_loaded(fs) then return end
+    local key = obj_key(pc)
+    if F.load ~= key then F.load, F.done, F.zone, F.cleared = key, {}, {}, false end    -- a new controller is a new load
+    local loc = nil
+    if pawn then pcall(function() loc = pawn:K2_GetActorLocation() end) end
+    local all = true
+    for dest, w in pairs(F.worlds) do
+        local row = "PortalHub_force_" .. w.key .. "_Completed"
+        if F.on[dest] then F.zone_tick(dest, w, row, loc) end
+        if not F.done[dest] then
+            if ensure_flag_row({ id = "force_" .. w.key }) then       -- the row must be in DT_WorldFlags to ask for, set or clear it
+                F.done[dest] = true
+                local okH, has = pcall(function() return fs:HasWorldFlag(pc, flag_handle(row)) end)
+                if F.on[dest] and not (okH and has == true) then
+                    local okS, err = pcall(function() fs:SetWorldFlag(flag_handle(row), true, pc) end)
+                    log("forced completion: " .. row .. (okS and " set: portal sickness lifted in " .. w.title or (" could not be set: " .. tostring(err))))
+                elseif not F.on[dest] and okH and has == true then
+                    pcall(function() fs:SetWorldFlag(flag_handle(row), false, pc) end)
+                    show(w.title .. ": forced completion switched off; portal sickness is back", MSG_GRAY)
+                end
+            else
+                all = false
+            end
+        end
+    end
+    F.cleared = all                           -- nothing forced and every check done: the tick returns at once until the next load
+end
+
 local function keep_claim(def, pc)
     local c = presence.claim
     if not c or os.clock() - presence.reclaimAt < 3 then return end
@@ -1714,6 +1834,8 @@ local function track_tick()
         end
     end
     watch_flags(pc)
+    local okF, errF = pcall(state.force.tick, pc, pawn)
+    if not okF then log("forced completion error: " .. tostring(errF):match("^[^\r\n]*")) end
     if not pawn then return end         -- dead, or between pawns: change nothing until there is a pawn again
     -- a client (CRD-027) keeps the claim and the lighting (its own screen) but never moves its pawn (the server would undo it) or loads a world
     local client = is_client()
@@ -2126,6 +2248,7 @@ local function on_attempt(self, inPlayer)
         local char = nil
         if inPlayer then pcall(function() char = inPlayer:get() end) end
         hub_exit_use(pad, char)
+        state.force.arrive(pad, char)       -- CRD-040: a player went into a forced world: look for its zone
         local id = pad_id(pad)
         if char and id and is_hub_id(id) then DLC.backstop(char, id) end
     end)

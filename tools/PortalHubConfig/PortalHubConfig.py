@@ -901,12 +901,18 @@ class App:
         self.buff_btn.pack(side="right")
         Tip(self.buff_btn, "manualBuffs, M.H.E. only: the Manual Hub Exit also gives the buffs of the world's true exit. "
                            "Off by default: it makes the game much easier.")
+        # CRD-040: shown only for GATE Arch Defense and Some Distant Shore, whose portal sickness the game never lifts
+        self.force_btn = Btn(head, "", self.toggle_force_complete, small=True)
+        Tip(self.force_btn, "forceComplete: the hub lifts this world's portal sickness for good in the save (equipment works there). "
+                            "The game never lifts it for this world. Off by default; switch off to undo on the next load.")
         self.exit_seg = Segmented(f, hd.EXIT_PICKER, self.pick_exit, T["panel"])
         self.exit_seg.pack(anchor="w")
         for m, w in self.exit_seg.labels.items():
             Tip(w, hd.EXIT_MODE_HELP[m])
         self.exit_note = tk.Label(f, bg=T["panel"], fg=T["dim"], font=font(9), anchor="w", justify="left", wraplength=px(430))
         self.exit_note.pack(fill="x", pady=(px(4), 0))
+        self.force_note = tk.Label(f, text=hd.FORCE_COMPLETE_WARNING, bg=T["panel"], fg=T["warn"], font=font(9), anchor="w",
+                                   justify="left", wraplength=px(430))
 
     def build_hub_exits(self):
         p = self.exits_page
@@ -1234,6 +1240,8 @@ class App:
             return
         p.destination = value
         p.typing = False
+        if value not in hd.FORCE_COMPLETE_DESTS:
+            p.force_complete = False                        # only those two worlds have the switch: no leftover in the file
         if any(w.id == value for w in self.cfg.worlds):     # custom worlds always return to the hub: no exit mode
             p.exits, p.manual_buffs = "", False
         else:                                               # every base-game world pick starts at M.H.E. (CRD-034)
@@ -1252,6 +1260,8 @@ class App:
         self.active().destination = self.pad_var.get().strip()
         self.active().typing = True
         p = self.active()
+        if p.destination not in hd.FORCE_COMPLETE_DESTS:
+            p.force_complete = False
         if self.is_custom_world(p.destination):
             p.exits, p.manual_buffs = "", False
         elif p.destination and not p.exits:                 # a typed pad with no mode yet: GAME, as a portal with no exits
@@ -1337,6 +1347,29 @@ class App:
                 text += f"\nNo MHE is recorded for {self.world_title(dest)} yet (manual_exits.lua), so the hub uses GAME for this portal."
                 warn = True
         self.exit_note.configure(text=text, fg=T["warn"] if warn else T["dim"])
+        self.show_force(p)
+
+    # ------------- forced completion (side panel, CRD-040)
+    def force_shown(self, p):
+        return bool(p) and p.destination.strip() in hd.FORCE_COMPLETE_DESTS and not self.is_custom_world(p.destination.strip())
+
+    def show_force(self, p):
+        if self.force_shown(p):
+            self.force_btn.configure(text="FORCE COMPLETE ON" if p.force_complete else "FORCE COMPLETE OFF")
+            if not self.force_btn.winfo_manager():
+                self.force_btn.pack(side="right", padx=(0, px(6)))      # packed after BUFFS: sits to its left
+            if not self.force_note.winfo_manager():
+                self.force_note.pack(fill="x", pady=(px(2), 0), after=self.exit_note)
+        else:
+            self.force_btn.pack_forget()
+            self.force_note.pack_forget()
+
+    def toggle_force_complete(self):
+        p = self.active()
+        if self.force_shown(p):
+            p.force_complete = not p.force_complete
+            self.show_force(p)
+            self.changed(p.slot)
 
     def pick_exit(self, mode):
         p = self.active()

@@ -172,6 +172,10 @@ EXIT_MODES = ["game", "hub", "dynamic", "manual"]
 GLOBAL_EXIT_MODES = EXIT_MODES[:3]          # what an old global exitMode may hold (read once, to map it into the portals)
 DEFAULT_EXIT_MODE = "game"                  # a portal with no exits key (and no old exitMode)
 PICK_EXIT_MODE = "manual"                   # what picking a base-game world for a portal sets
+# Forced completion (CRD-040): the two worlds whose portal sickness the game never lifts. forceComplete = true on a portal to one of them
+# makes the hub lift it for good in that save (off by default; switching it off undoes it on the next load). Other worlds have no switch.
+FORCE_COMPLETE_DESTS = ("wall_start", "DistantShore")
+FORCE_COMPLETE_WARNING = "Force complete lifts portal sickness for good in this save; switch off to undo."
 EXIT_PICKER = [("M.H.E.", "manual"), ("GAME", "game"), ("HUB", "hub"), ("DYNAMIC", "dynamic")]
 EXIT_LABEL = {m: label for label, m in EXIT_PICKER}
 EXIT_MODE_HELP = {

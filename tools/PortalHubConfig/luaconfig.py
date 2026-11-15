@@ -400,12 +400,13 @@ class Portal:
     exits: str = ""                     # exit mode of this portal ("game", "hub", "dynamic", "manual"); "" = none (custom world, no world)
     exits_in_file: bool = False         # the entry has its own exits key (else a mode is written the next time the entry is edited)
     manual_buffs: bool = False          # manualBuffs: with exits = "manual", the MHE also gives the true exit's buffs
+    force_complete: bool = False        # forceComplete: only for FORCE_COMPLETE_DESTS, lifts portal sickness there for good (CRD-040)
     item: Item | None = None            # where it sits in the file; None for a portal added in the editor
     extras: list = field(default_factory=list)      # names of other fields in the entry, kept as written
     fresh: bool = False                 # the slot was turned off and wiped: if turned on again, its entry is written anew
 
     def snapshot(self):
-        return (self.name, self.destination, self.design, self.light_hex.upper(), round(self.brightness, 3), self.exits, self.manual_buffs)
+        return (self.name, self.destination, self.design, self.light_hex.upper(), round(self.brightness, 3), self.exits, self.manual_buffs, self.force_complete)
 
 
 @dataclass
@@ -569,6 +570,10 @@ class HubConfig:
             if f and f.value.kind == "bool":
                 p.manual_buffs = f.value.value
                 known.add("manualBuffs")
+            f = t.get("forceComplete")
+            if f and f.value.kind == "bool":
+                p.force_complete = f.value.value
+                known.add("forceComplete")
             p.extras = [x.key for x in t.items if x.key not in known and x.key is not None]
             self.portals[p.slot] = p
             self._orig_portals[p.slot] = p.snapshot()
@@ -764,6 +769,8 @@ class HubConfig:
             parts.append(f"exits = {lua_string(p.exits)}")
         if p.manual_buffs:
             parts.append("manualBuffs = true")
+        if p.force_complete:
+            parts.append("forceComplete = true")
         return "{ " + ", ".join(parts) + " }"
 
     def _write_portals(self, e):
@@ -807,6 +814,8 @@ class HubConfig:
             e.set_field(t, "exits", lua_string(p.exits) if p.exits else None)
         if p.manual_buffs != o[6]:
             e.set_field(t, "manualBuffs", "true" if p.manual_buffs else None)
+        if p.force_complete != o[7]:
+            e.set_field(t, "forceComplete", "true" if p.force_complete else None)
 
     # ------------- saving
     def is_dirty(self):

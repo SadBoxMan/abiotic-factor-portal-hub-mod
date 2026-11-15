@@ -21,6 +21,9 @@
 --                                 that always leads back here; the world's own exits stay the game's
 --   manualBuffs  Optional, with exits = "manual": true also gives the buffs of the world's true exit at the MHE. Off by default: it makes
 --                the game much easier.
+--   forceComplete  Optional, only on a portal to GATE Arch Defense Facility (wall_start) or Some Distant Shore (DistantShore), the two
+--                worlds whose portal sickness the game never lifts: true makes the hub lift it for good in this save, so equipment
+--                works there. Off by default. Remove it (or switch it off in the editor) and the sickness comes back on the next load.
 --
 -- The two DLC areas (Temple of Stone and Torii: H_Garden_Start, H_Garden_Entrance, H_Japan_Start, H_Japan_Entrance) cannot be used
 -- as destinations; entries that name them are skipped.
