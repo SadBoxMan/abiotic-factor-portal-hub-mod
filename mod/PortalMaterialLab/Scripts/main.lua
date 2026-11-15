@@ -2904,6 +2904,7 @@ LK.mesh_remove = function()
     log("---- MESH RING (Shift + U): removed (front and any back face): " .. tostring(ok))
     LK.mesh = LK.MESH_EMPTY()
     say("Mesh ring removed")
+    if LK.show_own then LK.show_own("Shift + U") end   -- CRD-043: a look hidden by PAUSE comes back with the ring's removal
 end
 -- Back face (LuciDin, 14 Nov: Night Realm's ring material draws its front only; Door's draws both): a second component, back to
 -- back with the first (yaw + 180), same shape and ring instance, so it follows tints and pictures. Only calls already tried:
@@ -3022,6 +3023,46 @@ LK.shift_scroll = function()
     if LK.mode_name() == "mesh" then LK.sl_gate("shift") return end
     log("Shift + SCROLL LOCK: mesh mode only (own arch / game's arch on the mesh ring; [ switches mode)")
 end
+-- PAUSE in mesh mode (LuciDin, 15 Nov: "Can the portal I am looking at be entirely replaced with the new mesh ring?"): hides the pad's
+-- own look (its ParticleLoop effect only; base, trigger and light stay) so the mesh ring stands alone; the next PAUSE shows it again,
+-- and so does Shift + U (ring removed). The mesh ring's pad if one is built, else the nearest pad. SceneComponent:SetVisibility is an
+-- untried call: named in the log before its first run. Nothing is saved; a respawned pad (NUMPAD 1, reload) is visible again.
+LK.own_hidden = nil   -- { pl = the hidden effect, id = its pad }
+LK.show_own = function(tag)
+    local h = LK.own_hidden
+    LK.own_hidden = nil
+    if not (h and valid(h.pl)) then return false end
+    local ok, err = pcall(function() h.pl:SetVisibility(true, false) end)
+    log("---- OWN LOOK SHOWN (" .. tag .. "): " .. tostring(h.id) .. "'s own look visible again" .. (ok and "" or (" FAILED: " .. one_line(err))))
+    say("Pad's own look shown")
+    return true
+end
+LK.hide_own = function()
+    if LK.mode_name() ~= "mesh" then
+        log("PAUSE: mesh mode only (hides the pad's own look behind the mesh ring; [ switches mode)") say("PAUSE: mesh mode only", 2)
+        return
+    end
+    if LK.show_own("PAUSE in mesh mode") then return end
+    local m = LK.mesh
+    local pad, pl
+    if valid(m.comp) and valid(m.pad) then
+        pad = m.pad
+        pl = pad.ParticleLoop
+        if not valid(pl) then log("hide own look: the mesh ring's pad has no effect component") return end
+    else
+        pad, pl = LK.target("hide own look")
+        if not pad then return end
+    end
+    log("---- OWN LOOK HIDDEN (PAUSE in mesh mode): " .. tostring(pad_id(pad)) .. "'s own look (" .. LK.name(pl:GetAsset()) .. "); PAUSE again or Shift + U shows it")
+    if not LK.vis_tried then
+        LK.vis_tried = true
+        LK.untried("SceneComponent:SetVisibility(false) on the pad's own effect")
+    end
+    local ok, err = pcall(function() pl:SetVisibility(false, false) end)
+    if not ok then log("  FAILED: " .. one_line(err)) say("Hide FAILED", 3) return end
+    LK.own_hidden = { pl = pl, id = pad_id(pad) }
+    say("Pad's own look hidden (PAUSE shows it)")
+end
 
 -- Mode switch: the existing look keys call these instead in own / tint mode (overlay mode = CRD-039 as before).
 LK.by_mode = function(name, own, tint, mesh)
@@ -3074,6 +3115,7 @@ if not pcall(function() RegisterKeyBind(Key.I, function() ExecuteInGameThread(LK
 if not pcall(function() RegisterKeyBind(Key.OEM_TWO, function() ExecuteInGameThread(LK.survey) end) end) then log("/ could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.SCROLL_LOCK, function() ExecuteInGameThread(LK.make_mid) end) end) then log("SCROLL LOCK could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.SCROLL_LOCK, { ModifierKey.SHIFT }, function() ExecuteInGameThread(LK.shift_scroll) end) end) then log("Shift + SCROLL LOCK could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.PAUSE, function() ExecuteInGameThread(LK.hide_own) end) end) then log("PAUSE could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.OEM_PERIOD, function() ExecuteInGameThread(LK.next_colour) end) end) then log(". could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.OEM_COMMA, function() ExecuteInGameThread(LK.next_picture) end) end) then log(", could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.L, function() ExecuteInGameThread(LK.next_overlay) end) end) then log("L could not be bound") end
@@ -3083,7 +3125,7 @@ if not pcall(function() RegisterKeyBind(Key.OEM_ONE, function() ExecuteInGameThr
 log("look keys (CRD-039, visual only): / = look survey, SCROLL LOCK = material instance, U = put it on the effect, . = colour, , = picture, L = overlay, O / P = overlay up / down, LEFT / RIGHT = sideways, M / N = overlay scale, I = scale axis")
 log("look heights (CRD-041, visual only): ; = next look on the nearest pad (all 32), then O / P = that look's height up / down 10 cm, Shift + O / P 1 cm (kept per look)")
 if not pcall(function() RegisterKeyBind(Key.OEM_FOUR, function() ExecuteInGameThread(LK.next_mode) end) end) then log("[ could not be bound") end
-log("look modes (CRD-042, visual only): [ = overlay / own / tint. own: M / N scale and LEFT / RIGHT turn the pad's own look (I = axis), O / P height, SCROLL LOCK reset, / renderers, U ring facing (whole look). tint: SCROLL LOCK grey ring in a window look, . tint, , picture, M / N ring size. mesh: SCROLL LOCK builds a ring on SM_Portal (4 steps), then as tint plus M/N/LEFT/RIGHT/O/P, L shape, U back face, Shift + U removes, Shift + SCROLL LOCK own arch / game's arch (CRD-043)")
+log("look modes (CRD-042, visual only): [ = overlay / own / tint. own: M / N scale and LEFT / RIGHT turn the pad's own look (I = axis), O / P height, SCROLL LOCK reset, / renderers, U ring facing (whole look). tint: SCROLL LOCK grey ring in a window look, . tint, , picture, M / N ring size. mesh: SCROLL LOCK builds a ring on SM_Portal (4 steps), then as tint plus M/N/LEFT/RIGHT/O/P, L shape, U back face, Shift + U removes, Shift + SCROLL LOCK own arch / game's arch, PAUSE hides / shows the pad's own look (CRD-043)")
 
 if not pcall(function() RegisterKeyBind(Key.PAGE_UP, function() ExecuteInGameThread(flag_registry_survey) end) end) then log("PAGE UP could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.PAGE_DOWN, function() ExecuteInGameThread(flag_native_probe) end) end) then log("PAGE DOWN could not be bound") end

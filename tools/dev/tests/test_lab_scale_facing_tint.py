@@ -26,6 +26,7 @@ function sft_pad(id, look, x)
     t.K2_SetRelativeLocation = function(self, l) CALLS2[#CALLS2 + 1] = string.format("ownloc %.1f", l.Z) end
     t.SetVariableMaterial = function(self, n, m) CALLS2[#CALLS2 + 1] = "varmat " .. n:ToString() .. " " .. m:GetFName():ToString() end
     t.ReinitializeSystem = function() CALLS2[#CALLS2 + 1] = "reinit" end
+    t.SetVisibility = function(self, v, kids) CALLS2[#CALLS2 + 1] = "ownvis " .. tostring(v) .. " " .. tostring(kids) end   -- CRD-043 PAUSE
     local fx = setmetatable({}, { __index = function(_, k)
         if k == "RelativeLocation" then return { X = 0, Y = 0, Z = 158 } end
         if k == "RelativeScale3D" then return cur.s end

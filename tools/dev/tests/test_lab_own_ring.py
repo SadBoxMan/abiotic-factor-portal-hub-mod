@@ -1,7 +1,8 @@
 # Runs the real mod/PortalMaterialLab/Scripts/main.lua against the lab's mock game and checks CRD-043: our own cooked ring material
 # M_PortalHubLooks_Arch (PortalHubLooks_P, World Projects/PortalHubLooks) is one more ring in LK.TINT_RINGS, right after the game's
 # arch; in mesh mode Shift + SCROLL LOCK swaps the ring on the built shape between the game's arch and ours (gathered with the plain
-# SCROLL LOCK that fires with it); the first load is named in the log first; a missing pak is said, not crashed on.
+# SCROLL LOCK that fires with it); the first load is named in the log first; a missing pak is said, not crashed on; PAUSE (mesh
+# mode) hides / shows the pad's own look, and Shift + U shows it again.
 # Also cross-checks the lab against the material's build script: same asset path, chunk 120 label, and every parameter the lab sets
 # (tint colours, PortalTexture, Radius (S)) exists in the material with the radius the lab starts from.
 import sys, os, re
@@ -167,6 +168,40 @@ L.execute("for i = 1, 12 do KEYS['SCROLL_LOCK']() end")
 check("tint mode: the 12th grey ring is ours, in the window", calls(L)[-1] == "varmat User.PortalTexture MID_M_PortalHubLooks_Arch", calls(L)[-1])
 press(L, "M")
 check("tint-mode M: our Radius (S) from 0.30 (x1.1 = 0.330)", calls(L)[-1] == "scalar Radius (S) 0.330" and has(L, "M_PortalHubLooks_Arch Radius (S) 0.330 (cooked 0.300, x1.10)"), calls(L)[-1])
+
+print("=== PAUSE: hide the pad's own look (mesh mode)")
+check("PAUSE bound once in the lab, to LK.hide_own", re.search(r"RegisterKeyBind\(Key\.PAUSE, function\(\) ExecuteInGameThread\(LK\.hide_own\)", src) and len(re.findall(r"Key\.PAUSE\b", src)) == 1)
+hub = open(os.path.join(ROOT, "mod", "PortalHub", "Scripts", "main.lua"), encoding="utf-8").read()
+check("the hub binds PAUSE only inside its DEV_KEYS block (off in the install, cut from the package)",
+      hub.count("Key.PAUSE") == 1 and hub.rfind("if DEV_KEYS then", 0, hub.index("Key.PAUSE")) > hub.rfind("\nend", 0, hub.index("Key.PAUSE")))
+check("no other mod of ours binds PAUSE", "Key.PAUSE" not in "".join(open(os.path.join(ROOT, "mod", m, "Scripts", "main.lua"), encoding="utf-8").read()
+                                                                     for m in ("CordonaProbe", "PortalLogger", "CordonaDlcSurvey")))
+L = lab()
+L.execute("PADS = { (sft_pad('hub_B1', 'Niagara_Portal', 100)) }")
+press(L, "PAUSE")
+check("overlay mode: PAUSE says mesh mode only, no call", has(L, "PAUSE: mesh mode only") and calls(L) == [], calls(L))
+for _ in range(3):
+    press(L, "OEM_FOUR")
+press(L, "PAUSE")
+check("mesh mode, no ring yet: hides the nearest pad's own look", calls(L) == ["ownvis false false"], calls(L))
+check("names SetVisibility first", has(L, "untried native call next: SceneComponent:SetVisibility(false) on the pad's own effect"))
+i_head = next(i for i, l in enumerate(logs(L)) if "OWN LOOK HIDDEN (PAUSE in mesh mode): hub_B1's own look (Niagara_Portal)" in l)
+i_un = next(i for i, l in enumerate(logs(L)) if "SetVisibility(false)" in l)
+check("heading, then the untried line, then the call", i_head < i_un)
+press(L, "PAUSE")
+check("PAUSE again: shown", calls(L)[-1] == "ownvis true false" and has(L, "OWN LOOK SHOWN (PAUSE in mesh mode): hub_B1's own look visible again"), calls(L))
+for _ in range(3):
+    press(L, "SCROLL_LOCK")
+L.execute("KEYS['SCROLL_LOCK+SHIFT'](); pump()")
+L.execute("PADS = { (sft_pad('hub_B1', 'Niagara_Portal', 100)), (sft_pad('hub_B2', 'Niagara_Portal', 50)) }")
+n = len(calls(L))
+press(L, "PAUSE")
+check("with a ring built: hides the ring's pad, not a nearer one", calls(L)[n:] == ["ownvis false false"] and has(L, "OWN LOOK HIDDEN (PAUSE in mesh mode): hub_B1"), calls(L)[n:])
+check("SetVisibility named only once", sum("SetVisibility(false)" in l for l in logs(L)) == 1)
+L.execute("KEYS['U+SHIFT'](); KEYS['U'](); pump()")
+check("Shift + U: ring removed and the own look shown again", calls(L)[-2:] == ["mdestroy", "ownvis true false"] and has(L, "OWN LOOK SHOWN (Shift + U)"), calls(L)[-3:])
+press(L, "PAUSE")
+check("next PAUSE hides again (state cleared by Shift + U)", calls(L)[-1] == "ownvis false false", calls(L)[-1])
 
 failed = [n for n, ok in results if not ok]
 print("\n%d checks, %d failed" % (len(results), len(failed)))
