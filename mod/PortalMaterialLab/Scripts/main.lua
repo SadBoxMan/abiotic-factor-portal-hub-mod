@@ -19,6 +19,9 @@
 --                   hub's NUMPAD 1 / 2 also remove; writes the hub's manual_exits.lua.
 --   PAGE UP         flags and row registry: flags in this save, hub rows in DT_WorldFlags and DT_Levels, BaseTables, zones, pads (read-only)
 --   PAGE DOWN       the same questions asked through native calls not used elsewhere (flag library, HasWorldFlag handle forms; on their own key)
+--   /  SCROLL LOCK  U  .  ,  L   portal looks (CRD-039), on the pad nearest the player: / look survey (read-only); SCROLL LOCK makes a
+--                   dynamic material instance of the ring (U puts it on non-window looks), . cycles its colour, , cycles its picture (cube map), L cycles an overlay look with
+--                   only some parts on (O / P move it up / down, M / N scale it). Visual only, on this machine, nothing saved (hub NUMPAD 1 respawns hub pads; a reload resets the game's)
 --   (no key)        every pad use is logged by a passive hook on AttemptTeleport: which pad, where it leads, which flag and buffs it gives
 -- Keys stay clear of the game's own bindings: F1 is its player list, F10 its HUD toggle, + its pager (NUMPAD 1 and 2 belong to PortalHub, F6 to PortalLogger; F7 and F8 are unbound in the game's input config). Note: Shift + a numpad digit does not work,
 -- because with Num Lock on Shift turns the digit into Home / arrow keys.
@@ -1998,6 +2001,311 @@ local function toggle_invincible()
     say("Infinite health " .. (invincible.on and "ON" or "OFF"), invincible.on and 0 or 2)
     if invincible.on then invincible_check(invincible.gen) end
 end
+
+-- CRD-039 portal looks deep dive: one survey key and four visual-only test keys, all on the pad nearest the player (within 15 m).
+-- Visual only: they change the pad's effect component on this machine, nothing is saved (hub pads come back fresh with the hub's
+-- NUMPAD 1; the game's own pads go back on a reload). Each untried native call is named in the log just before it runs (CRD rule:
+-- one untried call per key press), so a crash points at it.
+--   /            look survey (read-only): pad, look, its PortalTexture variable, light, and every material slot of the effect
+--   SCROLL LOCK  make a dynamic material instance of the ring: window looks (Default, Blue/Green/Redverse, Dark, Fog) put it in
+--                User.PortalTexture at once; every other look gets an instance of its ring material, which U puts on the effect
+--   U            SetMaterial(index, instance) on the effect: first the index the part order predicts, then the next one each press
+--   .            next colour on that instance (PortalCenterColor / 2, ColorMultiplier, InnerColor / OuterColor, Color; Rift also User.Color)
+--   ,            next picture (cube map) in that instance's window (PortalTexture, or PortalImage on window looks)
+--   L            next overlay: a second look attached to the pad with only some of its parts on (mixing); the last step removes it
+--   O / P        current overlay up / down 10 cm (with no overlay out: the nearest pad's own look up / down 10 cm);  M / N  overlay scale x1.1 / /1.1 (both reset when L moves on; values logged)
+--   LEFT / RIGHT overlay sideways 10 cm (relative Y; X when I picked X);  I  picks the axis M / N scale: all, X, Y, Z
+local LK = { pad = nil, mid = nil, slot = nil, route = nil, look = nil, colour = 0, picture = 0, overlay = 0, fx = nil }
+LK.NEAR = 1500
+LK.WINDOW_LOOKS = { Niagara_Portal = true, Niagara_Portal_Blueverse = true, Niagara_Portal_Greenverse = true, Niagara_Portal_Redverse = true,
+    Niagara_Portal_Dark = true, Niagara_Portal_Fog = true }
+LK.SURFACE = { "M_Portal_", "M_WorldPortal_Warehouse", "M_BlackHole_" }
+LK.COLOUR_PARAMS = { "PortalCenterColor", "PortalCenterColor2", "ColorMultiplier", "InnerColor", "OuterColor", "Color" }
+LK.COLOURS = {
+    { n = "red", v = { R = 1.0, G = 0.05, B = 0.05, A = 1.0 } }, { n = "green", v = { R = 0.05, G = 1.0, B = 0.05, A = 1.0 } },
+    { n = "blue", v = { R = 0.05, G = 0.1, B = 1.0, A = 1.0 } }, { n = "gold", v = { R = 1.0, G = 0.7, B = 0.1, A = 1.0 } },
+    { n = "white", v = { R = 1.0, G = 1.0, B = 1.0, A = 1.0 } },
+}
+LK.CUBES = { "TC_Portal_Warehouse", "TC_Portal_Fog", "TC_Portal_Offices", "TC_Portal_Anteverse_A", "TC_H_Cabin", "TC_Portal_Alps",
+    "TC_Portal_Torii", "TC_OrangeGlow", "TC_ZagTest" }
+LK.VINES = { "Vine1", "Vine2", "Vine3", "Vine4", "Vine5", "Vine6", "Vine7", "Vine8" }
+LK.OVERLAYS = {
+    { look = "Niagara_Portal_Garden", keep = LK.VINES, off = { "portal", "sparks" } },
+    { look = "Niagara_Portal_SnowFlurry", keep = { "Swirl", "snowflakes" }, off = { "Blackhole", "smoke", "SnowParticle01", "SnowParticle02" } },
+    { look = "Niagara_Portal_Torii", keep = { "HangingParticulates" }, off = { "portal" } },
+    { look = "Niagara_Portal_NightRDoor_2", keep = { "leaves001" }, off = { "portal", "sparks" } },
+    { look = "Niagara_Portal_Friendly_Red", keep = { "sparks" }, off = { "portal" } },
+}
+LK.untried = function(call) log("  untried native call next: " .. call .. " (if the game crashes now, it was this call)") end
+LK.obj = function(path)
+    local o = StaticFindObject(path)
+    if not valid(o) then pcall(LoadAsset, path); o = StaticFindObject(path) end
+    return valid(o) and o or nil
+end
+LK.name = function(o)
+    if not valid(o) then return "none" end
+    local ok, s = pcall(function() return o:GetFName():ToString() end)
+    return ok and s or "?"
+end
+LK.nearest_pad = function()
+    local pc = player_controller()
+    local pawn = pc and pc.Pawn
+    if not valid(pawn) then return nil end
+    local here = pawn:K2_GetActorLocation()
+    local best, bestD = nil, nil
+    for _, t in ipairs(FindAllOf("BP_Teleporter_ParentBP_C") or {}) do
+        if valid(t) then
+            local l = t:K2_GetActorLocation()
+            local dx, dy, dz = here.X - l.X, here.Y - l.Y, here.Z - l.Z
+            local d = math.sqrt(dx * dx + dy * dy + dz * dz)
+            if d <= LK.NEAR and (not bestD or d < bestD) then best, bestD = t, d end
+        end
+    end
+    return best, bestD
+end
+LK.target = function(tag)
+    local pad, d = LK.nearest_pad()
+    if not pad then log(tag .. ": no pad within 15 m") say("No pad within 15 m", 2) return nil end
+    local pl = pad.ParticleLoop
+    if not valid(pl) then log(tag .. ": pad " .. tostring(pad_id(pad)) .. " has no effect component") return nil end
+    return pad, pl, LK.name(pl:GetAsset()), d
+end
+LK.survey = function()
+    local pad, pl, look, d = LK.target("look survey")
+    if not pad then return end
+    log(string.format("---- LOOK SURVEY (/): pad %s, %.1f m away, look %s", tostring(pad_id(pad)), d / 100, look))
+    local okT, tex = pcall(function() return pad.PortalTexture end)
+    log("  pad's PortalTexture variable: " .. (okT and full_name(tex) or "unreadable"))
+    local okL, c = pcall(function() return pad.PointLight.LightColor end)
+    if okL and c then log(string.format("  light colour: %d, %d, %d", c.R or -1, c.G or -1, c.B or -1)) end
+    local okR, rel = pcall(function()
+        local l, r, s = pl.RelativeLocation, pl.RelativeRotation, pl.RelativeScale3D
+        return string.format("at %.1f, %.1f, %.1f; turned pitch %.1f yaw %.1f roll %.1f; scale %.2f, %.2f, %.2f",
+            l.X, l.Y, l.Z, r.Pitch, r.Yaw, r.Roll, s.X, s.Y, s.Z)
+    end)
+    log("  effect relative to its pad: " .. (okR and rel or "unreadable") .. " | pad turned " .. rot_text(pad) .. ", class " .. class_of(pad))
+    local okN, n = pcall(function() return pl:GetNumMaterials() end)
+    log("  effect material slots: " .. (okN and tostring(n) or "unreadable"))
+    if okN and type(n) == "number" and n > 0 then
+        LK.untried("NiagaraComponent:GetMaterial")
+        for i = 0, n - 1 do
+            local okM, m = pcall(function() return pl:GetMaterial(i) end)
+            log(string.format("    slot %d: %s", i, okM and full_name(m) or ("error " .. one_line(m))))
+        end
+    end
+    say("Look survey: " .. look .. " (see the log)")
+end
+LK.make_mid = function()
+    local pad, pl, look = LK.target("material instance")
+    if not pad then return end
+    log("---- MATERIAL INSTANCE (SCROLL LOCK): pad " .. tostring(pad_id(pad)) .. ", look " .. look)
+    LK.pad, LK.mid, LK.look, LK.colour, LK.picture = nil, nil, look, 0, 0
+    if LK.WINDOW_LOOKS[look] then
+        local okT, parent = pcall(function() return pad.PortalTexture end)
+        if not (okT and valid(parent)) then parent = LK.obj("/Game/Particles/Materials/M_WorldPortal.M_WorldPortal") end
+        local lib = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
+        if not (valid(parent) and valid(lib)) then log("  window route: no parent material or no KismetMaterialLibrary") return end
+        LK.untried("KismetMaterialLibrary:CreateDynamicMaterialInstance")
+        local ok, mid = pcall(function() return lib:CreateDynamicMaterialInstance(pad, parent, FName("None"), 0) end)
+        if not (ok and valid(mid)) then log("  window route: no instance (" .. one_line(mid) .. ")") return end
+        local okS, err = pcall(function() pl:SetVariableMaterial(FName("User.PortalTexture"), mid) end)
+        log("  window route: instance of " .. LK.name(parent) .. " put in User.PortalTexture: " .. (okS and "ok" or one_line(err)))
+        LK.route, LK.slot = "window", nil
+        LK.mid = mid
+    else
+        -- In game (14 Nov) the effect component reports 0 material slots, so its own CreateDynamicMaterialInstance returns nothing.
+        -- Instead: an instance of the look's ring material, made on its own; U then puts it on the effect with SetMaterial.
+        local ring = LK.ring(look)
+        local parent = ring and LK.obj("/Game/Particles/Materials/" .. ring.mat .. "." .. ring.mat)
+        local lib = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
+        if not (valid(parent) and valid(lib)) then log("  ring route: no ring material known for this look, or no KismetMaterialLibrary") return end
+        LK.untried("KismetMaterialLibrary:CreateDynamicMaterialInstance")
+        local ok, mid = pcall(function() return lib:CreateDynamicMaterialInstance(pad, parent, FName("None"), 0) end)
+        if not (ok and valid(mid)) then log("  ring route: no instance (" .. one_line(mid) .. ")") return end
+        log("  ring route: instance of " .. ring.mat .. " made; press U to put it on the effect (expected ring index " .. ring.idx .. ")")
+        LK.route, LK.slot, LK.tries = "ring", nil, 0
+        LK.mid = mid
+    end
+    LK.pad = pad
+    say("Material instance made (" .. LK.route .. ")" .. (LK.route == "ring" and ": press U to put it on" or ": now . for colours, , for pictures"))
+end
+-- The ring's own material per look and the material index the part order predicts (one material per part, parts in the system's order;
+-- parts with no renderer may or may not count, so U steps on to the next index each press).
+LK.RINGS = { Niagara_Portal_Friendly = { "M_Portal_Friendly", 0 }, Niagara_Portal_Friendly_Yellow = { "M_Portal_Friendly_Yellow", 0 },
+    Niagara_Portal_Botanical_Green = { "M_Portal_Botanical_Green", 0 }, Niagara_Portal_Botanical_Red = { "M_Portal_Botanical_Red", 0 },
+    Niagara_Portal_Door = { "M_WorldPortal_Warehouse", 0 }, Niagara_Portal_Garden = { "M_Portal_Garden", 0 }, Niagara_Portal_NightRDoor_2 = { "M_Portal_Arch", 0 },
+    Niagara_Portal_Rift = { "M_Portal_Rift", 0 }, Niagara_Portal_Salem = { "M_Portal_Salem", 0 }, Niagara_Portal_Shadowgate2 = { "M_Portal_Shadowgate2", 0 },
+    Niagara_Portal_Torii = { "M_Portal_Torii", 1 }, Niagara_Portal_SnowFlurry = { "M_BlackHole_SnowPortal", 5 }, Niagara_Portal_SunDisk = { "M_BlackHole_SunDisk", 5 } }
+LK.ring = function(look)
+    local r = LK.RINGS[look]
+    if r then return { mat = r[1], idx = r[2] } end
+    local colour = tostring(look):match("^Niagara_Portal_Friendly_(%a+)$")
+    if colour then return { mat = "M_Portal_Friendly_" .. colour, idx = 1 } end
+    return nil
+end
+LK.apply = function()
+    if not LK.have_mid("apply") then return end
+    if LK.route ~= "ring" then log("apply: this instance is in the window already (no U needed)") return end
+    local pl = LK.pad.ParticleLoop
+    if not valid(pl) then log("apply: the pad's effect is gone (respawned?): press SCROLL LOCK again") return end
+    local ring = LK.ring(LK.look)
+    local idx = (ring and ring.idx or 0) + LK.tries
+    LK.tries = LK.tries + 1
+    log("---- APPLY (U): instance on material index " .. idx .. " of " .. tostring(pad_id(LK.pad)) .. " (" .. tostring(LK.look) .. ")")
+    LK.untried("NiagaraComponent:SetMaterial")
+    local ok, err = pcall(function() pl:SetMaterial(idx, LK.mid) end)
+    log("  " .. (ok and "set: watch which part changes (then . and , work on it); U again tries the next index" or one_line(err)))
+    LK.slot = idx
+    say("Applied on index " .. idx)
+end
+LK.have_mid = function(tag)
+    if valid(LK.mid) and valid(LK.pad) then return true end
+    log(tag .. ": press SCROLL LOCK at a pad first") say("Press SCROLL LOCK at a pad first", 2)
+    return false
+end
+LK.next_colour = function()
+    if not LK.have_mid("colour") then return end
+    LK.colour = LK.colour % #LK.COLOURS + 1
+    local c = LK.COLOURS[LK.colour]
+    log("---- COLOUR (.): " .. c.n .. " on " .. tostring(pad_id(LK.pad)) .. " (" .. tostring(LK.look) .. ", " .. LK.route .. ")")
+    LK.untried("MaterialInstanceDynamic:SetVectorParameterValue")
+    for _, p in ipairs(LK.COLOUR_PARAMS) do
+        local ok, err = pcall(function() LK.mid:SetVectorParameterValue(FName(p), c.v) end)
+        if not ok then log("  " .. p .. ": " .. one_line(err)) end
+    end
+    if tostring(LK.look):find("Rift", 1, true) then
+        local pl = LK.pad.ParticleLoop
+        local v = { R = c.v.R * 6, G = c.v.G * 6, B = c.v.B * 6, A = 1.0 }
+        local ok = valid(pl) and pcall(function() pl:SetVariableLinearColor(FName("User.Color"), v) end)
+        log("  Rift: User.Color x6 too: " .. tostring(ok))
+    end
+    log("  set (a parameter the material lacks is ignored silently): watch the ring")
+    say("Colour: " .. c.n)
+end
+LK.next_picture = function()
+    if not LK.have_mid("picture") then return end
+    LK.picture = LK.picture % #LK.CUBES + 1
+    local name = LK.CUBES[LK.picture]
+    local cube = LK.obj("/Game/Particles/RenderTargets/" .. name .. "." .. name)
+    local param = LK.route == "window" and "PortalImage" or "PortalTexture"
+    log("---- PICTURE (,): " .. name .. " into " .. param .. " on " .. tostring(pad_id(LK.pad)) .. " (" .. tostring(LK.look) .. ")")
+    if not cube then log("  cube map not found") return end
+    LK.untried("MaterialInstanceDynamic:SetTextureParameterValue")
+    local ok, err = pcall(function() LK.mid:SetTextureParameterValue(FName(param), cube) end)
+    log("  " .. (ok and "set: watch the window" or one_line(err)))
+    say("Picture: " .. name)
+end
+LK.next_overlay = function()
+    if valid(LK.fx) then
+        local ok = pcall(function() LK.fx:K2_DestroyComponent(LK.fx) end)
+        log("---- OVERLAY (L): previous overlay removed: " .. tostring(ok))
+    end
+    LK.fx = nil
+    LK.fit_reset()
+    LK.overlay = LK.overlay % (#LK.OVERLAYS + 1) + 1
+    if LK.overlay > #LK.OVERLAYS then log("---- OVERLAY (L): off") say("Overlay off") return end
+    local o = LK.OVERLAYS[LK.overlay]
+    local pad, pl, look = LK.target("overlay")
+    if not pad then return end
+    local sys = LK.obj("/Game/Particles/" .. o.look .. "." .. o.look)
+    local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
+    log("---- OVERLAY (L): " .. o.look .. " (keep " .. table.concat(o.keep, ", ") .. ") on " .. tostring(pad_id(pad)) .. " (" .. look .. ")")
+    if not (sys and valid(lib)) then log("  overlay look or NiagaraFunctionLibrary not found") return end
+    LK.untried("NiagaraFunctionLibrary:SpawnSystemAttached")
+    local ok, comp = pcall(function()
+        -- System, AttachTo, socket, Location, Rotation, LocationType 0 = keep relative offset, bAutoDestroy, bAutoActivate, pooling 0 = none, bPreCullCheck
+        return lib:SpawnSystemAttached(sys, pl, FName("None"), { X = 0, Y = 0, Z = 0 }, { Pitch = 0, Yaw = 0, Roll = 0 }, 0, false, true, 0, false)
+    end)
+    if not (ok and valid(comp)) then log("  no overlay (" .. one_line(comp) .. ")") return end
+    LK.fx = comp
+    for _, part in ipairs(o.off) do
+        local okE, err = pcall(function() comp:SetEmitterEnable(FName(part), false) end)
+        if not okE then log("  part off " .. part .. ": " .. one_line(err)) end
+    end
+    log("  attached; parts off: " .. table.concat(o.off, ", ") .. ". Watch the pad: its own look plus only those parts")
+    say("Overlay: " .. o.look:gsub("Niagara_Portal_", ""))
+end
+-- Overlay fit (LuciDin, 14 Nov): O / P move the current overlay up / down 10 cm, M / N scale it x1.1 / /1.1 (sprite parts ignore scale,
+-- mesh parts such as Garden's vines may follow it). Reset to 0 cm, x1.0 when L moves on; each press logs the values to note a good fit.
+-- Per axis (LuciDin, 14 Nov): LEFT / RIGHT move it 10 cm sideways (relative Y, or X when I has picked X), I picks the axis M / N scale
+-- (all, X, Y, Z). All values reset when L moves on.
+LK.AXES = { "all", "X", "Y", "Z" }
+LK.fit_reset = function() LK.ox, LK.oy, LK.oz, LK.sx, LK.sy, LK.sz, LK.axis = 0, 0, 0, 1.0, 1.0, 1.0, 1 end
+LK.fit_reset()
+LK.fit_text = function()
+    return string.format("offset X %+d Y %+d Z %+d cm, scale X %.2f Y %.2f Z %.2f (M/N axis: %s)", LK.ox, LK.oy, LK.oz, LK.sx, LK.sy, LK.sz, LK.AXES[LK.axis])
+end
+LK.need_fx = function(tag)
+    if valid(LK.fx) then return true end
+    log("overlay " .. tag .. ": no overlay (press L first)") say("Press L first", 2)
+    return false
+end
+LK.place = function(tag)
+    LK.untried("SceneComponent:K2_SetRelativeLocation")
+    local ok, err = pcall(function() LK.fx:K2_SetRelativeLocation({ X = LK.ox, Y = LK.oy, Z = LK.oz }, false, {}, true) end)
+    log("---- OVERLAY FIT (" .. tag .. "): " .. LK.OVERLAYS[LK.overlay].look .. ": " .. LK.fit_text() .. (ok and "" or (" FAILED: " .. one_line(err))))
+    say("Overlay " .. LK.fit_text())
+end
+-- With no overlay out, O / P move the nearest pad's own effect (its look) instead (LuciDin, 14 Nov: hub portals sit too high; the
+-- game's Stone Garden pad has its effect at 138.3 cm, the Blueprint default is 158). Only the look moves: base, trigger, light stay.
+LK.padfx = { pl = nil, id = nil, base = nil, dz = 0 }
+LK.pad_height = function(dz)
+    local pad, pl, look = LK.target("portal height")
+    if not pad then return end
+    local id = pad_id(pad)
+    local function addr(o) local ok, a = pcall(function() return o:GetAddress() end); return ok and a or o end
+    if not (valid(LK.padfx.pl) and LK.padfx.id == id and addr(LK.padfx.pl) == addr(pl)) then
+        local okB, b = pcall(function() local l = pl.RelativeLocation; return { X = l.X, Y = l.Y, Z = l.Z } end)
+        if not okB then log("portal height: the effect's position can't be read (" .. one_line(b) .. ")") return end
+        LK.padfx = { pl = pl, id = id, base = b, dz = 0 }
+    end
+    local f = LK.padfx
+    f.dz = f.dz + dz
+    local ok, err = pcall(function() pl:K2_SetRelativeLocation({ X = f.base.X, Y = f.base.Y, Z = f.base.Z + f.dz }, false, {}, true) end)
+    local text = string.format("effect at %.1f cm above the pad (was %.1f, offset %+d cm)", f.base.Z + f.dz, f.base.Z, f.dz)
+    log("---- PORTAL HEIGHT (O/P): " .. tostring(id) .. " (" .. look .. "): " .. text .. (ok and "" or (" FAILED: " .. one_line(err))))
+    say(string.format("Portal look %+d cm (%.1f)", f.dz, f.base.Z + f.dz))
+end
+LK.nudge = function(dz)
+    if not valid(LK.fx) then LK.pad_height(dz) return end
+    LK.oz = LK.oz + dz
+    LK.place("O/P")
+end
+LK.side = function(d)
+    if not LK.need_fx("side") then return end
+    if LK.AXES[LK.axis] == "X" then LK.ox = LK.ox + d else LK.oy = LK.oy + d end
+    LK.place("LEFT/RIGHT")
+end
+LK.next_axis = function()
+    LK.axis = LK.axis % #LK.AXES + 1
+    log("---- OVERLAY FIT (I): M / N now scale " .. LK.AXES[LK.axis] .. (LK.AXES[LK.axis] == "X" and "; LEFT / RIGHT move along X" or ""))
+    say("Scale axis: " .. LK.AXES[LK.axis])
+end
+LK.rescale = function(f)
+    if not LK.need_fx("scale") then return end
+    local a = LK.AXES[LK.axis]
+    if a == "all" or a == "X" then LK.sx = LK.sx * f end
+    if a == "all" or a == "Y" then LK.sy = LK.sy * f end
+    if a == "all" or a == "Z" then LK.sz = LK.sz * f end
+    LK.untried("SceneComponent:SetRelativeScale3D")
+    local ok, err = pcall(function() LK.fx:SetRelativeScale3D({ X = LK.sx, Y = LK.sy, Z = LK.sz }) end)
+    log("---- OVERLAY FIT (M/N): " .. LK.OVERLAYS[LK.overlay].look .. ": " .. LK.fit_text() .. (ok and "" or (" FAILED: " .. one_line(err))))
+    say("Overlay " .. LK.fit_text())
+end
+if not pcall(function() RegisterKeyBind(Key.O, function() ExecuteInGameThread(function() LK.nudge(10) end) end) end) then log("O could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.P, function() ExecuteInGameThread(function() LK.nudge(-10) end) end) end) then log("P could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.M, function() ExecuteInGameThread(function() LK.rescale(1.1) end) end) end) then log("M could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.N, function() ExecuteInGameThread(function() LK.rescale(1 / 1.1) end) end) end) then log("N could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.LEFT_ARROW, function() ExecuteInGameThread(function() LK.side(-10) end) end) end) then log("LEFT could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.RIGHT_ARROW, function() ExecuteInGameThread(function() LK.side(10) end) end) end) then log("RIGHT could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.I, function() ExecuteInGameThread(LK.next_axis) end) end) then log("I could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.OEM_TWO, function() ExecuteInGameThread(LK.survey) end) end) then log("/ could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.SCROLL_LOCK, function() ExecuteInGameThread(LK.make_mid) end) end) then log("SCROLL LOCK could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.OEM_PERIOD, function() ExecuteInGameThread(LK.next_colour) end) end) then log(". could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.OEM_COMMA, function() ExecuteInGameThread(LK.next_picture) end) end) then log(", could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.L, function() ExecuteInGameThread(LK.next_overlay) end) end) then log("L could not be bound") end
+if not pcall(function() RegisterKeyBind(Key.U, function() ExecuteInGameThread(LK.apply) end) end) then log("U could not be bound") end
+log("look keys (CRD-039, visual only): / = look survey, SCROLL LOCK = material instance, U = put it on the effect, . = colour, , = picture, L = overlay, O / P = overlay up / down, LEFT / RIGHT = sideways, M / N = overlay scale, I = scale axis")
 
 if not pcall(function() RegisterKeyBind(Key.PAGE_UP, function() ExecuteInGameThread(flag_registry_survey) end) end) then log("PAGE UP could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.PAGE_DOWN, function() ExecuteInGameThread(flag_native_probe) end) end) then log("PAGE DOWN could not be bound") end
