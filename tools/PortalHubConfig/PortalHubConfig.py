@@ -24,12 +24,16 @@ from tkinter import colorchooser, filedialog
 
 import hubdata as hd
 import install_check as ic
-from luaconfig import HubConfig, LuaError, Portal, World, fmt_num, read_manual_exits
+import preview as pv
+from luaconfig import Design, DesignsFile, HubConfig, LuaError, Portal, World, fmt_num, read_manual_exits
 
 APP = "Cordona Corporations Portal Hub Assistant Tool"
 BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 TOOL_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else BASE_DIR
 ICON_DIR = os.path.join(BASE_DIR, "icons")
+# Still pictures of the looks and rings (the stills card, CRD-046, fills this folder; the editor only reads it): <look>.png,
+# Geo_<Shape>_<Type>.png, M_Portal_<...>.png. Looked for beside the tool first, then inside a packaged exe.
+PREVIEW_DIRS = [os.path.join(TOOL_DIR, "previews"), os.path.join(BASE_DIR, "previews")]
 SETTINGS_FILE = os.path.join(os.environ.get("APPDATA", ""), "PortalHubConfig", "config-path.txt")
 GAME_FILE = os.path.join(os.environ.get("APPDATA", ""), "PortalHubConfig", "game-path.txt")
 PAD_ID_RX = re.compile(r"^[A-Za-z0-9_\-]+$")
@@ -624,19 +628,104 @@ def ask(parent, title, text, buttons):
     return d.present()
 
 
+def ask_text(parent, title, text, initial, check):
+    """A themed box with one text field. check(text) gives why it can't be used ("" = fine). Returns the text, or None (cancelled)."""
+    d = Dialog(parent, title)
+    tk.Label(d.body, text=text, bg=T["chassis"], fg=T["fg"], font=font(10), justify="left", wraplength=px(440)).pack(anchor="w")
+    var = tk.StringVar(value=initial)
+    box = Field(d.body, var, width=40)
+    box.pack(fill="x", pady=(px(8), 0))
+    msg = tk.Label(d.body, bg=T["chassis"], fg=T["bad"], font=font(9), anchor="w", justify="left", wraplength=px(440))
+    msg.pack(fill="x", pady=(px(4), 0))
+
+    def ok():
+        why = check(var.get())
+        if why:
+            msg.configure(text=why)
+            return
+        d.close(var.get().strip())
+
+    row = tk.Frame(d.body, bg=T["chassis"])
+    row.pack(anchor="e", pady=(px(10), 0))
+    Btn(row, "OK", ok, primary=True).pack(side="left", padx=(px(6), 0))
+    Btn(row, "CANCEL", lambda: d.close(None)).pack(side="left", padx=(px(6), 0))
+    box.entry.bind("<Return>", lambda e: ok())
+    box.entry.focus_set()
+    box.entry.selection_range(0, "end")
+    return d.present()
+
+
+def fit_image(root, path, w, h):
+    """A PNG shrunk (or grown) by whole steps to fit w x h, keeping its shape; None if it can't be read."""
+    try:
+        img = tk.PhotoImage(master=root, file=path)
+    except tk.TclError:
+        return None
+    iw, ih = img.width(), img.height()
+    if iw > w or ih > h:
+        k = max(-(-iw // w), -(-ih // h))
+        img = img.subsample(k, k)
+    else:
+        k = max(1, min(w // max(1, iw), h // max(1, ih)))
+        if k > 1:
+            img = img.zoom(k, k)
+    return img
+
+
+def arch_points(x0, y0, x1, y1, gothic=False):
+    """A closed outline of an arched door (round top) or a gothic arch (pointed, equilateral) filling x0..x1, y0 (top) .. y1 (bottom)."""
+    r = (x1 - x0) / 2
+    cx = x0 + r
+    if not gothic:
+        rise = min(r, y1 - y0)
+        ys = y0 + rise
+        arc = [(cx + r * math.cos(a), ys - rise * math.sin(a)) for a in (math.pi - k * math.pi / 16 for k in range(17))]
+    else:
+        full = math.sqrt(3) * r                          # an equilateral arch rises sqrt(3) x half its width
+        rise = min(full, y1 - y0)
+        ys, k = y0 + rise, rise / full
+        left = [(x1 + 2 * r * math.cos(a), ys - k * 2 * r * math.sin(a)) for a in (math.pi - i * math.pi / 24 for i in range(9))]
+        right = [(x0 + 2 * r * math.cos(a), ys - k * 2 * r * math.sin(a)) for a in (math.pi / 3 - i * math.pi / 24 for i in range(9))]
+        arc = left + right
+    pts = [x0, y1, x0, ys]
+    for px_, py_ in arc:
+        pts += [px_, py_]
+    return pts + [x1, ys, x1, y1, x0, y1]
+
+
+def draw_scientist(c, x, top, h, fill, line):
+    """Our own drawing (CC0) of a scientist in a lab coat with goggles and a clipboard, standing h pixels tall, feet centred on x.
+    Proportions of about 7.5 heads; the coat reaches the knees."""
+    u = h / 7.5                                               # one head
+    def P(*pts):                                              # points in heads from the feet's centre, up = negative
+        return [v for i in range(0, len(pts), 2) for v in (x + pts[i] * u, top + h - pts[i + 1] * u)]
+    c.create_polygon(P(-0.55, 0, -0.15, 0, -0.12, 3.4, 0.12, 3.4, 0.15, 0, 0.55, 0, 0.45, 3.6, -0.45, 3.6), fill=fill, outline=line)   # legs
+    c.create_polygon(P(-0.95, 2.4, 0.95, 2.4, 0.78, 6.05, 0.3, 6.35, -0.3, 6.35, -0.78, 6.05), fill=fill, outline=line)   # lab coat
+    c.create_line(P(0, 6.3, 0, 2.5), fill=line)                                                        # the coat's opening
+    c.create_polygon(P(-0.78, 6.05, -1.05, 4.0, -0.9, 3.75, -0.62, 5.6), fill=fill, outline=line)      # left arm, hanging
+    c.create_polygon(P(0.78, 6.05, 1.0, 4.9, 0.55, 4.25, 0.62, 5.6), fill=fill, outline=line)          # right arm, bent
+    c.create_polygon(P(0.3, 4.75, 0.95, 4.6, 0.95, 3.75, 0.3, 3.9), fill=line, outline=line)            # clipboard
+    c.create_rectangle(P(-0.12, 6.35, 0.12, 6.6), fill=fill, outline=line)                             # neck
+    c.create_oval(P(-0.42, 6.55, 0.42, 7.5), fill=fill, outline=line)                                  # head
+    c.create_line(P(-0.42, 7.05, 0.42, 7.05), fill=line, width=max(1, int(u / 8)))                     # goggle strap
+    c.create_oval(P(-0.32, 6.92, -0.04, 7.18), outline=line, width=max(1, int(u / 10)))                # goggles
+    c.create_oval(P(0.04, 6.92, 0.32, 7.18), outline=line, width=max(1, int(u / 10)))
+
+
 class EffectsDialog(Dialog):
     """One box per named part of a look (on = shown). OK saves the choice for that look."""
 
-    def __init__(self, parent, app, path, label):
+    def __init__(self, parent, app, path, label, hidden=None, on_ok=None):
+        """hidden / on_ok: a saved design's own hidden parts and what to do with the new list (CRD-044); else config.lua's hideEmitters."""
         super().__init__(parent, "Effects - " + label)
-        self.app, self.path = app, path
+        self.app, self.path, self.on_ok = app, path, on_ok
         name = hd.design_name(path)
         self.parts = hd.DESIGN_PARTS.get(name, [])
-        hidden = app.cfg.hide.get(path, [])
+        hidden = app.cfg.hide.get(path, []) if hidden is None else hidden
         self.state = {p: p not in hidden for p in self.parts}
         self.boxes = {}
         tk.Label(self.body, text="Tick the parts of this look you want ON. Unticked parts are switched off\n"
-                                 "for every portal that uses it.", bg=T["chassis"], fg=T["dim"], font=font(10),
+                                 + ("for this design only." if on_ok else "for every portal that uses it."), bg=T["chassis"], fg=T["dim"], font=font(10),
                  justify="left").pack(anchor="w", pady=(0, px(10)))
         panel = tk.Frame(self.body, bg=T["crt"], padx=px(10), pady=px(8), highlightthickness=1, highlightbackground=T["crt_edge"])
         panel.pack(fill="x")
@@ -677,7 +766,9 @@ class EffectsDialog(Dialog):
 
     def ok(self):
         off = [p for p in self.parts if not self.state[p] and p not in hd.PROTECTED_PARTS]
-        if off:
+        if self.on_ok:
+            self.on_ok(off)
+        elif off:
             self.app.cfg.hide[self.path] = off
         else:
             self.app.cfg.hide.pop(self.path, None)
@@ -759,6 +850,7 @@ class App:
         self.cards = {}
         self.status_kind = "info"
         self.saved_note = ""
+        self.design_sel = None
         self.load()
         self.build()
         self.refresh_all()
@@ -769,6 +861,18 @@ class App:
         self.mhe_spots, self.mhe_failsafe, self.mhe_problem = read_manual_exits(self.mhe_path)
         self.hum_vals = {"dynamic": self.cfg.hum_floor, "manual": self.cfg.hum_manual}
         self.world_i = 0 if self.cfg.worlds else -1
+        # saved designs (CRD-044): designs.lua beside config.lua; one that can't be read is shown as such and never written
+        self.designs_path = os.path.join(os.path.dirname(os.path.abspath(self.path)), "designs.lua")
+        self.designs_problem = ""
+        try:
+            self.designs = DesignsFile(self.designs_path)
+        except (LuaError, UnicodeDecodeError, OSError) as err:
+            self.designs = DesignsFile(None)
+            self.designs.path = None
+            self.designs_problem = f"designs.lua can't be read, so it is left as it is and nothing is written to it: {err}"
+        names = self.designs.names()
+        if self.design_sel not in names:
+            self.design_sel = names[0] if names else None
 
     # ------------- building
     def build(self):
@@ -789,7 +893,7 @@ class App:
         tabs = tk.Frame(r, bg=T["bg"], padx=px(16))
         tabs.pack(fill="x", pady=(px(8), 0))
         self.tab_btns = {}
-        for key, text in (("room", "PORTAL ROOM"), ("exits", "HUB EXITS"), ("worlds", "CUSTOM WORLDS")):
+        for key, text in (("room", "PORTAL ROOM"), ("designer", "PORTAL DESIGNER"), ("exits", "HUB EXITS"), ("worlds", "CUSTOM WORLDS")):
             w = tk.Label(tabs, text=text, font=font(10, True), padx=px(14), pady=px(6), cursor="hand2")
             w.pack(side="left")
             w.bind("<Button-1>", lambda e, k=key: self.show_tab(k))
@@ -800,8 +904,10 @@ class App:
         self.room = tk.Frame(self.page_host, bg=T["chassis"], padx=px(14), pady=px(12))
         self.worlds_page = tk.Frame(self.page_host, bg=T["chassis"], padx=px(14), pady=px(12))
         self.exits_page = tk.Frame(self.page_host, bg=T["chassis"], padx=px(14), pady=px(12))
+        self.designer_page = tk.Frame(self.page_host, bg=T["chassis"], padx=px(14), pady=px(12))
         self.build_board()
         self.build_inspector()
+        self.build_designer()
         self.build_hub_exits()
         self.build_worlds()
         self.build_footer()
@@ -913,6 +1019,136 @@ class App:
         self.exit_note.pack(fill="x", pady=(px(4), 0))
         self.force_note = tk.Label(f, text=hd.FORCE_COMPLETE_WARNING, bg=T["panel"], fg=T["warn"], font=font(9), anchor="w",
                                    justify="left", wraplength=px(430))
+
+    def build_designer(self):
+        """PORTAL DESIGNER (CRD-044): saved designs on the left, the form in the middle, the still and the scale preview on the right."""
+        page = self.designer_page
+        self.d_problem = tk.Label(page, bg=T["chassis"], fg=T["warn"], font=font(9, True), anchor="w", justify="left", wraplength=px(1200))
+        main = tk.Frame(page, bg=T["chassis"])
+        main.pack(fill="both", expand=True)
+        self.d_main = main
+        left = tk.Frame(main, bg=T["chassis"], width=px(230))
+        left.pack(side="left", fill="y")
+        left.pack_propagate(False)
+        lab = tk.Label(left, text="YOUR DESIGNS", bg=T["chassis"], fg=T["dim"], font=font(8, True), anchor="w")
+        lab.pack(fill="x", pady=(0, px(2)))
+        Tip(lab, "Saved in designs.lua next to config.lua when you click SAVE TO CONFIG. Each one appears in every slot's PORTAL LOOK list.")
+        host = tk.Frame(left, bg=T["crt"], highlightthickness=1, highlightbackground=T["crt_edge"])
+        host.pack(fill="both", expand=True)
+        self.d_list = Scrolled(host, T["crt"])
+        self.d_list.pack(fill="both", expand=True)
+        grid = tk.Frame(left, bg=T["chassis"])
+        grid.pack(fill="x", pady=(px(8), 0))
+        self.d_new_btn = Btn(grid, "NEW", self.d_new, primary=True)
+        self.d_dup_btn = Btn(grid, "DUPLICATE", self.d_duplicate)
+        self.d_ren_btn = Btn(grid, "RENAME", self.d_rename)
+        self.d_del_btn = Btn(grid, "DELETE", self.d_delete)
+        for i, b in enumerate((self.d_new_btn, self.d_dup_btn, self.d_ren_btn, self.d_del_btn)):
+            b.grid(row=i // 2, column=i % 2, sticky="ew", padx=(0 if i % 2 == 0 else px(6), 0), pady=(0 if i < 2 else px(6), 0))
+        grid.columnconfigure(0, weight=1)
+        grid.columnconfigure(1, weight=1)
+
+        f = tk.Frame(main, bg=T["panel"], padx=px(14), pady=px(10), highlightthickness=1, highlightbackground=T["line"])
+        f.pack(side="left", fill="both", expand=True, padx=(px(12), 0))
+        self.d_form = f
+        self.d_title = tk.Label(f, bg=T["panel"], fg=T["fg"], font=font(15, True), anchor="w")
+        self.d_title.pack(fill="x")
+        self.d_used = tk.Label(f, bg=T["panel"], fg=T["dim"], font=font(9), anchor="w", justify="left", wraplength=px(560))
+        self.d_used.pack(fill="x")
+        self.section(f, "BASE LOOK", "The pad's own look (one of the game's particle effects), or None to show only the ring.")
+        row = tk.Frame(f, bg=T["panel"])
+        row.pack(fill="x")
+        self.d_look = Drop(row, self.d_look_items, self.d_pick_look)
+        self.d_look.pack(side="left", fill="x", expand=True)
+        self.d_fx = Btn(row, "EFFECTS", self.d_effects)
+        self.d_fx.pack(side="left", padx=(px(6), 0))
+        Tip(self.d_fx, "Switch parts of this look off, for this design only.")
+        self.section(f, "LOOK SCALE  X / Y / Z", "The look's own size. Only the Friendly looks change size in the game (their ring is a 3D shape); "
+                                                "the others keep theirs, so this is off for them. Y is the width, Z the height, X the depth.")
+        row = tk.Frame(f, bg=T["panel"])
+        row.pack(fill="x")
+        self.d_scale = []
+        for i, axis in enumerate("XYZ"):
+            tk.Label(row, text=axis, bg=T["panel"], fg=T["dim"], font=font(9, True)).pack(side="left", padx=(0 if i == 0 else px(10), px(3)))
+            s = Stepper(row, 0.1, 5.0, 0.05, 2, lambda v, k=i: self.d_scale_set(k, v), T["panel"])
+            s.pack(side="left")
+            self.d_scale.append(s)
+        self.d_scale_note = tk.Label(row, bg=T["panel"], fg=T["dim"], font=font(9), anchor="w")
+        self.d_scale_note.pack(side="left", padx=(px(10), 0))
+        self.section(f, "HEIGHT ABOVE THE PAD  (CM)", "Where the look and the ring sit, measured to their centre. Left on the look's usual height, "
+                                                     "it follows LuciDin's height sheet for that look. An MHE takes this height too, unless it has its own (useful for Door).")
+        row = tk.Frame(f, bg=T["panel"])
+        row.pack(fill="x")
+        self.d_height = Stepper(row, 0, 500, 1, 0, self.d_height_set, T["panel"])
+        self.d_height.pack(side="left")
+        self.d_height_auto = Btn(row, "USUAL HEIGHT", self.d_height_reset, small=True)
+        self.d_height_auto.pack(side="left", padx=(px(8), 0))
+        Tip(self.d_height_auto, "Back to the look's usual height (it then follows the height sheet).")
+        self.d_height_note = tk.Label(row, bg=T["panel"], fg=T["dim"], font=font(9), anchor="w")
+        self.d_height_note.pack(side="left", padx=(px(8), 0))
+        row = tk.Frame(f, bg=T["panel"])
+        row.pack(fill="x", pady=(px(4), 0))
+        self.d_mhe_btn = Btn(row, "", self.d_mhe_toggle, small=True)
+        self.d_mhe_btn.pack(side="left")
+        Tip(self.d_mhe_btn, "The height on this portal's Manual Hub Exit (MHE): the same as the portal, or its own.")
+        self.d_mhe = Stepper(row, 0, 500, 1, 0, self.d_mhe_set, T["panel"])
+        self.d_mhe.pack(side="left", padx=(px(8), 0))
+        self.section(f, "RING", "A ring drawn on the pad: one of our 24 Geo rings (6 shapes x 4 types, from the Portal Hub's content pak) or one of the game's "
+                               "ring materials. With a ring, the look can be None, so only the ring shows.")
+        self.d_ring = Drop(f, self.d_ring_items, self.d_pick_ring)
+        self.d_ring.pack(fill="x")
+        self.section(f, "RING SIZE  WIDTH x HEIGHT  (METRES)", "The ring's size in metres; it keeps its shape at any size.")
+        row = tk.Frame(f, bg=T["panel"])
+        row.pack(fill="x")
+        self.d_size = []
+        for i, axis in enumerate(("W", "H")):
+            tk.Label(row, text=axis, bg=T["panel"], fg=T["dim"], font=font(9, True)).pack(side="left", padx=(0 if i == 0 else px(10), px(3)))
+            s = Stepper(row, 0.1, 20.0, 0.05, 2, lambda v, k=i: self.d_size_set(k, v), T["panel"])
+            s.pack(side="left")
+            self.d_size.append(s)
+        self.d_size_reset_btn = Btn(row, "SHAPE'S SIZE", self.d_size_reset, small=True)
+        self.d_size_reset_btn.pack(side="left", padx=(px(10), 0))
+        self.section(f, "RING COLOUR", "Tints the ring: its own colours (the first box), a preset, or ... for any colour.")
+        sw = tk.Frame(f, bg=T["panel"])
+        sw.pack(fill="x")
+        self.d_swatches = {}
+        for label, hexv in [("The ring's own colours", "")] + hd.LIGHT_PRESETS:
+            w = tk.Label(sw, text="-" if not hexv else "", bg=hexv or T["crt"], fg=T["crt_fg"], width=2, font=font(9), highlightthickness=2, cursor="hand2")
+            w.pack(side="left", padx=(0, px(3)))
+            w.bind("<Button-1>", lambda e, h=hexv: self.d_pick_tint(h))
+            Tip(w, label)
+            self.d_swatches[hexv] = w
+        self.d_custom_sw = tk.Label(sw, text="...", bg=T["panel"], fg=T["fg"], width=3, font=font(9, True), highlightthickness=2, cursor="hand2")
+        self.d_custom_sw.pack(side="left")
+        self.d_custom_sw.bind("<Button-1>", lambda e: self.d_custom_tint())
+        Tip(self.d_custom_sw, "Any colour")
+        self.section(f, "SCENE INSIDE THE RING", "The picture seen through the ring. Only the rings that show a picture take one "
+                                                "(Geo Colloform, Reniform and Prismatic, and most game rings).")
+        self.d_scene = Drop(f, self.d_scene_items, self.d_pick_scene)
+        self.d_scene.pack(fill="x")
+        self.d_msg = tk.Label(f, bg=T["panel"], fg=T["dim"], font=font(9), anchor="w", justify="left", wraplength=px(560))
+        self.d_msg.pack(fill="x", pady=(px(8), 0))
+        self.d_empty = tk.Label(main, text="No saved designs yet.\n\nClick NEW to make one. A design is a look, a ring, colours, sizes and a height "
+                                          "under a name of your own; pick it for any slot in the PORTAL ROOM tab.",
+                                bg=T["panel"], fg=T["dim"], font=font(10), justify="left", padx=px(20), pady=px(20), wraplength=px(520),
+                                highlightthickness=1, highlightbackground=T["line"], anchor="nw")
+
+        right = tk.Frame(main, bg=T["panel"], padx=px(12), pady=px(10), highlightthickness=1, highlightbackground=T["line"], width=px(300))
+        right.pack(side="left", fill="y", padx=(px(12), 0))
+        right.pack_propagate(False)
+        self.d_right = right
+        self.section(right, "STILL", "A picture of the look (or of the ring, if the design has one) in the game, from the previews folder.")
+        self.d_still = tk.Canvas(right, width=px(274), height=px(132), bg=T["crt"], highlightthickness=1, highlightbackground=T["crt_edge"])
+        self.d_still.pack()
+        self.d_still_note = tk.Label(right, bg=T["panel"], fg=T["dim"], font=font(8), anchor="w", justify="left", wraplength=px(274))
+        self.d_still_note.pack(fill="x")
+        lab = self.section(right, "SCALE PREVIEW", "The portal next to a scientist, both to the same scale. The player's height is "
+                                                   + hd.PLAYER_HEIGHT_SOURCE + ".")
+        self.d_scale_cv = tk.Canvas(right, width=px(274), height=px(248), bg=T["crt"], highlightthickness=1, highlightbackground=T["crt_edge"])
+        self.d_scale_cv.pack()
+        self.d_scale_txt = tk.Label(right, bg=T["panel"], fg=T["dim"], font=font(8), anchor="w", justify="left", wraplength=px(274))
+        self.d_scale_txt.pack(fill="x")
+        self.d_images = {}
 
     def build_hub_exits(self):
         p = self.exits_page
@@ -1091,7 +1327,7 @@ class App:
         if img is not None:
             c.create_image(W / 2, px(66), image=img)
         else:
-            tint = hd.LOOK_TINTS.get(hd.design_name(p.design), T["crt_fg"])
+            tint = self.card_tint(p.design)
             r = px(29)
             x, y = W / 2, px(66)
             c.create_oval(x - r, y - r, x + r, y + r, outline=tint, width=3)
@@ -1105,6 +1341,15 @@ class App:
         c.create_text(W / 2, px(116), text=shown, fill=T["crt_fg"], font=font(size, True))
         shown, size = fit_text(c, p.destination or "pick a world", room, 8, False)
         c.create_text(W / 2, px(132), text=shown, fill=T["crt_dim"], font=font(size))
+
+    def card_tint(self, value):
+        """The ring colour on a slot card: a design's tint, else its look's tint; a game look's own tint."""
+        d = self.designs.get(value) if self.is_saved_design(value) else None
+        if d is not None:
+            if d.ring and d.tint_hex:
+                return d.tint_hex
+            return hd.LOOK_TINTS.get(d.look, T["accent"])
+        return hd.LOOK_TINTS.get(hd.design_name(value), T["crt_fg"])
 
     def dest_problem(self, p):
         d = p.destination.strip()
@@ -1175,9 +1420,23 @@ class App:
         self.dest.set_bad(bad)
         self.pad.set_bad(bad)
 
+    def is_saved_design(self, value):
+        """A portal's design value that names one of the saved designs (not a game look's path)."""
+        return bool(value) and not value.startswith("/") and self.designs.get(value) is not None
+
+    def look_label(self, value):
+        if self.is_saved_design(value):
+            return value + "   (your design)"
+        if value and not value.startswith("/"):
+            return value + "   (design not in designs.lua)"
+        return next((l for l, path in hd.DESIGNS if path == value), "Custom: " + value)
+
     def show_look(self, p):
-        label = next((l for l, path in hd.DESIGNS if path == p.design), "Custom: " + p.design)
-        self.look.show(label, p.design)
+        self.look.show(self.look_label(p.design), p.design)
+        self.look.set_bad(self.portal(p.slot) is not None and bool(p.design) and not p.design.startswith("/") and not self.is_saved_design(p.design))
+        if self.is_saved_design(p.design):
+            self.fx.configure(text="IN DESIGNER")
+            return
         n = len(self.cfg.hide.get(p.design, []))
         self.fx.configure(text=f"EFFECTS ({n} OFF)" if n else "EFFECTS")
 
@@ -1278,13 +1537,24 @@ class App:
             self.changed(self.sel)
 
     def look_items(self):
-        items = [(label, None, path) for label, path in hd.DESIGNS]
+        """The game's looks, then the saved designs (CRD-044). A design picked here is written as design = "Name"."""
+        items = [("Game looks", None, None)] + [(label, None, path) for label, path in hd.DESIGNS]
         p = self.active()
-        if p and not any(path == p.design for _, path in hd.DESIGNS):
+        if p and p.design.startswith("/") and not any(path == p.design for _, path in hd.DESIGNS):
             items.append(("Custom: " + p.design, None, p.design))       # a path from a hand-edited config: keep it
+        names = self.designs.names()
+        items.append(("Your designs", None, None))
+        items += [(n, "design", n) for n in names]
+        if p and p.design and not p.design.startswith("/") and p.design not in names:
+            items.append((p.design, "not in designs.lua", p.design))    # a name from a hand-edited config: keep it
+        if not names:
+            items.append(("Make one in the PORTAL DESIGNER tab", None, "__designer__"))
         return items
 
     def pick_look(self, path):
+        if path == "__designer__":
+            self.show_tab("designer")
+            return
         p = self.active()
         p.design = path
         self.changed(p.slot, inspector=True)
@@ -1292,6 +1562,10 @@ class App:
     def open_effects(self):
         p = self.active()
         if not p:
+            return
+        if self.is_saved_design(p.design):              # a design's parts are set in the designer
+            self.design_sel = p.design
+            self.show_tab("designer")
             return
         label = next((l for l, path in hd.DESIGNS if path == p.design), p.design)
         if not hd.DESIGN_PARTS.get(hd.design_name(p.design)):
@@ -1387,6 +1661,436 @@ class App:
             p.manual_buffs = not p.manual_buffs
             self.show_exits(p)
             self.changed(p.slot)
+
+    # ------------- portal designer tab (CRD-044)
+    def design(self):
+        return self.designs.get(self.design_sel) if self.design_sel else None
+
+    def d_users(self, name):
+        """The slots whose portal uses a saved design."""
+        return [s for s in hd.SLOT_IDS if self.portal(s) and self.portal(s).design == name]
+
+    def d_editable(self):
+        return not self.designs_problem
+
+    def refresh_designer(self):
+        names = self.designs.names()
+        self.tab_btns["designer"].configure(text=f"PORTAL DESIGNER  {len(names)}" if names else "PORTAL DESIGNER")
+        self.d_problem.pack_forget()
+        if self.designs_problem:
+            self.d_problem.configure(text=self.designs_problem)
+            self.d_problem.pack(fill="x", pady=(0, px(6)), before=self.d_main)
+        self.d_rows()
+        d = self.design()
+        ok = self.d_editable()
+        self.d_new_btn.set_enabled(ok)
+        for b in (self.d_dup_btn, self.d_ren_btn, self.d_del_btn):
+            b.set_enabled(ok and d is not None)
+        if d is None:
+            self.d_form.pack_forget()
+            self.d_right.pack_forget()
+            self.d_empty.pack(side="left", fill="both", expand=True, padx=(px(12), 0))
+            return
+        self.d_empty.pack_forget()
+        self.d_form.pack(side="left", fill="both", expand=True, padx=(px(12), 0))
+        self.d_right.pack(side="left", fill="y", padx=(px(12), 0))
+        self.d_fill(d)
+        self.d_draw()
+
+    def d_rows(self):
+        host = self.d_list.inner
+        for child in host.winfo_children():
+            child.destroy()
+        for name in self.designs.names():
+            d = self.designs.get(name)
+            hot = name == self.design_sel
+            bg = T["accent"] if hot else T["crt"]
+            row = tk.Frame(host, bg=bg, cursor="hand2", padx=px(8), pady=px(4))
+            row.pack(fill="x")
+            dot = tk.Label(row, text="●", bg=bg, fg=self.card_tint(name), font=font(9))
+            dot.pack(side="left", padx=(0, px(6)))
+            txt = tk.Frame(row, bg=bg)
+            txt.pack(side="left", fill="x", expand=True)
+            users = self.d_users(name)
+            sub = ("kept as written" if d.raw else hd.ring_label(d.ring) if d.ring else hd.design_label(d.look) if d.look != "none" else "no look") \
+                + (f"  |  {', '.join(users)}" if users else "")
+            a = tk.Label(txt, text=name, bg=bg, fg=T["on_accent"] if hot else T["crt_fg"], font=font(10), anchor="w")
+            b = tk.Label(txt, text=sub, bg=bg, fg=T["on_accent"] if hot else T["crt_dim"], font=font(8), anchor="w")
+            a.pack(fill="x")
+            b.pack(fill="x")
+            for widget in (row, dot, txt, a, b):
+                widget.bind("<Button-1>", lambda e, k=name: self.d_pick(k))
+                self.d_list.bind_wheel(widget)
+
+    def d_fill(self, d):
+        """Put a design's values in the form (no change is made here)."""
+        self.guard = True
+        on = self.d_editable() and not d.raw
+        self.d_title.configure(text=d.name)
+        users = self.d_users(d.name)
+        self.d_used.configure(text=("Used by " + ", ".join(users) + "." if users else "Not used by any slot yet: pick it in a slot's PORTAL LOOK list.")
+                              + (f"  Also in designs.lua, kept as written: {', '.join(d.extras)}." if d.extras else ""))
+        self.d_look.show(self.d_look_label(d.look), d.look)
+        self.d_look.set_enabled(on)
+        self.d_look.set_bad(d.look == "none" and not d.ring)
+        n = len(d.hide)
+        self.d_fx.configure(text=f"EFFECTS ({n} OFF)" if n else "EFFECTS")
+        self.d_fx.set_enabled(on and d.look != "none" and bool(hd.DESIGN_PARTS.get(d.look)))
+        scalable = d.look in hd.SCALABLE_LOOKS
+        for i, s in enumerate(self.d_scale):
+            s.set(d.scale[i] if d.scale else 1.0)
+            s.set_enabled(on and scalable)
+        self.d_scale_note.configure(text="" if scalable else "Friendly looks only")
+        h = pv.design_height(d)
+        self.d_height.set(h)
+        self.d_height.set_enabled(on)
+        self.d_height_auto.set_enabled(on and d.height is not None)
+        self.d_height_note.configure(text="set for this design" if d.height is not None else
+                                     ("the ring's usual place" if d.look == "none" and d.ring else "the look's usual height"))
+        self.d_mhe_btn.configure(text="MHE: OWN HEIGHT" if d.mhe_height is not None else "MHE: SAME HEIGHT")
+        self.d_mhe_btn.set_enabled(on)
+        self.d_mhe.set(d.mhe_height if d.mhe_height is not None else h)
+        self.d_mhe.set_enabled(on and d.mhe_height is not None)
+        self.d_ring.show(hd.ring_label(d.ring), d.ring or "")
+        self.d_ring.set_enabled(on)
+        self.d_ring.set_bad(bool(d.ring) and hd.parse_ring(d.ring) is None)
+        w, hh = pv.ring_dims(d) if d.ring else (1.0, 1.0)
+        self.d_size[0].set(w)
+        self.d_size[1].set(hh)
+        for s in self.d_size:
+            s.set_enabled(on and bool(d.ring))
+        self.d_size_reset_btn.set_enabled(on and bool(d.ring))
+        tint = d.tint_hex.upper()
+        for k, w2 in self.d_swatches.items():
+            w2.configure(highlightbackground=T["accent"] if k == tint and d.ring else T["line"], cursor="hand2" if on and d.ring else "arrow")
+        if tint and tint not in self.d_swatches and d.ring:
+            self.d_custom_sw.configure(bg=tint, fg=T["on_accent"], highlightbackground=T["accent"])
+        else:
+            self.d_custom_sw.configure(bg=T["panel"], fg=T["fg"] if on and d.ring else T["line"], highlightbackground=T["line"])
+        takes = hd.ring_takes_scene(d.ring)
+        self.d_scene.show(hd.SCENE_LABELS.get(d.scene, d.scene) if d.scene else ("The ring's own scene" if takes else
+                          ("Pick a ring first" if not d.ring else "This ring shows no scene")), d.scene)
+        self.d_scene.set_enabled(on and takes)
+        notes = []
+        if d.raw:
+            notes.append("This design holds a value the editor can't read, so it is kept exactly as written (rename and delete still work). Edit it in designs.lua.")
+        if d.look == "none" and not d.ring:
+            notes.append("No look and no ring: the hub keeps the default look. Pick a ring, or a look.")
+        rp = hd.parse_ring(d.ring)
+        if rp and rp[0] == "geo":
+            notes.append("Geo rings come from the Portal Hub's content pak (PortalHubLooks_P in Content\\Paks\\~mods). Without it, the portal keeps its look.")
+        self.d_msg.configure(text="  ".join(notes), fg=T["warn"] if d.raw or (d.look == "none" and not d.ring) else T["dim"])
+        self.guard = False
+
+    def d_look_label(self, look):
+        return "None (only the ring shows)" if look == "none" else hd.design_label(look) if look in hd.DESIGN_NAMES else "Custom: " + look
+
+    def d_pick(self, name):
+        self.commit_focus()
+        self.design_sel = name
+        self.refresh_designer()
+
+    def d_changed(self, refill=True):
+        """After any edit of the shown design: its cards, the list, the previews, the save state."""
+        d = self.design()
+        if d is not None:
+            for s in self.d_users(d.name):
+                self.draw_card(s)
+            if refill:
+                self.d_fill(d)
+        self.d_rows()
+        self.d_draw()
+        self.update_state()
+
+    def d_unique(self, base):
+        taken = {n.lower() for n in self.designs.names()}
+        name, k = base, 2
+        while name.lower() in taken:
+            name = f"{base} {k}"
+            k += 1
+        return name
+
+    def d_new(self):
+        if not self.d_editable():
+            return
+        d = self.designs.add(Design(name=self.d_unique("New design")))
+        self.design_sel = d.name
+        self.refresh_designer()
+        self.update_state()
+
+    def d_duplicate(self):
+        d = self.design()
+        if d is None or not self.d_editable() or d.raw:
+            return
+        new = self.designs.add(d.copy(self.d_unique((d.name + " copy")[:hd.DESIGN_NAME_MAX])))
+        self.design_sel = new.name
+        self.refresh_designer()
+        self.update_state()
+
+    def d_rename(self):
+        d = self.design()
+        if d is None or not self.d_editable():
+            return
+        others = [n for n in self.designs.names() if n != d.name]
+        new = ask_text(self.root, "Rename design", f"A new name for '{d.name}'. Portals that use it follow the new name.", d.name,
+                       lambda t: hd.design_name_problem(t, others))
+        if not new or new == d.name:
+            return
+        old = d.name
+        d.name = new
+        for p in self.cfg.portals.values():          # every portal that used the old name follows (config.lua is written on save)
+            if p.design == old:
+                p.design = new
+        self.design_sel = new
+        for s in hd.SLOT_IDS:
+            self.draw_card(s)
+        self.refresh_designer()
+        self.update_state()
+
+    def d_delete(self):
+        d = self.design()
+        if d is None or not self.d_editable():
+            return
+        users = self.d_users(d.name)
+        fallback = hd.design_path(d.look) if d.look in hd.DESIGN_NAMES else hd.DEFAULT_DESIGN
+        q = f"Delete the design '{d.name}'? This can't be undone once saved."
+        if users:
+            q += (f"\n\n{', '.join(users)} {'uses' if len(users) == 1 else 'use'} it; {'it' if len(users) == 1 else 'they'} will show "
+                  f"{hd.design_label(hd.design_name(fallback))} instead.")
+        if not ask(self.root, "Delete design", q, [("DELETE", 1), ("CANCEL", 0)]):
+            return
+        for p in self.cfg.portals.values():
+            if p.design == d.name:
+                p.design = fallback
+        names = self.designs.names()
+        i = names.index(d.name)
+        self.designs.remove(d.name)
+        names = self.designs.names()
+        self.design_sel = names[min(i, len(names) - 1)] if names else None
+        for s in users:
+            self.draw_card(s)
+        self.refresh_designer()
+        self.refresh_inspector()
+        self.update_state()
+
+    def d_look_items(self):
+        items = [("No look", None, None), ("None (only the ring shows)", "needs a ring", "none"), ("Game looks", None, None)]
+        items += [(label, f"{hd.LOOK_HEIGHTS[n]} cm", n) for label, n in ((hd.design_label(n), n) for n in hd.DESIGN_NAMES)]
+        return items
+
+    def d_pick_look(self, look):
+        d = self.design()
+        if d is None or d.raw:
+            return
+        d.look = look
+        if look not in hd.SCALABLE_LOOKS:
+            d.scale = None                               # only the Friendly looks scale: nothing left over in the file
+        d.hide = [p for p in d.hide if p in hd.DESIGN_PARTS.get(look, [])]
+        self.d_changed()
+
+    def d_effects(self):
+        d = self.design()
+        if d is None or d.raw or d.look == "none":
+            return
+
+        def done(off):
+            d.hide = off
+        if EffectsDialog(self.root, self, hd.design_path(d.look), hd.design_label(d.look), hidden=d.hide, on_ok=done).present():
+            self.d_changed()
+
+    def d_scale_set(self, axis, v):
+        d = self.design()
+        if self.guard or d is None or d.raw:
+            return
+        sc = list(d.scale) if d.scale else [1.0, 1.0, 1.0]
+        sc[axis] = v
+        d.scale = sc
+        self.d_changed(refill=False)
+
+    def d_height_set(self, v):
+        d = self.design()
+        if self.guard or d is None or d.raw:
+            return
+        d.height = v
+        self.d_height_auto.set_enabled(True)
+        self.d_height_note.configure(text="set for this design")
+        if d.mhe_height is None:
+            self.guard = True
+            self.d_mhe.set(v)
+            self.guard = False
+        self.d_changed(refill=False)
+
+    def d_height_reset(self):
+        d = self.design()
+        if d is None or d.raw:
+            return
+        d.height = None
+        self.d_changed()
+
+    def d_mhe_toggle(self):
+        d = self.design()
+        if d is None or d.raw:
+            return
+        d.mhe_height = None if d.mhe_height is not None else pv.design_height(d)
+        self.d_changed()
+
+    def d_mhe_set(self, v):
+        d = self.design()
+        if self.guard or d is None or d.raw or d.mhe_height is None:
+            return
+        d.mhe_height = v
+        self.d_changed(refill=False)
+
+    def d_ring_items(self):
+        items = [("No ring", None, None), ("No ring", "the look only", "")]
+        for s, slabel, w, h in hd.GEO_SHAPES:
+            items.append((f"Geo {slabel}  ({w:g} x {h:g} m)", None, None))
+            items += [(f"Geo {slabel} - {tlabel}", what, f"{s}_{t}") for t, tlabel, what in hd.GEO_TYPES]
+        items.append(("The game's rings", None, None))
+        items += [(label, "game ring", name) for name, label in hd.GAME_RINGS]
+        return items
+
+    def d_pick_ring(self, ring):
+        d = self.design()
+        if d is None or d.raw:
+            return
+        old, new = hd.parse_ring(d.ring), hd.parse_ring(ring)
+        same_shape = bool(d.size) and old is not None and new is not None and (
+            (old[0] == new[0] == "geo" and old[1] == new[1]) or old[0] == new[0] == "game")     # game rings all use the plane
+        d.ring = ring
+        if ring:
+            if not same_shape:
+                d.size = list(hd.ring_size(ring))       # a new shape starts at its own size; another type of the same shape keeps the size
+            if not hd.ring_takes_scene(ring):
+                d.scene = ""
+        else:
+            d.size, d.tint_hex, d.scene = None, "", ""
+        self.d_changed()
+
+    def d_size_set(self, i, v):
+        d = self.design()
+        if self.guard or d is None or d.raw or not d.ring:
+            return
+        size = list(pv.ring_dims(d))
+        size[i] = v
+        d.size = size
+        self.d_changed(refill=False)
+
+    def d_size_reset(self):
+        d = self.design()
+        if d is None or d.raw or not d.ring:
+            return
+        d.size = list(hd.ring_size(d.ring))
+        self.d_changed()
+
+    def d_pick_tint(self, hexv):
+        d = self.design()
+        if d is None or d.raw or not d.ring:
+            return
+        d.tint_hex = hexv.upper()
+        self.d_changed()
+
+    def d_custom_tint(self):
+        d = self.design()
+        if d is None or d.raw or not d.ring:
+            return
+        _, hexv = colorchooser.askcolor(color=d.tint_hex or None, parent=self.root, title="Ring colour")
+        if hexv:
+            self.d_pick_tint(hexv)
+
+    def d_scene_items(self):
+        return [("Scene", None, None), ("The ring's own scene", None, "")] + [(label, name, name) for name, label in hd.SCENES]
+
+    def d_pick_scene(self, scene):
+        d = self.design()
+        if d is None or d.raw or not hd.ring_takes_scene(d.ring):
+            return
+        d.scene = scene
+        self.d_changed()
+
+    # ------------- previews
+    def preview_names(self, d):
+        """The still files that picture a design, best first: its ring's, then its look's."""
+        names = []
+        r = hd.parse_ring(d.ring)
+        if r and r[0] == "geo":
+            names.append(f"Geo_{r[1]}_{r[2]}.png")
+        elif r:
+            names.append(d.ring + ".png")
+        if d.look != "none":
+            names.append(d.look + ".png")
+        return names
+
+    def preview_file(self, d):
+        for name in self.preview_names(d):
+            for folder in PREVIEW_DIRS:
+                path = os.path.join(folder, name)
+                if os.path.isfile(path):
+                    return path
+        return None
+
+    def d_draw(self):
+        d = self.design()
+        if d is None:
+            return
+        self.draw_still(d)
+        self.draw_scale(d)
+
+    def draw_still(self, d):
+        c = self.d_still
+        c.delete("all")
+        W, H = px(274), px(132)
+        path = self.preview_file(d)
+        img = None
+        if path:
+            if path not in self.d_images:
+                self.d_images[path] = fit_image(self.root, path, W - px(4), H - px(4))
+            img = self.d_images[path]
+        if img is not None:
+            c.create_image(W / 2, H / 2, image=img)
+            self.d_still_note.configure(text=os.path.basename(path) + (" (the look under the ring is not pictured)" if d.ring and d.look != "none" else ""))
+            return
+        tint = self.card_tint(d.name)
+        r, cy = px(40), H / 2 - px(8)
+        c.create_oval(W / 2 - r * 0.7, cy - r, W / 2 + r * 0.7, cy + r, outline=tint, width=3)
+        c.create_oval(W / 2 - r * 0.55, cy - r * 0.85, W / 2 + r * 0.55, cy + r * 0.85, outline=tint, dash=(3, 3))
+        c.create_text(W / 2, H - px(10), text="NO STILL YET", fill=T["crt_dim"], font=font(9, True))
+        names = self.preview_names(d)
+        self.d_still_note.configure(text=("Looked for " + " or ".join(names) + " in the previews folder." if names else "Nothing to picture yet."))
+
+    def draw_scale(self, d):
+        c = self.d_scale_cv
+        c.delete("all")
+        W, H = px(274), px(248)
+        ext = pv.extent(d)
+        lay = pv.layout(ext, hd.PLAYER_HEIGHT_CM, W, H, margin=px(14), top_room=px(26))
+        s = lay.scale
+        for m in range(0, 10):                                          # a line every metre
+            y = lay.floor - m * s
+            if y < px(20):
+                break
+            c.create_line(0, y, W, y, fill=T["crt_line"], dash=() if m == 0 else (2, 4))
+            if m:
+                c.create_text(W - px(4), y - px(1), text=f"{m} m", anchor="se", fill=T["crt_dim"], font=font(7))
+        c.create_line(0, lay.floor, W, lay.floor, fill=T["crt_edge"], width=2)
+        c.create_rectangle(lay.pad[0], lay.floor - max(2, s * 0.08), lay.pad[1], lay.floor, fill=T["crt_hi"], outline=T["crt_edge"])   # the pad
+        x0, y0, x1, y1 = lay.portal
+        tint = self.card_tint(d.name)
+        shape = (hd.parse_ring(d.ring) or ("", ""))[1] if d.ring else ""
+        if shape in ("Square", "Door") or (d.ring and hd.parse_ring(d.ring) and hd.parse_ring(d.ring)[0] == "game"):
+            c.create_rectangle(x0, y0, x1, y1, outline=tint, width=2, dash=() if ext.exact else (4, 3))
+        elif shape in ("Arch", "Gothic"):
+            c.create_line(arch_points(x0, y0, x1, y1, shape == "Gothic"), fill=tint, width=2)
+        else:
+            c.create_oval(x0, y0, x1, y1, outline=tint, width=2, dash=() if ext.exact else (4, 3))
+        cx = (x0 + x1) / 2
+        c.create_line(cx - px(5), (y0 + y1) / 2, cx + px(5), (y0 + y1) / 2, fill=T["crt_dim"])   # the centre (its height)
+        feet, top, ph = lay.person
+        draw_scientist(c, feet, top, ph, T["crt_hi"], T["crt_fg"])
+        c.create_text(px(6), px(6), text=f"player {hd.PLAYER_HEIGHT_CM / 100:.2f} m", anchor="nw", fill=T["crt_fg"], font=font(8))
+        c.create_text(W - px(6), px(6), text=f"portal {ext.width:.2f} x {ext.height:.2f} m", anchor="ne", fill=tint, font=font(8))
+        self.d_scale_txt.configure(text=f"{ext.what}, centre {ext.centre:.2f} m above the pad; {pv.ratio_text(ext, hd.PLAYER_HEIGHT_CM)}."
+                                   + ("" if ext.exact else " A game look's size is estimated; the still shows it as it is."))
 
     # ------------- hub exits tab
     def mhe_rows(self):
@@ -1695,11 +2399,17 @@ class App:
         return (f"{', '.join(slots)} {'leads' if len(slots) == 1 else 'lead'} into a DLC area (Stone Garden or Torii): the hub opens "
                 f"{'it' if len(slots) == 1 else 'them'} only if you, or the host in multiplayer, own that DLC.")
 
+    def designs_dirty(self):
+        return not self.designs_problem and self.designs.is_dirty()
+
+    def is_dirty(self):
+        return self.cfg.is_dirty() or self.designs_dirty()
+
     def update_state(self):
         probs = self.problems()
         blocked = self.save_blocked()
         self.save_btn.set_enabled(not probs and not blocked)
-        dirty = self.cfg.is_dirty() if not probs else True
+        dirty = self.is_dirty() if not probs else True
         note = self.dlc_note()
         if blocked:
             self.status.configure(fg=T["status_bad"], text="Can't save: " + blocked)
@@ -1719,6 +2429,7 @@ class App:
         for slot in hd.SLOT_IDS:
             self.draw_card(slot)
         self.refresh_inspector()
+        self.refresh_designer()
         self.refresh_hub_exits()
         self.refresh_worlds()
         self.set_hum_mode(self.cfg.hum_mode)
@@ -1734,11 +2445,14 @@ class App:
             on = k == key
             w.configure(bg=T["chassis"] if on else T["bg"], fg=T["fg"] if on else T["dim"])
         self.room.pack_forget()
+        self.designer_page.pack_forget()
         self.exits_page.pack_forget()
         self.worlds_page.pack_forget()
-        {"room": self.room, "exits": self.exits_page, "worlds": self.worlds_page}[key].pack(fill="both", expand=True)
+        {"room": self.room, "designer": self.designer_page, "exits": self.exits_page, "worlds": self.worlds_page}[key].pack(fill="both", expand=True)
         if key == "room":
             self.refresh_inspector()
+        elif key == "designer":
+            self.refresh_designer()
         elif key == "exits":
             self.refresh_hub_exits()
 
@@ -1750,7 +2464,7 @@ class App:
         new = self.install.config_path
         if self.gate and new and os.path.normcase(os.path.abspath(new)) != os.path.normcase(os.path.abspath(self.path)):
             # the installed hub's config is another file than the one open (another game folder was picked): edit that one
-            if not self.cfg.is_dirty() or ask(self.root, APP, f"Switch to the Portal Hub config in that game folder?\n\n{new}\n\n"
+            if not self.is_dirty() or ask(self.root, APP, f"Switch to the Portal Hub config in that game folder?\n\n{new}\n\n"
                                                               "Your unsaved changes here are dropped.", [("SWITCH", 1), ("STAY", 0)]):
                 self.path = new
                 self.do_reload()
@@ -1777,6 +2491,15 @@ class App:
             if choice == "reload":
                 self.do_reload()
                 return
+        if self.designs_dirty() and self.designs.changed_on_disk():
+            choice = ask(self.root, "designs.lua changed", "designs.lua was changed by something else since it was loaded.\n\n"
+                                                            "Reload drops your edits here. Overwrite keeps them; only the designs you changed are written, "
+                                                            "onto the file as it was loaded.", [("RELOAD", "reload"), ("OVERWRITE", "write"), ("CANCEL", None)])
+            if choice is None:
+                return
+            if choice == "reload":
+                self.do_reload()
+                return
         for p in self.cfg.portals.values():
             if p.enabled and not p.name.strip():
                 p.name = self.world_title(p.destination.strip())
@@ -1784,10 +2507,15 @@ class App:
                 p.destination = p.destination.strip()
         n = sum(p.enabled for p in self.cfg.portals.values())
         w = len(self.cfg.worlds)
+        k = len(self.designs.names())
         try:
+            wrote_designs = self.designs_dirty()
+            if wrote_designs:
+                self.designs.save()              # first: the portals saved next may name a new or renamed design
             self.cfg.save()
             self.do_reload()
-            self.saved_note = f"Saved {n} portal(s)" + (f" and {w} custom world(s)" if w else "") + ". Restart the game to apply (for a quick try: Ctrl+O, Restart All Mods)."
+            self.saved_note = (f"Saved {n} portal(s)" + (f", {w} custom world(s)" if w else "") + (f" and {k} design(s) (designs.lua)" if wrote_designs else "")
+                               + ". Restart the game to apply (for a quick try: Ctrl+O, Restart All Mods).")
             self.update_state()
         except (OSError, LuaError) as err:
             self.status.configure(fg=T["status_bad"], text=f"Could not save: {err}")
@@ -1803,7 +2531,7 @@ class App:
         self.update_state()
 
     def reload(self):
-        if self.cfg.is_dirty() and not ask(self.root, "Reload", "Drop your unsaved changes and read config.lua again?", [("RELOAD", 1), ("CANCEL", 0)]):
+        if self.is_dirty() and not ask(self.root, "Reload", "Drop your unsaved changes and read config.lua and designs.lua again?", [("RELOAD", 1), ("CANCEL", 0)]):
             return
         self.do_reload()
 
@@ -1823,7 +2551,7 @@ class App:
             self.do_reload()
 
     def on_close(self):
-        if self.cfg.is_dirty():
+        if self.is_dirty():
             choice = ask(self.root, APP, "Save your changes to config.lua?", [("SAVE", "save"), ("DON'T SAVE", "drop"), ("CANCEL", None)])
             if choice is None:
                 return
@@ -1939,6 +2667,8 @@ def screenshots(root, app, base):
     d.attributes("-topmost", True)
     grab(d, "_effects.png")
     d.destroy()
+    app.show_tab("designer")
+    grab(root, "_designer.png")
     app.show_tab("exits")
     grab(root, "_exits.png")
     app.show_tab("worlds")

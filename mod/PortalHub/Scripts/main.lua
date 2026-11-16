@@ -157,6 +157,9 @@ state.force = { on = {}, done = {}, set = {}, zone = {}, wake = {}, misses = {},
     wall_start   = { key = "wall",         flag = "DemoNeverSet", title = "GATE Arch Defense Facility", map = "V_TheWall",      at = { -334930, 333386 } },
     DistantShore = { key = "distantshore", flag = "DemoNeverSet", title = "Some Distant Shore",         map = "V_DistantShore", at = { 332356, -333983 } },
 } }
+-- Saved portal designs (CRD-044): designs.lua beside config.lua, read with manual_exits.lua; a portal's design = "Name" uses one. The code
+-- is with the looks (Designs.resolve, Designs.apply); one table, as main.lua is near Lua's limit of 200 locals in one function.
+local Designs = { list = {}, key = nil, mats = {}, said = {} }
 local is_client             -- true on a joining player's machine (client mode, CRD-027); defined with the presence tracker below
 local spawn_all             -- spawns the hub portals (defined at the end; the tracker also calls it, CRD-028)
 
@@ -311,11 +314,13 @@ local function resolve_config()
                 log("config entry " .. i .. ": " .. p.destination .. " is a custom world, which always returns to the hub; exits ignored")
             end
             if mode ~= "manual" then dests[p.destination] = true end
+            local style = Designs.resolve(p.design, "config entry " .. i)     -- a saved design's name, or a game look's path (CRD-044)
             entries[#entries + 1] = {
                 slot = slot,
                 name = p.name or p.destination,
                 dest = p.destination,
-                design = p.design or DEFAULT_DESIGN,
+                design = style.path or DEFAULT_DESIGN,
+                style = style,
                 world = worldDefs[p.destination],
                 lightColor = lc,
                 lightBrightness = lb,
@@ -443,6 +448,317 @@ local function apply_light(actor, e)
     if e.lightColor then what[#what + 1] = string.format("colour %.2f, %.2f, %.2f", e.lightColor[1], e.lightColor[2], e.lightColor[3]) end
     if e.lightBrightness then what[#what + 1] = string.format("brightness x%.2f", e.lightBrightness) end
     log(ok and ("  pad light: " .. table.concat(what, ", ")) or ("  could not set the pad light: " .. tostring(err)))
+end
+
+-- Portal designs (CRD-044, findings/portal-designer-2026-11.md) --------------------------------------------------------------------------
+-- designs.lua beside config.lua holds named designs, written by the config editor's PORTAL DESIGNER tab (or by hand):
+--   ["Name"] = { look = "<one of the game's looks>" or "none", ring = "<Shape>_<Type>" (our Geo rings) or "M_Portal_..." (a game ring),
+--                size = { w, h } (metres), tint = { r, g, b }, scene = "TC_...", params = { Name = number }, scale = { x, y, z },
+--                height = cm, mheHeight = cm, hide = { "part", ... } }
+-- A portal's design = "Name" uses one; a value starting with / is a game look, as before. Every hub portal and MHE sits at its look's
+-- height from LuciDin's sheet (docs/portal-heights.csv, LuciDin 15 Nov: "every portal") unless its design sets one. An MHE takes the design,
+-- light and height of the hub portal it leads to (LuciDin's rule, CRD-041); mheHeight overrides the height there (the Door rule).
+-- The ring is CRD-042's mesh ring with only calls the lab proved: AddComponentByClass, SetCollisionEnabled(0) before the shape, SetStaticMesh
+-- (the engine plane stood up as "square C"), a dynamic instance of the ring material, its colour / scene / number parameters, and the
+-- pad's own look hidden (SetVisibility) when the design says look = "none". Our Geo rings load from PortalHubLooks_P with
+-- AssetRegistryHelpers:GetAsset (LoadAsset loads nothing from our pak, CRD-043); without the pak the pad keeps its look and a line is logged.
+Designs.PATH = rawget(_G, "PORTALHUB_DESIGNS_PATH") or "ue4ss/Mods/PortalHub/Scripts/designs.lua"     -- relative to UE4SS's working folder
+Designs.PAK = rawget(_G, "PORTALHUB_LOOKS_PAK") or "../../Content/Paks/~mods/PortalHubLooks_P.utoc"     -- Win64 -> AbioticFactor/Content
+-- LuciDin's height per look, in cm above the pad (docs/portal-heights.csv, set in game 14 Nov, CRD-041; the game's own is 158). A test keeps
+-- this table and the sheet the same. Rift ignores any height.
+Designs.HEIGHTS = {
+    Niagara_Portal = 128, Niagara_Portal_Blueverse = 128, Niagara_Portal_Botanical_Green = 128, Niagara_Portal_Botanical_Red = 128,
+    Niagara_Portal_Dark = 128, Niagara_Portal_Door = 188, Niagara_Portal_Fog = 128, Niagara_Portal_Friendly = 108,
+    Niagara_Portal_Friendly_Black = 108, Niagara_Portal_Friendly_Blue = 108, Niagara_Portal_Friendly_Brown = 108, Niagara_Portal_Friendly_Cyan = 108,
+    Niagara_Portal_Friendly_Glitched = 108, Niagara_Portal_Friendly_Green = 108, Niagara_Portal_Friendly_Lime = 108, Niagara_Portal_Friendly_Orange = 108,
+    Niagara_Portal_Friendly_Pink = 108, Niagara_Portal_Friendly_Purple = 108, Niagara_Portal_Friendly_Red = 108, Niagara_Portal_Friendly_White = 108,
+    Niagara_Portal_Friendly_Yellow = 108, Niagara_Portal_Garden = 138, Niagara_Portal_Greenverse = 128, Niagara_Portal_NightRDoor_2 = 188,
+    Niagara_Portal_Redverse = 128, Niagara_Portal_Rift = 158, Niagara_Portal_Salem = 128, Niagara_Portal_Shadowgate2 = 128,
+    Niagara_Portal_SnowFlurry = 128, Niagara_Portal_SunDisk = 128, Niagara_Portal_Tiny = 128, Niagara_Portal_Torii = 128,
+}
+-- Our Geo rings (CRD-043): shape -> starting size in metres (width, height), and the four types
+Designs.GEO_SIZES = { Arch = { 1.0, 2.0 }, Gothic = { 1.0, 2.0 }, Square = { 1.0, 1.0 }, Door = { 1.75, 3.0 }, Round = { 1.8, 1.8 }, Oval = { 1.4, 2.0 } }
+Designs.GEO_TYPES = { Con = true, Col = true, Ren = true, Pri = true }
+Designs.GAME_RING_SIZE = { 2.0, 2.0 }
+Designs.RING_LIFT = 28              -- a ring with no height and no look stands with its bottom this far (cm) above the pad
+Designs.TINT_PARAMS = { "PortalCenterColor", "PortalCenterColor2", "PortalEdge", "DistortionEdge" }
+Designs.SQUARE_C = { Pitch = 0.0, Yaw = 90.0, Roll = 90.0 }     -- the engine plane stood up, facing out from the pad (CRD-042 / CRD-043)
+
+-- one line per thing per spawn (a missing pak would otherwise be logged for every pad)
+function Designs.note(key, msg)
+    if Designs.said[key] then return end
+    Designs.said[key] = true
+    log(msg)
+end
+-- A stable text of a value, to tell whether designs.lua changed
+function Designs.text(v)
+    if type(v) ~= "table" then return tostring(v) end
+    local keys = {}
+    for k in pairs(v) do keys[#keys + 1] = k end
+    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+    local out = {}
+    for _, k in ipairs(keys) do out[#out + 1] = tostring(k) .. "=" .. Designs.text(v[k]) end
+    return "{" .. table.concat(out, ",") .. "}"
+end
+-- designs.lua, read from disk like manual_exits.lua (UE4SS keeps a required module after package.loaded is cleared); require is the fallback.
+-- A missing or broken file means no designs (logged); portals that name one get the default look. Returns changed, count.
+function Designs.load()
+    local t, why = nil, nil
+    local f = io.open(Designs.PATH, "rb")
+    if f then
+        local text = f:read("*a")
+        f:close()
+        if text:sub(1, 3) == "\239\187\191" then text = text:sub(4) end      -- a BOM (an editor that adds one) would break load()
+        local chunk, err = load(text, "=designs.lua")
+        if chunk then
+            local ok, r = pcall(chunk)
+            if ok and type(r) == "table" then t = r else why = "it did not return a table" .. (ok and "" or (": " .. tostring(r))) end
+        else
+            why = tostring(err)
+        end
+    end
+    if not t and not why then
+        package.loaded["designs"] = nil
+        local ok, r = pcall(require, "designs")
+        if ok and type(r) == "table" then t = r end
+    end
+    if why then log("designs.lua can't be read (" .. why:match("^[^\r\n]*") .. "); no saved designs this time") end
+    local list, n = {}, 0
+    for name, d in pairs(t or {}) do
+        if type(name) == "string" and type(d) == "table" then list[name] = d; n = n + 1 end
+    end
+    Designs.list, Designs.count = list, n
+    local key = Designs.text(list)
+    local changed = Designs.key ~= nil and key ~= Designs.key
+    Designs.key = key
+    return changed, n
+end
+Designs.load()
+function Designs.num(v)
+    v = tonumber(v)
+    if v and v == v and v > -100000 and v < 100000 then return v end
+    return nil
+end
+function Designs.vec(v, n, lo, hi)
+    if type(v) ~= "table" then return nil end
+    local out = {}
+    for k = 1, n do
+        local x = Designs.num(v[k])
+        if not x then return nil end
+        out[k] = math.min(hi, math.max(lo, x))
+    end
+    return out
+end
+function Designs.look_path(look)
+    if type(look) ~= "string" or look == "" then return nil end
+    if look:sub(1, 1) == "/" then return look end
+    if not look:match("^[%w_]+$") then return nil end
+    return "/Game/Particles/" .. look .. "." .. look
+end
+function Designs.look_name(path)
+    if type(path) ~= "string" then return nil end
+    return path:match("%.([%w_]+)$") or path:match("([%w_]+)$")
+end
+-- A portal's design value -> its style: { path = the look's path, or false for "none"; name = the design's name; height, mheHeight, scale,
+-- ring = { geo, name, size }, tint, scene, params, hide }. A plain path (or nothing) gives { path = ... } with nothing else set.
+function Designs.resolve(v, where)
+    if v == nil then return { path = DEFAULT_DESIGN } end
+    if type(v) ~= "string" or v == "" then
+        log(where .. ": design is not text; using the default look")
+        return { path = DEFAULT_DESIGN }
+    end
+    if v:sub(1, 1) == "/" then return { path = v } end
+    local d = Designs.list[v]
+    if type(d) ~= "table" then
+        log(where .. ": design '" .. v .. "' is not in designs.lua; using the default look")
+        return { path = DEFAULT_DESIGN }
+    end
+    local s, bad = { name = v }, {}
+    if d.look == nil then s.path = DEFAULT_DESIGN
+    elseif type(d.look) == "string" and d.look:lower() == "none" then s.path = false
+    else
+        s.path = Designs.look_path(d.look)
+        if not s.path then bad[#bad + 1] = "look"; s.path = DEFAULT_DESIGN end
+    end
+    s.height, s.mheHeight = Designs.num(d.height), Designs.num(d.mheHeight)
+    if d.height ~= nil and not s.height then bad[#bad + 1] = "height" end
+    s.scale = Designs.vec(d.scale, 3, 0.01, 100)
+    if d.scale ~= nil and not s.scale then bad[#bad + 1] = "scale" end
+    if type(d.ring) == "string" and d.ring ~= "" then
+        local shape, kind = d.ring:match("^(%a+)_(%a+)$")
+        if shape and Designs.GEO_SIZES[shape] and Designs.GEO_TYPES[kind] then
+            s.ring = { geo = true, name = "MI_Geo" .. shape .. "_" .. kind, size = Designs.GEO_SIZES[shape] }
+        elseif d.ring:match("^M_[%w_]+$") then
+            s.ring = { geo = false, name = d.ring, size = Designs.GAME_RING_SIZE }
+        else
+            bad[#bad + 1] = "ring"
+        end
+        if s.ring then
+            local size = Designs.vec(d.size, 2, 0.05, 50)
+            if size then s.ring.size = size elseif d.size ~= nil then bad[#bad + 1] = "size" end
+            s.tint = Designs.vec(d.tint, 3, 0, 1)
+            if d.tint ~= nil and not s.tint then bad[#bad + 1] = "tint" end
+            if type(d.scene) == "string" and d.scene:match("^[%w_]+$") then s.scene = d.scene elseif d.scene ~= nil then bad[#bad + 1] = "scene" end
+            if type(d.params) == "table" then
+                s.params = {}
+                for k, x in pairs(d.params) do
+                    if type(k) == "string" and k:match("^[%w_ %(%)]+$") and Designs.num(x) then s.params[k] = Designs.num(x) else bad[#bad + 1] = "params." .. tostring(k) end
+                end
+            end
+        end
+    elseif d.ring ~= nil then
+        bad[#bad + 1] = "ring"
+    end
+    if type(d.hide) == "table" then
+        s.hide = {}
+        for _, part in ipairs(d.hide) do
+            local lp = tostring(part):lower()
+            if type(part) == "string" and lp ~= "portal" and lp ~= "portalmap" then s.hide[#s.hide + 1] = part end
+        end
+    end
+    if s.path == false and not s.ring then
+        log(where .. ": design '" .. v .. "' hides the look (look = \"none\") but has no ring; the default look stays")
+        s.path = DEFAULT_DESIGN
+    end
+    if #bad > 0 then log(where .. ": design '" .. v .. "': ignored what can't be read: " .. table.concat(bad, ", ")) end
+    return s
+end
+-- A game asset by its object path (StaticFindObject, else LoadAsset), or nil
+function Designs.game_asset(path)
+    local o = StaticFindObject(path)
+    if not (o and o:IsValid()) then
+        pcall(LoadAsset, path)
+        o = StaticFindObject(path)
+    end
+    if o and o:IsValid() then return o end
+    return nil
+end
+-- The ring's material: a game ring from the game's files; a Geo ring from our pak, by name with GetAsset (CRD-043), and only when the pak's
+-- files are there (a missing package is never asked for). Kept for the life of this Lua state.
+function Designs.material(r)
+    local m = Designs.mats[r.name]
+    if m and m:IsValid() then return m end
+    if not r.geo then
+        m = Designs.game_asset("/Game/Particles/Materials/" .. r.name .. "." .. r.name)
+        if not m then Designs.note("ring " .. r.name, "design: the game ring " .. r.name .. " was not found; those portals keep their look") end
+    else
+        local f = io.open(Designs.PAK, "rb")
+        if not f then
+            Designs.note("pak", "design: PortalHubLooks_P (.pak / .ucas / .utoc) is not in Content\\Paks\\~mods, so the Geo rings can't be drawn; "
+                .. "those portals keep their look (install the Portal Hub's content pak)")
+            return nil
+        end
+        f:close()
+        local pkg = "/Game/Mods/PortalHubLooks/Geo/" .. r.name
+        m = StaticFindObject(pkg .. "." .. r.name)
+        if not (m and m:IsValid()) then
+            local helpers = StaticFindObject("/Script/AssetRegistry.Default__AssetRegistryHelpers")
+            if helpers and helpers:IsValid() then
+                pcall(function() m = helpers:GetAsset({ PackageName = UEHelpers.FindOrAddFName(pkg), AssetName = UEHelpers.FindOrAddFName(r.name) }) end)
+            end
+        end
+        if not (m and m:IsValid()) then
+            m = nil
+            Designs.note("ring " .. r.name, "design: the Geo ring " .. r.name .. " could not be loaded from PortalHubLooks_P; those portals keep their look")
+        end
+    end
+    Designs.mats[r.name] = m
+    return m
+end
+-- The mesh ring on a pad, at loc (the look's place, in the pad's frame). true if it is on; on any failure nothing is left behind.
+function Designs.ring(actor, s, loc, tag)
+    local r = s.ring
+    local mat = Designs.material(r)
+    if not mat then return false end
+    local cls = StaticFindObject("/Script/Engine.StaticMeshComponent")
+    local lib = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
+    local plane = Designs.game_asset("/Engine/BasicShapes/Plane.Plane")
+    if not (cls and cls:IsValid() and lib and lib:IsValid() and plane) then
+        Designs.note("ring parts", "design: the mesh component class, the material library or the engine plane was not found; rings are not drawn")
+        return false
+    end
+    local okC, comp = pcall(function()
+        return actor:AddComponentByClass(cls, false, { Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = { X = 0, Y = 0, Z = 0 }, Scale3D = { X = 1, Y = 1, Z = 1 } }, false)
+    end)
+    if not (okC and comp and comp:IsValid()) then log("  " .. tag .. ": the ring could not be added (" .. tostring(comp):match("^[^\r\n]*") .. ")") return false end
+    local function drop(why)
+        pcall(function() comp:K2_DestroyComponent(comp) end)
+        log("  " .. tag .. ": ring removed again: " .. why)
+        return false
+    end
+    if not pcall(function() comp:SetCollisionEnabled(0) end) then return drop("its collision could not be switched off") end    -- before the shape
+    if not pcall(function() comp:SetStaticMesh(plane) end) then return drop("the plane could not be set") end
+    local okM, mid = pcall(function() return lib:CreateDynamicMaterialInstance(actor, mat, FName("None"), 0) end)
+    if not (okM and mid and mid:IsValid()) then return drop("no material instance") end
+    if not pcall(function() comp:SetMaterial(0, mid) end) then return drop("the material could not be set") end
+    local w, h = r.size[1], r.size[2]
+    pcall(function() comp:K2_SetRelativeLocation({ X = loc.X, Y = loc.Y, Z = loc.Z }, false, {}, true) end)
+    pcall(function() comp:K2_SetRelativeRotation(Designs.SQUARE_C, false, {}, true) end)
+    pcall(function() comp:SetRelativeScale3D({ X = w, Y = h, Z = 1.0 }) end)
+    local what = { string.format("%.2f x %.2f m", w, h) }
+    if s.tint then
+        for _, p in ipairs(Designs.TINT_PARAMS) do
+            local grey = 1.0
+            pcall(function()
+                local c = mid:K2_GetVectorParameterValue(FName(p))
+                if type(c) ~= "nil" and type(c) ~= "string" and c.R then grey = 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B end
+            end)
+            pcall(function() mid:SetVectorParameterValue(FName(p), { R = grey * s.tint[1], G = grey * s.tint[2], B = grey * s.tint[3], A = 1.0 }) end)
+        end
+        what[#what + 1] = string.format("tint %.2f, %.2f, %.2f", s.tint[1], s.tint[2], s.tint[3])
+    end
+    if s.scene then
+        local cube = Designs.game_asset("/Game/Particles/RenderTargets/" .. s.scene .. "." .. s.scene)
+        local okS = cube and pcall(function() mid:SetTextureParameterValue(FName("PortalTexture"), cube) end)
+        what[#what + 1] = "scene " .. s.scene .. (okS and "" or " (not found)")
+    end
+    for k, x in pairs(s.params or {}) do
+        pcall(function() mid:SetScalarParameterValue(FName(k), x) end)
+        what[#what + 1] = k .. " " .. tostring(x)
+    end
+    log("  " .. tag .. ": ring " .. r.name .. ", " .. table.concat(what, ", "))
+    return true
+end
+-- Style a pad with a style from Designs.resolve (nil = the default look): look, its hidden parts, height, scale, ring. mhe = true on a
+-- Manual Hub Exit (its design's mheHeight, if set). Every step is guarded: a pad that can't take one keeps the rest.
+function Designs.apply(actor, s, mhe)
+    s = s or { path = DEFAULT_DESIGN }
+    apply_design(actor, s.path or DEFAULT_DESIGN)       -- "none" too: the look stays as the fallback until the ring is on
+    local pl = nil
+    pcall(function() pl = actor.ParticleLoop end)
+    if not pl then return end
+    local tag = s.name and ("design '" .. s.name .. "'") or (Designs.look_name(s.path) or "look")
+    for _, part in ipairs(s.hide or {}) do
+        local ok = pcall(function() pl:SetEmitterEnable(FName(part), false) end)
+        log(ok and ("  effect part off (" .. tag .. "): " .. part) or ("  could not switch off '" .. part .. "'"))
+    end
+    local base = nil
+    pcall(function() local l = pl.RelativeLocation; base = { X = l.X, Y = l.Y, Z = l.Z } end)
+    local h = (mhe and s.mheHeight) or s.height
+    if not h and s.path == false and s.ring then h = s.ring.size[2] * 50 + Designs.RING_LIFT end
+    if not h and s.path then h = Designs.HEIGHTS[Designs.look_name(s.path)] end
+    if h and base then
+        if pcall(function() pl:K2_SetRelativeLocation({ X = base.X, Y = base.Y, Z = h }, false, {}, true) end) then base.Z = h end
+    end
+    if s.scale then pcall(function() pl:SetRelativeScale3D({ X = s.scale[1], Y = s.scale[2], Z = s.scale[3] }) end) end
+    if s.name or s.scale then
+        log(string.format("  %s: height %s%s", tag, base and string.format("%.0f cm", base.Z) or "not readable",
+            s.scale and string.format(", look scale %.2f, %.2f, %.2f", s.scale[1], s.scale[2], s.scale[3]) or ""))
+    end
+    if s.ring and not base then log("  " .. tag .. ": the look's place on the pad can't be read; no ring") end
+    if s.ring and base and Designs.ring(actor, s, base, tag) and s.path == false then
+        local ok = pcall(function() pl:SetVisibility(false, false) end)
+        if not ok then log("  " .. tag .. ": the pad's own look could not be hidden") end
+    end
+end
+-- The player's height for the editor's scale preview (read-only, once per load): the capsule's half height x 2 (lab F2 reads it the same way).
+function Designs.player_height(pawn)
+    if Designs.heightSaid or not pawn then return end
+    local ok, half = pcall(function() return pawn.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+    if ok and tonumber(half) then
+        Designs.heightSaid = true
+        log(string.format("player capsule: half height %.1f cm, so the player stands %.1f cm tall (the config editor's scale preview uses this)", half, half * 2))
+    end
 end
 -- Custom worlds ---------------------------------------------------------------------------------------------------------
 -- config.worlds[<arrival pad id>] = { loaderAsset, loaderClass, level, origin = { x, y, z }, arrive = { x, y, z, yaw } (optional) }
@@ -1057,7 +1373,7 @@ local function spawn_manual(world, class, e)
     pad.DestinationTeleporterID = FName(e.id)
     pad.IsTeleporterActive = true
     pcall(function() pad:OnRep_IsTeleporterActive() end)
-    apply_design(pad, e.design)
+    Designs.apply(pad, e.style, true)          -- this portal's MHE: its design, with mheHeight if set (CRD-044)
     apply_light(pad, e)
     log(string.format("%s: manual portal %s at %.0f, %.0f, %.0f facing %.0f in %s, leads back to %s%s", e.slot.id, e.manualId, m[1], m[2], m[3], m[4],
         e.dest, e.id, e.manualBuffs and " (gives the true exit's buffs)" or ""))
@@ -1094,7 +1410,7 @@ local function spawn_entry(world, class, e, spots)
     actor.IsTeleporterActive = not waiting          -- a portal to a custom world stays off until that world has loaded (or for good: CRD-033)
     pcall(function() actor:OnRep_IsTeleporterActive() end)
     e.actor = actor
-    apply_design(actor, e.design)
+    Designs.apply(actor, e.style)
     apply_light(actor, e)
     log(string.format("%s: '%s' -> %s (pad %s)", e.slot.id, e.name, e.dest, e.id))
     if e.exits then log(string.format("%s: exits: %s", e.slot.id, e.exits)) end
@@ -2436,9 +2752,9 @@ end
 
 local function spawn_mhes(world, class)
     local off = type(Config.mhe) == "table" and Config.mhe or {}
-    local first, mode4 = {}, {}
+    local first, mode4 = {}, {}             -- first[world] = the first hub portal's entry: the MHE leads to it and takes its design (CRD-044)
     for _, e in ipairs(state.entries) do
-        if e.exits == "manual" then mode4[e.dest] = true elseif not first[e.dest] then first[e.dest] = e.id end
+        if e.exits == "manual" then mode4[e.dest] = true elseif not first[e.dest] then first[e.dest] = e end
     end
     local byMhe, needFailsafe, n = {}, false, 0
     for w, m in pairs(MANUAL_EXITS) do
@@ -2448,14 +2764,16 @@ local function spawn_mhes(world, class)
         elseif w ~= "failsafe" and type(m) == "table" and tonumber(m[1]) and tonumber(m[2]) and tonumber(m[3]) and off[w] ~= false
                 and not mode4[w] and not worldDefs[w] then
             local home = type(w) == "string" and w:match("^H_(.+)_Start$")     -- the game's homes have their own hub-room portal
-            local dest = first[w] or (home and ("H_" .. home .. "_Entrance")) or FAILSAFE_ID
+            local parent = first[w]
+            local dest = (parent and parent.id) or (home and ("H_" .. home .. "_Entrance")) or FAILSAFE_ID
             local pad = world:SpawnActor(class, { X = tonumber(m[1]), Y = tonumber(m[2]), Z = tonumber(m[3]) }, { Pitch = 0.0, Yaw = tonumber(m[4]) or 0.0, Roll = 0.0 })
             if pad and pad:IsValid() then
                 pad.MyTeleporterID = FName(mhe_id(w))
                 pad.DestinationTeleporterID = FName(dest)
                 pad.IsTeleporterActive = true
                 pcall(function() pad:OnRep_IsTeleporterActive() end)
-                apply_design(pad, DEFAULT_DESIGN)
+                Designs.apply(pad, parent and parent.style, true)     -- the parent portal's design, height and scale (LuciDin's MHE rule)
+                if parent then apply_light(pad, parent) end
                 byMhe[mhe_id(w)] = { world = w, dest = dest }
                 needFailsafe = needFailsafe or dest == FAILSAFE_ID
                 n = n + 1
@@ -2519,7 +2837,7 @@ local function style_host_pad(t, slot)
         log("client mode: the host's portal in " .. slot.id .. " leads to " .. dest .. " (yours: " .. mine .. "); your look for it is not applied")
         return
     end
-    apply_design(t, e.design)
+    Designs.apply(t, e.style)
     apply_light(t, e)
     log("client mode: your look for " .. slot.id .. " ('" .. e.name .. "') is on the host's portal there")
 end
@@ -2605,6 +2923,9 @@ spawn_all = function()
         if role == "client" then
             log("client mode: this player joined someone else's game; the host's hub runs the portals, exits and worlds (clientMode = false turns this off)")
             install_hook()               -- inert on a client: it only logs that AttemptTeleport ran here
+            Designs.said = {}
+            if Designs.load() then log("designs.lua changed; reading the portals again"); resolve_config() end     -- this player's own designs
+            pcall(Designs.player_height, local_pawn())
             forget_old_map()
             if presence.running and os.clock() - (presence.lastTick or 0) > STALE_S then
                 log("tracker: it stopped running (a dropped timer); starting it again")
@@ -2621,13 +2942,17 @@ spawn_all = function()
     state.spawns = (state.spawns or 0) + 1        -- a spawn that was scheduled before this one is not needed (see schedule_spawn)
     install_hook()
     local mheChanged, mheCount = load_manual_exits()
+    Designs.said = {}
+    local designsChanged, designCount = Designs.load()       -- CRD-044: designs saved in the editor apply after NUMPAD 1
     local before = DLC.checked and (tostring(DLC.owned["Stone Garden"]) .. tostring(DLC.owned.Torii)) or nil
     DLC.check_owned("the portals spawn")          -- CRD-033: DLC destinations are allowed only where this session owns the DLC
     local dlcChanged = before ~= (tostring(DLC.owned["Stone Garden"]) .. tostring(DLC.owned.Torii))
-    if mheChanged or dlcChanged then
-        log((mheChanged and ("manual_exits.lua changed (" .. mheCount .. " MHE(s))") or "DLC ownership known or changed") .. "; reading the portals again")
+    if mheChanged or dlcChanged or designsChanged then
+        log((mheChanged and ("manual_exits.lua changed (" .. mheCount .. " MHE(s))") or designsChanged and ("designs.lua changed (" .. designCount .. " design(s))")
+            or "DLC ownership known or changed") .. "; reading the portals again")
         resolve_config()
     end
+    pcall(Designs.player_height, local_pawn())
     forget_old_map()        -- before the portals spawn: a portal to a world of the old map must start off
     if presence.running and os.clock() - (presence.lastTick or 0) > STALE_S then
         log("tracker: it stopped running (a dropped timer); starting it again")
@@ -2659,7 +2984,7 @@ end
 
 resolve_worlds()
 resolve_config()
-log(#state.entries .. " portal(s) configured")
+log(#state.entries .. " portal(s) configured, " .. Designs.count .. " saved design(s) in designs.lua")
 log(CLIENT_MODE and "client mode: on (in someone else's game this hub stands down; clientMode = false in config.lua turns it off)"
     or "client mode: OFF (clientMode = false in config.lua): in someone else's game this hub also spawns its own portals")
 start_tracker()

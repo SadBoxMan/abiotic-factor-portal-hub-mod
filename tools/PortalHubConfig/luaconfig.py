@@ -880,3 +880,205 @@ def read_manual_exits(path):
             else:
                 spots[it.key] = spot
     return spots, failsafe, ""
+
+
+# ------------------------------------------------------------------ designs.lua (saved portal designs, CRD-044)
+DESIGNS_HEADER = (
+    "-- Portal Hub: saved portal designs. Made in the config editor's PORTAL DESIGNER tab (PortalHubConfig.bat); you may edit them here too.\n"
+    "-- A portal in config.lua uses one by its name:  design = \"My design\".  A design value starting with / is one of the game's own looks.\n"
+    "-- Fields: look (a game look or \"none\"), ring (\"<Shape>_<Type>\" Geo ring or a game ring material), size { w, h } in metres,\n"
+    "-- tint { r, g, b } 0-1, scene (a cube map), scale { x, y, z } (Friendly looks), height and mheHeight in cm, hide { parts }.\n"
+    "\nreturn {\n}\n")
+DESIGN_FIELDS = ("look", "ring", "size", "tint", "scene", "scale", "height", "mheHeight", "hide")
+
+
+@dataclass
+class Design:
+    name: str
+    look: str = "Niagara_Portal"        # a game look's short name, or "none"
+    ring: str = ""                      # "" = no ring
+    size: list | None = None            # ring width, height in metres; None = the ring's own size (not written)
+    tint_hex: str = ""                  # "" = the ring's own colours
+    scene: str = ""                     # "" = the ring's own scene
+    scale: list | None = None           # the look's scale X, Y, Z; None = 1, 1, 1 (not written)
+    height: float | None = None         # cm; None = the look's height from LuciDin's sheet (not written)
+    mhe_height: float | None = None     # cm on the portal's MHE; None = the same as height
+    hide: list = field(default_factory=list)
+    item: Item | None = None            # where it sits in the file; None for a design made in the editor
+    extras: list = field(default_factory=list)      # other fields (params ...), kept as written
+    raw: bool = False                   # a field this editor can't read: kept exactly as written, shown read-only
+
+    def snapshot(self):
+        return (self.name, self.look, self.ring, None if self.size is None else [round(v, 3) for v in self.size], self.tint_hex.upper(),
+                self.scene, None if self.scale is None else [round(v, 3) for v in self.scale],
+                None if self.height is None else round(self.height, 1), None if self.mhe_height is None else round(self.mhe_height, 1),
+                list(self.hide))
+
+    def copy(self, name):
+        return Design(name=name, look=self.look, ring=self.ring, size=None if self.size is None else list(self.size), tint_hex=self.tint_hex,
+                      scene=self.scene, scale=None if self.scale is None else list(self.scale), height=self.height,
+                      mhe_height=self.mhe_height, hide=list(self.hide))
+
+
+def _nums(node, n):
+    if node.kind != "table" or len(node.items) != n or any(it.key is not None or it.value.kind != "number" for it in node.items):
+        return None
+    return [it.value.value for it in node.items]
+
+
+class DesignsFile:
+    """designs.lua beside config.lua: one  ["Name"] = { ... }  per design. Edited in place like config.lua (only changed values are
+    written; comments, unknown fields and entries this tool can't read stay as written). A missing file is created on the first save."""
+
+    def __init__(self, path):
+        self.path = path
+        self.exists = bool(path) and os.path.exists(path)
+        if self.exists:
+            with open(path, "rb") as f:
+                raw = f.read()
+            if raw.startswith(b"\xef\xbb\xbf"):
+                raw = raw[3:]                       # dropped on the next save (the hub reads either)
+            text = raw.decode("utf-8")
+        else:
+            text = DESIGNS_HEADER
+        self.text = text
+        self.root = Parser(text).find_return_table()
+        self.designs = []
+        self._orig = {}
+        for it in self.root.items:
+            if not isinstance(it.key, str) or it.value.kind != "table":
+                continue                            # kept as written; not a design this tool lists
+            d = self._read(it)
+            self.designs.append(d)
+            self._orig[id(it)] = d.snapshot()
+        self._orig_items = [d.item for d in self.designs]
+
+    @staticmethod
+    def _read(it):
+        d = Design(name=it.key, item=it)
+        for sub in it.value.items:
+            k, v = sub.key, sub.value
+            if k is None:
+                d.raw = True
+                continue
+            if k not in DESIGN_FIELDS:
+                d.extras.append(k)
+                continue
+            ok = True
+            if k in ("look", "ring", "scene"):
+                ok = v.kind == "string"
+                if ok:
+                    setattr(d, k, v.value)
+            elif k in ("height", "mheHeight"):
+                ok = v.kind == "number"
+                if ok:
+                    setattr(d, "height" if k == "height" else "mhe_height", v.value)
+            elif k == "size":
+                d.size = _nums(v, 2)
+                ok = d.size is not None
+            elif k == "scale":
+                d.scale = _nums(v, 3)
+                ok = d.scale is not None
+            elif k == "tint":
+                rgb = _nums(v, 3)
+                ok = rgb is not None
+                if ok:
+                    d.tint_hex = rgb_to_hex(rgb)
+            elif k == "hide":
+                ok = v.kind == "table" and all(x.key is None and x.value.kind == "string" for x in v.items)
+                if ok:
+                    d.hide = [x.value.value for x in v.items]
+            if not ok:
+                d.raw = True
+        return d
+
+    # ------------- the list
+    def names(self):
+        return [d.name for d in self.designs]
+
+    def get(self, name):
+        return next((d for d in self.designs if d.name == name), None)
+
+    def add(self, design):
+        self.designs.append(design)
+        return design
+
+    def remove(self, name):
+        self.designs = [d for d in self.designs if d.name != name]
+
+    # ------------- writing
+    @staticmethod
+    def field_values(d):
+        """Each known field's Lua text, or None to leave it out. Ring settings are written only with a ring."""
+        return {
+            "look": lua_string(d.look or "Niagara_Portal"),
+            "ring": lua_string(d.ring) if d.ring else None,
+            "size": lua_nums(d.size) if d.ring and d.size else None,
+            "tint": lua_nums(hex_to_rgb(d.tint_hex)) if d.ring and d.tint_hex else None,
+            "scene": lua_string(d.scene) if d.ring and d.scene else None,
+            "scale": lua_nums(d.scale) if d.scale and any(abs(v - 1.0) > 0.0001 for v in d.scale) else None,
+            "height": fmt_num(d.height) if d.height is not None else None,
+            "mheHeight": fmt_num(d.mhe_height) if d.mhe_height is not None else None,
+            "hide": ("{ " + ", ".join(lua_string(p) for p in d.hide) + " }") if d.hide else None,
+        }
+
+    def design_text(self, d, nl):
+        lines = [f"{lua_key(d.name)} = {{"]
+        for k, v in self.field_values(d).items():
+            if v is not None:
+                lines.append(f"        {k} = {v},")
+        lines.append("    }")
+        return nl.join(lines)
+
+    def render(self):
+        """The file's text with the changes applied; no changes gives back the original text."""
+        e = Edits(self.text)
+        kept = {id(d.item) for d in self.designs if d.item is not None}
+        for item in self._orig_items:
+            if id(item) not in kept:
+                e.remove_item(self.root, item)
+        for d in self.designs:
+            if d.item is None:
+                continue
+            if d.name != d.item.key:                    # renamed (a read-only design too)
+                e.replace(d.item.start, d.item.key_end, lua_key(d.name))
+            if d.raw or d.snapshot()[1:] == self._orig[id(d.item)][1:]:
+                continue
+            new, old = self.field_values(d), self.field_values(self._read(d.item))
+            for k in DESIGN_FIELDS:
+                if new[k] != old[k]:
+                    e.set_field(d.item.value, k, new[k])
+        for d in self.designs:
+            if d.item is None:
+                e.add_item(self.root, self.design_text(d, e.nl))
+        return e.result()
+
+    def is_dirty(self):
+        return self.render() != self.text
+
+    def changed_on_disk(self):
+        """True if the file no longer holds what was loaded (or appeared / vanished since)."""
+        if not self.path or not os.path.exists(self.path):
+            return self.exists
+        if not self.exists:
+            return True
+        with open(self.path, "rb") as f:
+            raw = f.read()
+        if raw.startswith(b"\xef\xbb\xbf"):
+            raw = raw[3:]
+        return raw != self.text.encode("utf-8")
+
+    def save(self, path=None):
+        """As HubConfig.save: check the new text reads back, keep the old file as .bak, then write UTF-8 without a BOM."""
+        path = path or self.path
+        text = self.render()
+        Parser(text).find_return_table()
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                old = f.read()
+            with open(path + ".bak", "wb") as f:
+                f.write(old)
+        tmp = path + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(text.encode("utf-8"))
+        os.replace(tmp, path)

@@ -21,6 +21,10 @@
 !/World Projects/Builds/World[A-D]_P.pak
 !/World Projects/Builds/World[A-D]_P.ucas
 !/World Projects/Builds/World[A-D]_P.utoc
+# the Portal Hub's own content pak set (the Geo rings): ships in the 1.0 main download, so it is committed (LuciDin, 15 Nov, CRD-044)
+!/World Projects/Builds/PortalHubLooks_P.pak
+!/World Projects/Builds/PortalHubLooks_P.ucas
+!/World Projects/Builds/PortalHubLooks_P.utoc
 !/World Projects/World [A-D]/
 /World Projects/World [A-D]/*
 !/World Projects/World [A-D]/World_[A-D]/
@@ -34,7 +38,7 @@
 !/World Projects/World [A-D]/World_[A-D]/Content/Mods/
 /World Projects/World [A-D]/World_[A-D]/Content/Mods/*
 !/World Projects/World [A-D]/World_[A-D]/Content/Mods/World_[A-D]/
-# our own ring material project (CRD-043): its own files only; the built pak stays out (World Projects/Builds keeps A-D only)
+# our own ring material project (CRD-043): its own files only; its built pak is in World Projects/Builds (whitelisted above, CRD-044)
 !/World Projects/PortalHubLooks/
 /World Projects/PortalHubLooks/*
 !/World Projects/PortalHubLooks/AbioticFactor.uproject

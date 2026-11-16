@@ -11,7 +11,10 @@ main.lua, and an uncommitted file must never reach players. The working-tree cop
 What ships, main download PortalHub-<VERSION>.zip (inside "PortalHub <VERSION>\"), blank: no portals of its own (LuciDin, CRD-031):
     AbioticFactor\Binaries\Win64\ue4ss\Mods\PortalHub\Scripts\
         main.lua            the repo's, with DEV_KEYS = false and the dev-key block removed (packaged copy only)
-        slots.lua, manual_exits.lua (the author's MHEs, one per world), config.lua (the template: no portals)
+        slots.lua, manual_exits.lua (the author's MHEs, one per world), config.lua (the template: no portals),
+        designs.lua (saved portal designs, CRD-044: the shipped examples / the author's default looks)
+    AbioticFactor\Content\Paks\~mods\PortalHubLooks_P.pak/.ucas/.utoc   the Portal Hub's own content pak (the Geo rings, CRD-043; ships
+                            in 1.0 inside the main download, LuciDin 15 Nov), from World Projects\Builds at HEAD
     PortalHubConfig\        the config editor (one-folder exe, unsigned), built here by PyInstaller from HEAD's sources
     PortalHubConfig.bat     starts it
     tools\PortalHubConfig\  the editor's Python source and icons (no tests), the fallback the .bat uses
@@ -45,6 +48,12 @@ VERSION = "1.0.0"
 TOP = "PortalHub " + VERSION
 HUB_DST = "AbioticFactor/Binaries/Win64/ue4ss/Mods/PortalHub/Scripts/"
 TEASER_DST = "AbioticFactor/Content/Paks/~mods/"     # inside Pack 4's download (CRD-031)
+HUB_FILES = ("main.lua", "slots.lua", "manual_exits.lua", "config.lua", "designs.lua")
+# The Portal Hub's own content pak set (CRD-043 / CRD-044): one set of three files, committed in World Projects/Builds (LuciDin, 15 Nov:
+# "Commit it"), shipped in the main download's ~mods folder.
+LOOKS_SRC = "World Projects/Builds/"
+LOOKS_DST = "AbioticFactor/Content/Paks/~mods/"
+LOOKS_FILES = ("PortalHubLooks_P.pak", "PortalHubLooks_P.ucas", "PortalHubLooks_P.utoc")
 # The author's preset packs (CRD-031, LuciDin 13 November 2026): one optional download each, built for every pack committed in
 # PRESETS_SRC. Pack 1 (the flagship demo) is required; any other file in that folder is left out with a warning.
 PRESETS_SRC = "tools/release/presets"
@@ -88,6 +97,13 @@ def committed(path):
         with open(os.path.join(ROOT, path), "rb") as f:
             return f.read()
     return git("show", "HEAD:" + path, binary=True)
+
+
+def is_committed(path):
+    """True if the file is at HEAD (with --worktree, in the working tree)."""
+    if WORKTREE:
+        return os.path.isfile(os.path.join(ROOT, path))
+    return subprocess.run(["git", "-C", ROOT, "cat-file", "-e", "HEAD:" + path], capture_output=True).returncode == 0
 
 
 def strip_dev_keys(b):
@@ -148,7 +164,9 @@ def allowed_path(rel):
     rel = rel.replace(os.sep, "/")
     if rel in ("README.md", "LICENSE.txt", "FILES.txt", "PortalHubConfig.bat"):
         return True
-    if rel in [HUB_DST + f for f in ("main.lua", "slots.lua", "manual_exits.lua", "config.lua")]:
+    if rel in [HUB_DST + f for f in HUB_FILES]:
+        return True
+    if rel in [LOOKS_DST + f for f in LOOKS_FILES]:
         return True
     if rel.startswith("PortalHubConfig/"):
         return True
@@ -210,9 +228,11 @@ def read_nexus_url(gui_dir):
 def build_gui(gui_dir, tmp):
     """PyInstaller one-folder build from the exported sources (the same command as build_exe.bat)."""
     work = os.path.join(tmp, "pyi")
-    cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir", "--windowed", "--name", "PortalHubConfig",
-           "--add-data", os.path.join(gui_dir, "icons") + ";icons", "--distpath", os.path.join(work, "dist"), "--workpath", os.path.join(work, "build"),
-           "--specpath", work, os.path.join(gui_dir, "PortalHubConfig.py")]
+    data = ["--add-data", os.path.join(gui_dir, "icons") + ";icons"]
+    if os.path.isdir(os.path.join(gui_dir, "previews")):          # the stills (CRD-046), when committed
+        data += ["--add-data", os.path.join(gui_dir, "previews") + ";previews"]
+    cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir", "--windowed", "--name", "PortalHubConfig"] + data
+    cmd += ["--distpath", os.path.join(work, "dist"), "--workpath", os.path.join(work, "build"), "--specpath", work, os.path.join(gui_dir, "PortalHubConfig.py")]
     print("building the config editor exe from HEAD (PyInstaller, about a minute)...")
     r = subprocess.run(cmd, cwd=gui_dir, capture_output=True, text=True)
     if r.returncode:
@@ -273,8 +293,15 @@ def main():
     try:
         # the hub
         put(stage, HUB_DST + "main.lua", strip_dev_keys(committed("mod/PortalHub/Scripts/main.lua")))
-        for fn in ("slots.lua", "manual_exits.lua", "config.lua"):
+        for fn in HUB_FILES[1:]:
             put(stage, HUB_DST + fn, committed("mod/PortalHub/Scripts/" + fn))
+        # the content pak set (the Geo rings): all three files or the build stops
+        missing = [fn for fn in LOOKS_FILES if not is_committed(LOOKS_SRC + fn)]
+        if missing:
+            sys.exit("BUILD REFUSED: the Portal Hub content pak is not %s: %s" % ("in the working tree" if WORKTREE else "committed at HEAD",
+                                                                                     ", ".join(LOOKS_SRC + fn for fn in missing)))
+        for fn in LOOKS_FILES:
+            put(stage, LOOKS_DST + fn, committed(LOOKS_SRC + fn))
         # the editor
         gui_dir = export_gui(tmp)
         url = read_nexus_url(gui_dir)
@@ -308,7 +335,7 @@ def main():
 
     names = forbidden_names()
     problems = run_checks(stage, names)
-    lua = [os.path.join(stage, HUB_DST, f) for f in ("main.lua", "slots.lua", "manual_exits.lua", "config.lua")]
+    lua = [os.path.join(stage, HUB_DST, f) for f in HUB_FILES]
     if subprocess.run([sys.executable, os.path.join(ROOT, "tools", "dev", "lua_syntax_check.py")] + lua).returncode:
         problems.append("the staged Lua failed the syntax check")
     for t in TESTS_ON_PACKAGED:

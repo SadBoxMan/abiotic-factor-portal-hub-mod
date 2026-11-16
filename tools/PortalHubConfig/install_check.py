@@ -16,6 +16,11 @@ GAME_EXE = "AbioticFactor-Win64-Shipping.exe"
 REL_WIN64 = os.path.join("AbioticFactor", "Binaries", "Win64")          # under the game folder (steamapps\common\AbioticFactor)
 HUB = "PortalHub"
 HUB_SCRIPTS = ("main.lua", "config.lua", "manual_exits.lua", "slots.lua")
+HUB_OPTIONAL = ("designs.lua",)        # saved portal designs (CRD-044): the hub runs without it and the editor makes it on the first save
+# The Portal Hub's own content pak set (the Geo rings, CRD-043), shipped in the main download (CRD-044). All three files are needed; without
+# them the hub draws no Geo ring (those portals keep their look), so a missing set is a warning, not a block.
+REL_MODS_PAKS = os.path.join("AbioticFactor", "Content", "Paks", "~mods")
+LOOKS_PAK = ("PortalHubLooks_P.pak", "PortalHubLooks_P.ucas", "PortalHubLooks_P.utoc")
 NEXUS_UE4SS = "UE4SS for Abiotic Factor (Nexus Mods), 1.25.0 or later"
 UE4SS_NEXUS_URL = "https://www.nexusmods.com/abioticfactor/mods/35"
 # TODO(CRD-015, LuciDin): paste the Portal Hub's own Nexus page here once it exists, e.g.
@@ -241,6 +246,8 @@ class Report:
         self.proxy = None
         self.hub_dir = None
         self.scripts_missing = list(HUB_SCRIPTS)
+        self.optional_missing = list(HUB_OPTIONAL)
+        self.looks_missing = list(LOOKS_PAK)
         self.mods_txt = None
         self.enabled = None               # "on", "off", "absent" (not in mods.txt), or None (mods.txt missing)
         self.enabled_by = ""
@@ -297,10 +304,15 @@ def check_install(game):
         r.hub_dir = os.path.join(mods, HUB)
         scripts = os.path.join(r.hub_dir, "Scripts")
         r.scripts_missing = [s for s in HUB_SCRIPTS if not os.path.isfile(os.path.join(scripts, s))]
+        r.optional_missing = [s for s in HUB_OPTIONAL if not os.path.isfile(os.path.join(scripts, s))]
         if r.scripts_missing:
             missing.append("PortalHub's " + ", ".join(r.scripts_missing))
     else:
         missing.append("the PortalHub mod")
+
+    # the content pak set (CRD-044)
+    paks = os.path.join(game, REL_MODS_PAKS)
+    r.looks_missing = [f for f in LOOKS_PAK if not os.path.isfile(os.path.join(paks, f))]
 
     # mods.txt (an enabled.txt in the mod's folder switches it on too)
     if mods:
@@ -340,6 +352,10 @@ def check_install(game):
         r.todo.append(f"Update UE4SS: install {NEXUS_UE4SS}: {UE4SS_NEXUS_URL}")
     elif r.ue4ss["state"] == "unknown":
         r.todo.append(f"If the hub misbehaves, install {NEXUS_UE4SS}.")
+    if r.looks_missing:
+        warn.append("The Portal Hub's content pak is missing (" + ", ".join(r.looks_missing) + " in Content\\Paks\\~mods), so designs with a Geo ring "
+                    "show the plain look.")
+        r.todo.append("With the game closed, copy the three PortalHubLooks_P files from the Portal Hub download into AbioticFactor\\Content\\Paks\\~mods.")
     if warn:
         r.state = "warn"
         r.headline = "Portal Hub is installed, but: " + " ".join(warn)

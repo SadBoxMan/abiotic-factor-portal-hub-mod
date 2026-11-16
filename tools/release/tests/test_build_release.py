@@ -100,6 +100,23 @@ for p in ok_paths:
 for p in bad_paths:
     check(not br.allowed_path(p), "refused: " + p)
 
+# --- CRD-044: designs.lua and the Portal Hub content pak (the Geo rings) ship in the main download
+for p in [br.HUB_DST + "designs.lua", br.LOOKS_DST + "PortalHubLooks_P.pak", br.LOOKS_DST + "PortalHubLooks_P.ucas",
+          br.LOOKS_DST + "PortalHubLooks_P.utoc", "tools/PortalHubConfig/previews/Geo_Arch_Col.png", "tools/PortalHubConfig/preview.py",
+          "PortalHubConfig/_internal/previews/Niagara_Portal.png"]:
+    check(br.allowed_path(p), "allowed (CRD-044): " + p)
+for p in [br.LOOKS_DST + "PortalHubLooks_P.sig", br.LOOKS_DST + "pakchunk120-Windows.pak", br.HUB_DST + "designs.lua.bak",
+          br.LOOKS_DST + "WorldA_P.pak", "World Projects/Builds/PortalHubLooks_P.pak", "tools/PortalHubConfig/tests/test_designer.py"]:
+    check(not br.allowed_path(p), "refused (CRD-044): " + p)
+check(br.HUB_FILES[0] == "main.lua" and "designs.lua" in br.HUB_FILES, "designs.lua is one of the hub's shipped files (main.lua first: it alone is stripped)")
+for preset in br.PRESET_NAMES:
+    check(not br.allowed_pack_path(br.LOOKS_DST + "PortalHubLooks_P.pak", preset), "a preset pack never carries the content pak: " + preset)
+for fn in br.LOOKS_FILES:
+    check(br.is_committed(br.LOOKS_SRC + fn) or os.path.isfile(os.path.join(br.ROOT, br.LOOKS_SRC + fn)), "the content pak file is in the repo: " + fn)
+check(not br.is_committed("World Projects/Builds/NoSuchPak_P.pak"), "is_committed: a missing file is not committed")
+gi = open(os.path.join(br.ROOT, ".gitignore"), encoding="utf-8").read()
+check("!/World Projects/Builds/PortalHubLooks_P.utoc" in gi, ".gitignore lets the content pak set into git (LuciDin, 15 Nov)")
+
 # --- preset packs (CRD-031): one optional download per committed pack, pack 1 required, Pack 4 carries the teaser worlds
 check(br.order_presets(["pack3-builder-worlds.lua", "pack1-demo.lua"]) == (["pack1-demo.lua", "pack3-builder-worlds.lua"], []),
       "presets in pack order, missing packs skipped")

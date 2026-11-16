@@ -47,7 +47,7 @@ MODS_TXT = "PortalLogger : 1\nPortalHub : {on}\n\n; Built-in keybinds, do not mo
 
 
 def make_install(base, name, ue4ss="new", built=ic.RECOMMENDED_BUILT, log_sha=ic.RECOMMENDED_SHA, hub=True,
-                 scripts=ic.HUB_SCRIPTS, mods_txt="1", proxy=True, enabled_txt=False):
+                 scripts=ic.HUB_SCRIPTS, mods_txt="1", proxy=True, enabled_txt=False, looks=ic.LOOKS_PAK):
     """A mock library\\steamapps\\common\\AbioticFactor. Returns (library, game folder)."""
     lib = os.path.join(base, name)
     game = os.path.join(lib, "steamapps", "common", "AbioticFactor")
@@ -79,6 +79,11 @@ def make_install(base, name, ue4ss="new", built=ic.RECOMMENDED_BUILT, log_sha=ic
                     write(os.path.join(sd, s), "return {}\n")
             if enabled_txt:
                 open(os.path.join(ue, "Mods", "PortalHub", "enabled.txt"), "wb").close()
+    if looks:                                       # the content pak set beside the game's own paks (CRD-044)
+        paks = os.path.join(game, ic.REL_MODS_PAKS)
+        os.makedirs(paks, exist_ok=True)
+        for f in looks:
+            open(os.path.join(paks, f), "wb").close()
     return lib, game
 
 
@@ -145,6 +150,21 @@ def run(base):
     check(r.state == "missing" and not r.hub_installed and r.config_path is None, "missing mod: missing")
     check("the PortalHub mod" in r.headline and any("Nexus" in t for t in r.todo), "missing mod: says to install it from Nexus")
     check("Nothing is saved" in r.text(), "missing mod: says nothing is saved")
+
+    # ---- CRD-044: the content pak set and designs.lua
+    _, g = make_install(base, "nolooks", looks=())
+    r = ic.check_install(g)
+    check(r.state == "warn" and r.hub_installed, "no content pak: a warning, the editor still opens")
+    check(r.looks_missing == list(ic.LOOKS_PAK) and "content pak is missing" in r.headline and "Geo ring" in r.headline, "no content pak: named, with what it means")
+    check(any("PortalHubLooks_P" in t and "Content\\Paks\\~mods" in t for t in r.todo), "no content pak: says where the three files go")
+    _, g = make_install(base, "onelook", looks=("PortalHubLooks_P.pak", "PortalHubLooks_P.utoc"))
+    r = ic.check_install(g)
+    check(r.state == "warn" and r.looks_missing == ["PortalHubLooks_P.ucas"], "one pak file missing: that file named (all three are needed)")
+    r = ic.check_install(game)
+    check(r.looks_missing == [] and r.state == "ok", "all three pak files: no warning")
+    check(r.optional_missing == ["designs.lua"] and r.state == "ok", "no designs.lua: noted, not a problem (the editor makes it)")
+    _, g = make_install(base, "withdesigns", scripts=ic.HUB_SCRIPTS + ic.HUB_OPTIONAL)
+    check(ic.check_install(g).optional_missing == [], "designs.lua there: nothing noted")
 
     # ---- a script missing
     _, g = make_install(base, "nomhe", scripts=("main.lua", "config.lua", "slots.lua"))

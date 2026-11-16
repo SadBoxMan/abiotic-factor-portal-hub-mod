@@ -206,3 +206,107 @@ def home_title(pad):
 
 LIGHT_PRESETS = [("Red", "#FF2020"), ("Orange", "#FF8A1A"), ("Yellow", "#FFE81A"), ("Green", "#2EE65C"),
                  ("Blue", "#2A6BFF"), ("Indigo", "#4B2AB5"), ("Violet", "#A030FF")]
+
+
+# ------------------------------------------------------------------ portal designs (CRD-044, findings/portal-designer-2026-11.md)
+# Saved designs live in designs.lua beside config.lua; a portal's design is then the design's name (a value starting with / is a game look).
+DESIGN_NAME_MAX = 40
+# LuciDin's height per look in cm above the pad (docs/portal-heights.csv, set in game 14 Nov, CRD-041). The hub has the same table; a
+# test keeps both equal to the sheet. The game's own height is 158 cm. Rift ignores any height.
+GAME_LOOK_HEIGHT = 158
+LOOK_HEIGHTS = {n: 128 for n in DESIGN_NAMES}
+LOOK_HEIGHTS.update({n: 108 for n in DESIGN_NAMES if n.startswith("Niagara_Portal_Friendly")})
+LOOK_HEIGHTS.update({"Niagara_Portal_Door": 188, "Niagara_Portal_NightRDoor_2": 188, "Niagara_Portal_Garden": 138, "Niagara_Portal_Rift": 158})
+SCALABLE_LOOKS = tuple(n for n in DESIGN_NAMES if n.startswith("Niagara_Portal_Friendly"))     # only Friendly's mesh ring scales (CRD-042)
+# Our 24 Geo rings (CRD-043, the PortalHubLooks_P pak): shape (name, label, starting width and height in metres) x type.
+GEO_SHAPES = [("Arch", "Arched door", 1.0, 2.0), ("Gothic", "Gothic arch", 1.0, 2.0), ("Square", "Square", 1.0, 1.0),
+              ("Door", "Door", 1.75, 3.0), ("Round", "Round", 1.8, 1.8), ("Oval", "Oval", 1.4, 2.0)]
+GEO_TYPES = [("Con", "Conchoidal", "swirl, opaque"), ("Col", "Colloform", "swirl over a faint scene"),
+             ("Ren", "Reniform", "a window the swirl ripples"), ("Pri", "Prismatic", "a clear window")]
+GEO_SCENE_TYPES = ("Col", "Ren", "Pri")         # Con shows no scene
+# The game's ring materials that work on the mesh ring (CRD-042). All take a tint; the three without a picture take no scene.
+GAME_RINGS = [("M_Portal_Friendly_White", "Friendly White"), ("M_Portal_Friendly", "Friendly"), ("M_Portal_Garden", "Garden"),
+              ("M_Portal_Torii", "Torii"), ("M_Portal_Salem", "Salem"), ("M_Portal_Shadowgate2", "Shadowgate"),
+              ("M_Portal_Shadowgate_Blue", "Shadowgate Blue"), ("M_Portal_Botanical_Green", "Botanical Green"),
+              ("M_Portal_Botanical_Red", "Botanical Red"), ("M_WorldPortal_Warehouse", "Door (the Mall)"), ("M_Portal_Arch", "Night Realm arch")]
+GAME_RINGS_NO_SCENE = ("M_Portal_Salem", "M_Portal_Shadowgate2", "M_Portal_Shadowgate_Blue")
+GAME_RING_SIZE = (2.0, 2.0)
+RING_LIFT_CM = 28                               # a ring with no look and no height stands with its bottom this far above the pad
+# Scenes (cube maps) a ring can show, from the game's own files (CRD-039)
+SCENES = [("TC_Portal_Warehouse", "Furniture Store (the Mall)"), ("TC_Portal_Fog", "Flathill"), ("TC_Portal_Offices", "Facility offices"),
+          ("TC_Portal_Anteverse_A", "Far Garden"), ("TC_H_Cabin", "The Cabin"), ("TC_Portal_Alps", "Voussoir"),
+          ("TC_Portal_Torii", "Torii"), ("TC_OrangeGlow", "Orange glow"), ("TC_ZagTest", "Zigzag")]
+SCENE_LABELS = dict(SCENES)
+GAME_RING_LABELS = dict(GAME_RINGS)
+GEO_SIZE = {s: (w, h) for s, _, w, h in GEO_SHAPES}
+GEO_SHAPE_LABELS = {s: label for s, label, _, _ in GEO_SHAPES}
+GEO_TYPE_LABELS = {t: label for t, label, _ in GEO_TYPES}
+
+# The scale preview's player: the character capsule's height (2 x its half height). 176 cm = the engine default capsule (88 cm half
+# height), used until the hub's own log line reads the real one in game ("player capsule: half height ..."); then this number is set to it.
+PLAYER_HEIGHT_CM = 176
+PLAYER_HEIGHT_SOURCE = "2 x the character capsule's half height (88 cm, the engine default; to be confirmed by the hub's log line in game)"
+
+
+def parse_ring(ring):
+    """("geo", shape, type) for a Geo ring like "Arch_Col", ("game", name) for a game ring material, or None."""
+    m = re.fullmatch(r"([A-Za-z]+)_([A-Za-z]+)", ring or "")
+    if m and m.group(1) in GEO_SIZE and m.group(2) in GEO_TYPE_LABELS:
+        return ("geo", m.group(1), m.group(2))
+    if re.fullmatch(r"M_[A-Za-z0-9_]+", ring or ""):
+        return ("game", ring)
+    return None
+
+
+def ring_label(ring):
+    r = parse_ring(ring)
+    if r is None:
+        return "No ring" if not ring else "Unknown ring: " + ring
+    if r[0] == "geo":
+        return f"Geo {GEO_SHAPE_LABELS[r[1]]} - {GEO_TYPE_LABELS[r[2]]}"
+    return "Game ring: " + GAME_RING_LABELS.get(ring, ring)
+
+
+def ring_size(ring):
+    """The ring's starting size (width, height) in metres."""
+    r = parse_ring(ring)
+    if r and r[0] == "geo":
+        return GEO_SIZE[r[1]]
+    return GAME_RING_SIZE
+
+
+def ring_takes_scene(ring):
+    r = parse_ring(ring)
+    if r is None:
+        return False
+    if r[0] == "geo":
+        return r[2] in GEO_SCENE_TYPES
+    return ring not in GAME_RINGS_NO_SCENE
+
+
+def look_size(name):
+    """An estimate of a game look's size (width, height) in metres, for the scale preview only. Not measured: it assumes LuciDin set each
+    look's height so its bottom sits about 18 cm above the pad (height = 2 x (sheet height - 18 cm)), with the width from the ring's shape
+    (Friendly and the oval rings narrower, Door and Night Realm door-shaped). The stills (CRD-046) are the check."""
+    h = 2 * (LOOK_HEIGHTS.get(name, GAME_LOOK_HEIGHT) - 18) / 100.0
+    if name == "Niagara_Portal_Rift":
+        h = 2.4                                         # Rift ignores the height setting; a guess
+    ratio = 0.78 if name.startswith(("Niagara_Portal_Friendly", "Niagara_Portal_Salem", "Niagara_Portal_Shadowgate")) else \
+        0.58 if name == "Niagara_Portal_Door" else 0.5 if name == "Niagara_Portal_NightRDoor_2" else 1.0
+    return round(h * ratio, 2), round(h, 2)
+
+
+def design_name_problem(name, taken=()):
+    """Why a design name can't be used, or "". taken: the other designs' names (compared ignoring case)."""
+    n = name.strip()
+    if not n:
+        return "Enter a name."
+    if len(n) > DESIGN_NAME_MAX:
+        return f"Use at most {DESIGN_NAME_MAX} characters."
+    if n.startswith("/"):
+        return "A name can't start with / (that is how a game look is written)."
+    if any(c in n for c in "\r\n\t"):
+        return "A name can't hold line breaks or tabs."
+    if n.lower() in (t.lower() for t in taken):
+        return "Another design already has this name."
+    return ""
