@@ -188,27 +188,30 @@ float depth = saturate(-d / max(EdgeWidth, 0.1));
    (from the derivatives above), so no tangent-space convention can turn it round. SceneParallax 0 = the flat picture, 1 = sphere. */
 float L = max(W, H);
 float3 sP = float3(x, cyMid - y, 0.0);
+/* which way into the scene: from the portal's front the eye looks along +z, from its back along -z, so going round the back
+   shows the other half of the scene (as the game's Door does; LuciDin, 15 Nov). With TrueBack 0 both sides look the front's way. */
+float frontSide = side * (FlipFront > 0.5 ? -1.0 : 1.0);
+float sg = (TrueBack > 0.5 && frontSide < 0.0) ? -1.0 : 1.0;
 float3 eyeRel;
 if (haveJ) {
     float3 Tu = du / W; float3 Tv = dv / H;
     float3 Nw = normalize(cross(Tu, Tv));
     float3 e = -P;                                   /* the camera sits at the origin of the camera-relative position */
-    eyeRel = float3(dot(e, Tu) * fx, -dot(e, Tv), -abs(dot(e, Nw)));
+    eyeRel = float3(dot(e, Tu) * fx, -dot(e, Tv), -max(abs(dot(e, Nw)), 1.0) * sg);
 } else {
     float3 cv = normalize(CamT) * max(length(P), 1.0);
-    eyeRel = float3(cv.x * fx, cv.y, -abs(cv.z));
+    eyeRel = float3(cv.x * fx, cv.y, -max(abs(cv.z), 1.0) * sg);
 }
-eyeRel.z = min(eyeRel.z, -1.0);
 float3 eye = sP + eyeRel;
 float3 rd = normalize(-eyeRel);                      /* from the eye through this pixel, into the portal */
-float3 ctr = float3(0.0, 0.0, SphereDepth);
+float3 ctr = float3(0.0, 0.0, SphereDepth * sg);     /* the sphere sits behind whichever face is seen */
 float3 oc = eye - ctr;
 float bq = dot(oc, rd);
 float cq = dot(oc, oc) - SphereRadius * SphereRadius;
 float disc = bq * bq - cq;
 float3 sdir = rd;
 if (disc > 0.0) { float3 hit = eye + rd * (-bq + sqrt(disc)); sdir = normalize(hit - ctr); }
-float3 flatd = normalize(float3(x / L * SceneZoom, (cyMid - y) / L * SceneZoom, 1.0));
+float3 flatd = normalize(float3(x / L * SceneZoom, (cyMid - y) / L * SceneZoom, sg));
 float3 dir = normalize(lerp(flatd, sdir, saturate(Parallax)));
 dir.xy += (n - 0.5) * DistMul * (1.0 + r * DistDist);
 dir = normalize(dir);

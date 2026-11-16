@@ -127,6 +127,8 @@ check("scene as a window into a sphere by default (SceneParallax 1.0, SphereDept
       re.search(r'\("Parallax",\s*"SceneParallax",\s*1\.0\)', build) and "SphereDepth" in params and "SphereRadius" in params
       and "hit - ctr" in build)
 check("the eye comes from the surface's own axes, not a tangent-space convention", "float3 e = -P;" in build and "dot(e, Tu) * fx" in build)
+check("from the back the scene's other half shows (eye and sphere flip with the side; LuciDin: as the Door does)",
+      "float sg = (TrueBack > 0.5 && frontSide < 0.0) ? -1.0 : 1.0;" in build and "SphereDepth * sg" in build)
 check("material: two-sided, masked, unlit, Niagara sprite usage", all(x in build for x in ('"two_sided", True', "BLEND_MASKED", "MSM_UNLIT", '"used_with_niagara_sprites", True')))
 check("shape size read from the surface (pixel derivatives of the camera-relative position)", "ddx(P)" in build and "WPT_CAMERA_RELATIVE" in build)
 check("no game texture paths in the graph except the dummy's own path", re.findall(r'"/Game/Particles/[^"]*"', build) == ['"/Game/Particles/RenderTargets"'], re.findall(r'"/Game/Particles/[^"]*"', build))
