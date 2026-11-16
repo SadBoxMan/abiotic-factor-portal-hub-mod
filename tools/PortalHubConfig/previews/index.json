@@ -1,0 +1,406 @@
+{
+ "version": 1,
+ "size": [
+  320,
+  240
+ ],
+ "designs": [
+  {
+   "key": "Niagara_Portal",
+   "file": "Niagara_Portal.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Blueverse",
+   "file": "Niagara_Portal_Blueverse.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Botanical_Green",
+   "file": "Niagara_Portal_Botanical_Green.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Botanical_Red",
+   "file": "Niagara_Portal_Botanical_Red.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Dark",
+   "file": "Niagara_Portal_Dark.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Door",
+   "file": "Niagara_Portal_Door.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Fog",
+   "file": "Niagara_Portal_Fog.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Friendly",
+   "file": "Niagara_Portal_Friendly.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Friendly_Black",
+   "file": "Niagara_Portal_Friendly_Black.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Friendly_Blue",
+   "file": "Niagara_Portal_Friendly_Blue.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Friendly_Brown",
+   "file": "Niagara_Portal_Friendly_Brown.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Friendly_Cyan",
+   "file": "Niagara_Portal_Friendly_Cyan.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Friendly_Glitched",
+   "file": "Niagara_Portal_Friendly_Glitched.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Friendly_Green",
+   "file": "Niagara_Portal_Friendly_Green.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Friendly_Lime",
+   "file": "Niagara_Portal_Friendly_Lime.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Friendly_Orange",
+   "file": "Niagara_Portal_Friendly_Orange.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Friendly_Pink",
+   "file": "Niagara_Portal_Friendly_Pink.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Friendly_Purple",
+   "file": "Niagara_Portal_Friendly_Purple.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Friendly_Red",
+   "file": "Niagara_Portal_Friendly_Red.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Friendly_White",
+   "file": "Niagara_Portal_Friendly_White.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Friendly_Yellow",
+   "file": "Niagara_Portal_Friendly_Yellow.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Garden",
+   "file": "Niagara_Portal_Garden.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Greenverse",
+   "file": "Niagara_Portal_Greenverse.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_NightRDoor_2",
+   "file": "Niagara_Portal_NightRDoor_2.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Redverse",
+   "file": "Niagara_Portal_Redverse.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Rift",
+   "file": "Niagara_Portal_Rift.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Salem",
+   "file": "Niagara_Portal_Salem.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Shadowgate2",
+   "file": "Niagara_Portal_Shadowgate2.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_SnowFlurry",
+   "file": "Niagara_Portal_SnowFlurry.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_SunDisk",
+   "file": "Niagara_Portal_SunDisk.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Tiny",
+   "file": "Niagara_Portal_Tiny.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Niagara_Portal_Torii",
+   "file": "Niagara_Portal_Torii.png",
+   "kind": "game",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "Geo_Arch_Con",
+   "file": "Geo_Arch_Con.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Arch_Col",
+   "file": "Geo_Arch_Col.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Arch_Ren",
+   "file": "Geo_Arch_Ren.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Arch_Pri",
+   "file": "Geo_Arch_Pri.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Gothic_Con",
+   "file": "Geo_Gothic_Con.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Gothic_Col",
+   "file": "Geo_Gothic_Col.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Gothic_Ren",
+   "file": "Geo_Gothic_Ren.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Gothic_Pri",
+   "file": "Geo_Gothic_Pri.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Square_Con",
+   "file": "Geo_Square_Con.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Square_Col",
+   "file": "Geo_Square_Col.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Square_Ren",
+   "file": "Geo_Square_Ren.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Square_Pri",
+   "file": "Geo_Square_Pri.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Door_Con",
+   "file": "Geo_Door_Con.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Door_Col",
+   "file": "Geo_Door_Col.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Door_Ren",
+   "file": "Geo_Door_Ren.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Door_Pri",
+   "file": "Geo_Door_Pri.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Round_Con",
+   "file": "Geo_Round_Con.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Round_Col",
+   "file": "Geo_Round_Col.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Round_Ren",
+   "file": "Geo_Round_Ren.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Round_Pri",
+   "file": "Geo_Round_Pri.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Oval_Con",
+   "file": "Geo_Oval_Con.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Oval_Col",
+   "file": "Geo_Oval_Col.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Oval_Ren",
+   "file": "Geo_Oval_Ren.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "Geo_Oval_Pri",
+   "file": "Geo_Oval_Pri.png",
+   "kind": "geo",
+   "licence": "own ring on game scenery"
+  },
+  {
+   "key": "M_Portal_Friendly_White",
+   "file": "M_Portal_Friendly_White.png",
+   "kind": "ring",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "M_Portal_Friendly",
+   "file": "M_Portal_Friendly.png",
+   "kind": "ring",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "M_Portal_Garden",
+   "file": "M_Portal_Garden.png",
+   "kind": "ring",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "M_Portal_Torii",
+   "file": "M_Portal_Torii.png",
+   "kind": "ring",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "M_Portal_Salem",
+   "file": "M_Portal_Salem.png",
+   "kind": "ring",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "M_Portal_Shadowgate2",
+   "file": "M_Portal_Shadowgate2.png",
+   "kind": "ring",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "M_Portal_Shadowgate_Blue",
+   "file": "M_Portal_Shadowgate_Blue.png",
+   "kind": "ring",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "M_Portal_Botanical_Green",
+   "file": "M_Portal_Botanical_Green.png",
+   "kind": "ring",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "M_Portal_Botanical_Red",
+   "file": "M_Portal_Botanical_Red.png",
+   "kind": "ring",
+   "licence": "game screenshot"
+  },
+  {
+   "key": "M_WorldPortal_Warehouse",
+   "file": "M_WorldPortal_Warehouse.png",
+   "kind": "ring",
+   "licence": "game screenshot"
+  }
+ ],
+ "note": "Screenshots from the game (its looks, rings, scenery and cube maps; Geo = our own ring on that scenery), committed and shipped with LuciDin's OK (15 Nov 2026). Made by tools/dev/make_previews.py from the lab's stills run (CRD-046)."
+}
