@@ -2471,7 +2471,7 @@ end
 -- Enum values (UE 5.4): mesh FacingMode 0 Default, 1 Velocity, 2 CameraPosition, 3 CameraPlane; sprite FacingMode 0 FaceCamera,
 -- 1 FaceCameraPlane, 2 CustomFacingVector, 3 FaceCameraPosition, 4 FaceCameraDistanceBlend; sprite Alignment 0 Unaligned,
 -- 1 VelocityAligned, 2 CustomAlignment, 3 Automatic.
-LK.MODES = { "overlay", "own", "tint", "mesh" }
+LK.MODES = { "overlay", "own", "tint", "mesh", "stills" }   -- stills: CRD-046 (below the mode switch)
 LK.mode = 1
 LK.mode_name = function() return LK.MODES[LK.mode] end
 LK.next_mode = function()
@@ -2482,6 +2482,7 @@ LK.next_mode = function()
         own = "M/N scale and LEFT/RIGHT turn the nearest pad's own look (I picks the axis), SCROLL LOCK resets, / renderers, U ring facing (global)",
         tint = "SCROLL LOCK next ring in a window look, . next tint, , picture in that ring, M / N ring size",
         mesh = "SCROLL LOCK builds a ring on a plain 3D shape (SM_Portal) step by step, then next ring; . tint, , picture, M/N scale and LEFT/RIGHT turn (I = axis), O/P height, L next shape (oval / square), U back face on / off, Shift + U removes it",
+        stills = "SCROLL LOCK: camera at the nearest pad, its view, one test shot, then every design shot in turn; M/N distance, O/P height, LEFT/RIGHT other side, PAUSE ends (CRD-046)",
     }
     log("---- LOOK KEYS MODE ([): " .. m .. ": " .. help[m])
     say("Look keys: " .. m)
@@ -3175,6 +3176,353 @@ end, nil, function()
     say("Mesh ring axis: " .. a)
 end)
 
+-- Stills for the config editor's previews (CRD-046; LuciDin, 15 Nov: "a lab-key to get still first, and once we have stills of EVERY
+-- portal type (base game and the new custom portals) we can try to get some animated clips"). [ -> stills mode; on the nearest pad:
+--   SCROLL LOCK 1  a camera in front of the pad, looking back at the look's centre (untried: World:SpawnActor of the engine's CameraActor)
+--                  (no pad within 15 m: first a stand-in pad 4.5 m ahead of the player, removed again at the end; see LK.st_standin)
+--   SCROLL LOCK 2  view from that camera (untried: PlayerController:SetViewTargetWithBlend)
+--   SCROLL LOCK 3  one test shot (untried: KismetSystemLibrary:ExecuteConsoleCommand with LK.SHOT_CMD, the game's screenshot without UI)
+--   SCROLL LOCK 4  the run: each design in turn on that pad, settled LK.ST_SETTLE_MS, then one shot: the 32 game looks (SetAsset, at the
+--                  look's height: this session's ; heights, else portal-heights.csv, else the picks) and the 24 Geo rings (engine plane
+--                  as square C at the effect's place and the shape's starting size, the pad's own look hidden, as PAUSE does) and
+--                  the game's 11 ring materials on that same surface at 1.8 x 1.8 m (CRD-044's optional M_Portal_<name> stills);
+--                  SCROLL LOCK during the run stops it
+--   M / N          camera distance x1.1 / /1.1 (Shift: x1.01); O / P camera height +-10 cm (Shift: 1 cm); LEFT / RIGHT the other side of
+--                  the pad (untried on the first move: Actor:K2_SetActorLocationAndRotation)
+--   PAUSE          end: the player's own view back, camera removed, the pad's own look back (also at the end of a run, on a stop, on [)
+-- Each shot is noted in stills.txt next to the lab (design and time, written before the call); tools/dev/make_previews.py pairs the
+-- game's screenshots (%LOCALAPPDATA%\AbioticFactor\Saved\Screenshots) with it by time, crops and sizes them alike and writes
+-- tools/PortalHubConfig/previews/. Visual only, nothing saved; a respawned pad (NUMPAD 1, reload) comes back fresh anyway.
+LK.SHOT_CMD = "shot"            -- the game's screenshot without the HUD ("shot showui" adds it); "HighResShot 1" renders a frame of its own
+LK.ST_SETTLE_MS = 2500          -- a design on -> its shot (the effect fills in, the exposure settles)
+LK.ST_AFTER_MS = 800            -- a shot -> the next design (shots >= 3 s apart, so make_previews.py can pair them by time)
+LK.STILLS_FILE = "ue4ss/Mods/PortalMaterialLab/stills.txt"
+LK.ST_EMPTY = function()
+    return { step = 0, pad = nil, pl = nil, look0 = nil, base = nil, cam = nil, viewing = false, dist = 300, up = 0, side = 1,
+        running = false, i = 0, list = nil, ring = nil, hidden = false, standin = nil }
+end
+LK.st = LK.ST_EMPTY()
+LK.st_gen = 0   -- bumped on every start, stop and end: a delayed step of an old run sees the change and does nothing
+LK.stills_list = function()
+    local list = {}
+    for _, look in ipairs(LK.LOOKS) do list[#list + 1] = { kind = "game", key = look } end
+    for _, g in ipairs(LK.GEO) do list[#list + 1] = { kind = "geo", key = (g.name:gsub("^MI_Geo", "Geo_")), mi = g.name, w = g.w, h = g.h } end
+    -- the game's ring materials on the same surface (CRD-044, optional: "if cheap in the same run"), untinted, every ring but the plain
+    -- window (as the mesh ring), at 1.8 x 1.8 m (the Round Geo's size)
+    for i = 1, #LK.TINT_RINGS - 1 do list[#list + 1] = { kind = "ring", key = LK.TINT_RINGS[i], mi = LK.TINT_RINGS[i], w = 1.8, h = 1.8 } end
+    return list
+end
+LK.st_note = function(line)
+    local f = io.open(LK.STILLS_FILE, "ab")
+    if not f then
+        if not LK.st_note_warned then LK.st_note_warned = true; log("  stills: can't write " .. LK.STILLS_FILE .. " (shots still taken, but make_previews.py can't name them)") end
+        return
+    end
+    f:write(line .. "\n")
+    f:close()
+end
+LK.st_world = function()
+    local pc = player_controller()
+    local ok, w = pcall(function() return pc:GetWorld() end)
+    if ok and valid(w) then return w end
+    local okU, U = pcall(require, "UEHelpers")
+    if okU and type(U) == "table" and U.GetWorld then
+        local ok2, w2 = pcall(U.GetWorld)
+        if ok2 and valid(w2) then return w2 end
+    end
+    return nil
+end
+LK.st_cam_spot = function()
+    local s = LK.st
+    local okL, l = pcall(function() return s.pad:K2_GetActorLocation() end)
+    local okR, r = pcall(function() return s.pad:K2_GetActorRotation() end)
+    if not (okL and okR and l and r) then return nil end
+    local rad = math.rad(r.Yaw)
+    local d = s.dist * s.side   -- in front = along the pad's own facing (where the game puts a player who comes out of it)
+    return { X = l.X + math.cos(rad) * d, Y = l.Y + math.sin(rad) * d, Z = l.Z + s.base.Z + s.up },
+        { Pitch = 0, Yaw = (r.Yaw + (s.side > 0 and 180 or 0)) % 360, Roll = 0 }
+end
+LK.st_spot_text = function(loc, rot)
+    local s = LK.st
+    return string.format("%.0f, %.0f, %.0f facing yaw %.0f (%.0f cm %s the pad, height %+.0f cm)", loc.X, loc.Y, loc.Z, rot.Yaw, s.dist,
+        s.side > 0 and "in front of" or "behind", s.up)
+end
+LK.st_ring_off = function()
+    local s = LK.st
+    if valid(s.ring) then pcall(function() s.ring:K2_DestroyComponent(s.ring) end) end
+    s.ring = nil
+    if s.hidden and valid(s.pl) then pcall(function() s.pl:SetVisibility(true, false) end) end
+    s.hidden = false
+end
+-- The Geo rings' surface: the calls the mesh ring has used since CRD-042 / CRD-043, in its order (collision off before the mesh).
+LK.st_ring_on = function()
+    local s = LK.st
+    if valid(s.ring) then return true end
+    local cls = StaticFindObject("/Script/Engine.StaticMeshComponent")
+    local sc = LK.square_c()
+    local sh = sc and LK.MESH_SHAPES[sc]
+    local mesh = sh and LK.obj(sh.path)
+    if not (valid(cls) and mesh) then log("  stills: StaticMeshComponent class or the engine plane not found") return false end
+    local ok, comp = pcall(function()
+        return s.pad:AddComponentByClass(cls, false, { Rotation = { X = 0, Y = 0, Z = 0, W = 1 }, Translation = { X = 0, Y = 0, Z = 0 }, Scale3D = { X = 1, Y = 1, Z = 1 } }, false)
+    end)
+    if not (ok and valid(comp)) then log("  stills: no ring component (" .. one_line(comp) .. ")") return false end
+    if not pcall(function() comp:SetCollisionEnabled(0) end) then
+        pcall(function() comp:K2_DestroyComponent(comp) end)
+        log("  stills: the ring's collision could not be switched off; removed")
+        return false
+    end
+    pcall(function() comp:SetStaticMesh(mesh) end)
+    pcall(function() comp:K2_SetRelativeLocation({ X = s.base.X, Y = s.base.Y, Z = s.base.Z }, false, {}, true) end)
+    pcall(function() comp:K2_SetRelativeRotation({ Pitch = sh.pitch, Yaw = sh.yaw, Roll = sh.roll }, false, {}, true) end)
+    s.ring = comp
+    if not s.hidden then s.hidden = pcall(function() s.pl:SetVisibility(false, false) end) end
+    log("  stills: Geo surface built on " .. tostring(pad_id(s.pad)) .. " (" .. sh.name .. ", at the effect's place); the pad's own look hidden: " .. tostring(s.hidden))
+    return true
+end
+LK.st_show = function(d)
+    local s = LK.st
+    if d.kind == "game" then
+        LK.st_ring_off()
+        local sys = LK.obj("/Game/Particles/" .. d.key .. "." .. d.key)
+        if not sys then log("  look not found: " .. d.key) return false end
+        local ok, err = pcall(function() s.pl:SetAsset(sys, true); s.pl:Activate(true) end)
+        if not ok then log("  SetAsset " .. d.key .. ": " .. one_line(err)) return false end
+        local h = LK.heights[d.key] or LK.sheet[d.key] or LK.PICKS[d.key] or s.base.Z
+        pcall(function() s.pl:K2_SetRelativeLocation({ X = s.base.X, Y = s.base.Y, Z = h }, false, {}, true) end)
+        d.note = string.format("look at %.1f cm", h)
+        return true
+    end
+    if not LK.st_ring_on() then return false end
+    local parent = LK.ring_obj(d.mi)
+    local lib = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
+    if not (parent and valid(lib)) then return false end
+    local ok, mid = pcall(function() return lib:CreateDynamicMaterialInstance(s.pad, parent, FName("None"), 0) end)
+    if not (ok and valid(mid)) then log("  no instance (" .. one_line(mid) .. ")") return false end
+    local okM, err = pcall(function() s.ring:SetMaterial(0, mid) end)
+    if not okM then log("  SetMaterial: " .. one_line(err)) return false end
+    pcall(function() s.ring:SetRelativeScale3D({ X = d.w, Y = d.h, Z = 1.0 }) end)
+    d.note = string.format("%.2f x %.2f m", d.w, d.h)
+    return true
+end
+LK.st_shoot = function(key, kind, i)
+    local pc = player_controller()
+    local ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+    if not (valid(pc) and valid(ksl)) then log("  no controller or KismetSystemLibrary: no shot") return false end
+    if not LK.shot_tried then
+        LK.shot_tried = true
+        LK.untried("KismetSystemLibrary:ExecuteConsoleCommand('" .. LK.SHOT_CMD .. "')")
+    end
+    LK.st_note(string.format("shot\t%d\t%s\t%s\t%d", i or 0, key, kind, os.time()))   -- noted first: a crash still leaves the line
+    local ok, err = pcall(function() ksl:ExecuteConsoleCommand(pc, LK.SHOT_CMD, pc) end)
+    if not ok then log("  shot FAILED: " .. one_line(err)) end
+    return ok
+end
+-- Stand-in pad (LuciDin, 15 Nov: "a map that is well lit but it holds 0 portals"): with no pad within 15 m, the first SCROLL LOCK in
+-- stills mode spawns one LK.ST_STANDIN_CM ahead of the player on the floor, facing the player, so the camera (LK.st.dist in front of it)
+-- stands between the pad and the player. The same spawn and settings as the lab's INSERT preview (tried): the teleporter Blueprint,
+-- MyTeleporterID cordona_stills, destination None (it leads nowhere), active. Nothing goes into manual_exits.lua or a save; it is
+-- destroyed when the stills end (PAUSE, end of run, a stop, [).
+LK.ST_STANDIN_CM = 450
+LK.ST_STANDIN_ID = "cordona_stills"
+LK.st_standin = function()
+    local pc = player_controller()
+    local pawn = pc and pc.Pawn
+    if not valid(pawn) then log("stills: no player pawn for a stand-in pad") return nil end
+    local okL, l = pcall(function() return pawn:K2_GetActorLocation() end)
+    if not okL then log("stills: the player's place can't be read") return nil end
+    local half, yaw = 0, 0
+    pcall(function() half = pawn.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+    pcall(function() yaw = pc:GetControlRotation().Yaw end)
+    local rad = math.rad(yaw)
+    local at = { X = l.X + math.cos(rad) * LK.ST_STANDIN_CM, Y = l.Y + math.sin(rad) * LK.ST_STANDIN_CM, Z = l.Z - half }
+    local facing = (yaw + 180) % 360
+    local world = LK.st_world()
+    local class = StaticFindObject(TELEPORTER_CLASS)
+    if not (valid(world) and valid(class)) then log("stills: the world or the teleporter class was not found") return nil end
+    log(string.format("---- STILLS STAND-IN PAD (SCROLL LOCK, no pad within 15 m): at %.0f, %.0f, %.0f facing yaw %.0f, %d cm ahead of you; leads nowhere",
+        at.X, at.Y, at.Z, facing, LK.ST_STANDIN_CM))
+    local ok, pad = pcall(function() return world:SpawnActor(class, at, { Pitch = 0.0, Yaw = facing, Roll = 0.0 }) end)
+    if not (ok and valid(pad)) then log("  no pad (" .. one_line(pad) .. ")") say("Stand-in pad failed", 3) return nil end
+    local okW, err = pcall(function()
+        pad.MyTeleporterID = FName(LK.ST_STANDIN_ID)
+        pad.DestinationTeleporterID = FName("None")
+        pad.IsTeleporterActive = true
+    end)
+    if not okW then log("  settings: " .. one_line(err)) end
+    pcall(function() pad:OnRep_IsTeleporterActive() end)
+    if not valid(pad.ParticleLoop) then log("  the stand-in has no effect component; removed") LK.st_drop_standin(pad) return nil end
+    say("Stand-in pad placed: stay where you are")
+    return pad
+end
+LK.st_drop_standin = function(pad)
+    if not valid(pad) then return nil end
+    local ok = pcall(function() pad:K2_DestroyActor() end)
+    log("  stand-in pad removed: " .. tostring(ok))
+    return ok
+end
+LK.stills_press = function()
+    local s = LK.st
+    if s.running then LK.stills_end("SCROLL LOCK during the run: stopped at " .. s.i .. "/" .. #s.list) return end
+    if s.step == 0 then
+        local standin = nil
+        if not LK.nearest_pad() then   -- no pad within 15 m: a stand-in pad in front of the player (LuciDin, 15 Nov: a well-lit map with no portals)
+            standin = LK.st_standin()
+            if not standin then return end
+        end
+        local pad, pl, look = LK.target("stills")
+        local function fail(msg) log(msg) LK.st_drop_standin(standin) LK.st = LK.ST_EMPTY() end
+        if not pad then return fail("stills: no pad to shoot") end
+        local okB, b = pcall(function() local v = pl.RelativeLocation; return { X = v.X, Y = v.Y, Z = v.Z } end)
+        if not okB then return fail("stills: the effect's place can't be read") end
+        local cls = StaticFindObject("/Script/Engine.CameraActor")
+        local world = LK.st_world()
+        if not (valid(cls) and valid(world)) then return fail("stills: the CameraActor class or the world was not found") end
+        LK.st = LK.ST_EMPTY()
+        s = LK.st
+        s.pad, s.pl, s.look0, s.base, s.standin = pad, pl, look, b, standin
+        local loc, rot = LK.st_cam_spot()
+        if not loc then return fail("stills: the pad's place can't be read") end
+        log("---- STILLS step 1/3 (SCROLL LOCK in stills mode): a camera for pad " .. tostring(pad_id(pad)) .. " (" .. look .. ") at " .. LK.st_spot_text(loc, rot))
+        LK.untried("World:SpawnActor(CameraActor)")
+        local ok, cam = pcall(function() return world:SpawnActor(cls, loc, rot) end)
+        if not (ok and valid(cam)) then return fail("  no camera (" .. one_line(cam) .. ")") end
+        s.cam, s.step = cam, 1
+        log("  spawned (nothing to see yet). Stand out of the line between it and the pad. Next SCROLL LOCK: view from the camera")
+        say("Stills 1/3: camera placed")
+        return
+    end
+    if not (valid(s.pad) and valid(s.pl) and valid(s.cam)) then LK.stills_end("the pad or the camera is gone") return end
+    if s.step == 1 then
+        local pc = player_controller()
+        if not pc then log("stills: no player controller") return end
+        log("---- STILLS step 2/3 (SCROLL LOCK): view from the camera")
+        LK.untried("PlayerController:SetViewTargetWithBlend(camera)")
+        local ok, err = pcall(function() pc:SetViewTargetWithBlend(s.cam, 0.0, 0, 0.0, false) end)
+        if not ok then log("  FAILED: " .. one_line(err)) return end
+        s.viewing, s.step = true, 2
+        log("  viewing from the camera. Frame it with M / N (distance), O / P (height), LEFT / RIGHT (other side); next SCROLL LOCK: one test shot")
+        say("Stills 2/3: camera view (M/N, O/P, LEFT/RIGHT frame it)")
+        return
+    end
+    if s.step == 2 then
+        log("---- STILLS step 3/3 (SCROLL LOCK): one test shot, console command '" .. LK.SHOT_CMD .. "'")
+        if not LK.st_shoot("test", "test", 0) then return end
+        s.step = 3
+        log("  sent. Look in %LOCALAPPDATA%\\AbioticFactor\\Saved\\Screenshots for the picture (no HUD in it?); next SCROLL LOCK: shoot all " .. #LK.stills_list() .. " designs")
+        say("Test shot taken: next SCROLL LOCK shoots every design")
+        return
+    end
+    LK.stills_run()
+end
+LK.stills_run = function()
+    local s = LK.st
+    LK.st_gen = LK.st_gen + 1
+    s.running, s.i, s.list = true, 0, LK.stills_list()
+    local secs = #s.list * (LK.ST_SETTLE_MS + LK.ST_AFTER_MS) / 1000
+    LK.st_note(string.format("run\t%d\t%s\t%s\t%d", os.time(), os.date("%Y-%m-%d %H:%M:%S"), tostring(pad_id(s.pad)), #s.list))
+    log(string.format("---- STILLS RUN: %d designs on %s, about %.0f s; SCROLL LOCK stops it, PAUSE ends it", #s.list, tostring(pad_id(s.pad)), secs))
+    say(string.format("Shooting %d designs (about %.0f s): hands off", #s.list, secs))
+    LK.stills_next(LK.st_gen)
+end
+LK.stills_next = function(gen)
+    local s = LK.st
+    if gen ~= LK.st_gen or not s.running then return end
+    if not (valid(s.pad) and valid(s.pl) and valid(s.cam)) then LK.stills_end("the pad or the camera is gone (run stopped at " .. s.i .. ")") return end
+    s.i = s.i + 1
+    local d = s.list[s.i]
+    if not d then LK.stills_end(string.format("run finished: %d designs; next: python tools\\dev\\make_previews.py", #s.list)) return end
+    if not LK.st_show(d) then
+        log(string.format("---- STILL %d/%d: %s (%s): could not be put on, skipped", s.i, #s.list, d.key, d.kind))
+        LK.st_note(string.format("skip\t%d\t%s\t%s\t%d", s.i, d.key, d.kind, os.time()))
+        later(LK.ST_AFTER_MS, function() LK.stills_next(gen) end)
+        return
+    end
+    later(LK.ST_SETTLE_MS, function()
+        if gen ~= LK.st_gen or not LK.st.running then return end
+        log(string.format("---- STILL %d/%d: %s (%s, %s)", s.i, #s.list, d.key, d.kind, d.note or ""))
+        LK.st_shoot(d.key, d.kind, s.i)
+        later(LK.ST_AFTER_MS, function() LK.stills_next(gen) end)
+    end)
+end
+LK.stills_end = function(tag)
+    local s = LK.st
+    LK.st_gen = LK.st_gen + 1
+    if s.step == 0 then log("stills (" .. tag .. "): nothing to end") return end
+    local did = {}
+    if s.i > 0 and valid(s.pl) then   -- the run changed the pad's look: its own look back, at its own height
+        LK.st_ring_off()
+        local sys = LK.obj("/Game/Particles/" .. s.look0 .. "." .. s.look0)
+        local okA = sys and pcall(function() s.pl:SetAsset(sys, true); s.pl:Activate(true) end)
+        pcall(function() s.pl:K2_SetRelativeLocation({ X = s.base.X, Y = s.base.Y, Z = s.base.Z }, false, {}, true) end)
+        did[#did + 1] = "the pad's own look back (" .. tostring(s.look0) .. "): " .. tostring(okA)
+    end
+    if s.viewing then
+        local pc = player_controller()
+        local pawn = pc and pc.Pawn
+        local okV = valid(pawn) and pcall(function() pc:SetViewTargetWithBlend(pawn, 0.0, 0, 0.0, false) end)
+        did[#did + 1] = "own view back: " .. tostring(okV)
+    end
+    if valid(s.cam) then did[#did + 1] = "camera removed: " .. tostring(pcall(function() s.cam:K2_DestroyActor() end)) end
+    if valid(s.standin) then did[#did + 1] = "stand-in pad removed: " .. tostring(pcall(function() s.standin:K2_DestroyActor() end)) end
+    LK.st = LK.ST_EMPTY()
+    log("---- STILLS END (" .. tag .. "): " .. (#did > 0 and table.concat(did, ", ") or "nothing changed yet"))
+    say("Stills ended")
+end
+LK.st_cam_ok = function(tag)
+    local s = LK.st
+    if s.running then log("stills " .. tag .. ": the camera stays put during a run") say("Camera stays put during a run", 2) return false end
+    if valid(s.cam) and valid(s.pad) then return true end
+    log("stills " .. tag .. ": press SCROLL LOCK at a pad first (the camera)") say("SCROLL LOCK first", 2)
+    return false
+end
+LK.st_move = function(tag)
+    local s = LK.st
+    local loc, rot = LK.st_cam_spot()
+    if not loc then log("stills " .. tag .. ": the pad's place can't be read") return end
+    if not LK.st_move_tried then
+        LK.st_move_tried = true
+        LK.untried("Actor:K2_SetActorLocationAndRotation on the camera")
+    end
+    local ok, err = pcall(function() s.cam:K2_SetActorLocationAndRotation(loc, rot, false, {}, true) end)
+    log("---- STILLS CAMERA (" .. tag .. "): " .. LK.st_spot_text(loc, rot) .. (ok and "" or (" FAILED: " .. one_line(err))))
+    say(string.format("Camera %.0f cm away, height %+.0f cm", s.dist, s.up))
+end
+LK.stills_distance = function(f)
+    if not LK.st_cam_ok("distance") then return end
+    LK.st.dist = LK.st.dist * f
+    LK.st_move("M/N")
+end
+LK.stills_height = function(dz)
+    if not LK.st_cam_ok("height") then return end
+    LK.st.up = LK.st.up + dz
+    LK.st_move("O/P")
+end
+LK.stills_side = function()
+    if not LK.st_cam_ok("side") then return end
+    LK.st.side = -LK.st.side
+    LK.st_move("LEFT/RIGHT")
+end
+-- In stills mode these keys do the above; every other mode is unchanged. Leaving stills mode with [ ends the stills.
+LK.in_stills = function(name, fn)
+    local base = LK[name]
+    LK[name] = function(...)
+        if LK.mode_name() == "stills" then return fn(...) end
+        return base(...)
+    end
+end
+LK.in_stills("make_mid", LK.stills_press)
+LK.in_stills("hide_own", function() LK.stills_end("PAUSE") end)
+LK.in_stills("rescale", LK.stills_distance)
+LK.in_stills("nudge", LK.stills_height)
+LK.in_stills("side", LK.stills_side)
+LK.next_mode_base = LK.next_mode
+LK.next_mode = function()
+    local was = LK.mode_name()
+    LK.next_mode_base()
+    if was == "stills" and LK.st.step > 0 then LK.stills_end("[") end
+end
+
 if not pcall(function() RegisterKeyBind(Key.O, function() ExecuteInGameThread(function() LK.step_press(10) end) end) end) then log("O could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.P, function() ExecuteInGameThread(function() LK.step_press(-10) end) end) end) then log("P could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.O, { ModifierKey.SHIFT }, function() ExecuteInGameThread(function() LK.step_press(1) end) end) end) then log("Shift + O could not be bound") end
@@ -3214,6 +3562,7 @@ log("look keys (CRD-039, visual only): / = look survey, SCROLL LOCK = material i
 log("look heights (CRD-041, visual only): ; = next look on the nearest pad (all 32), then O / P = that look's height up / down 10 cm, Shift + O / P 1 cm (kept per look)")
 if not pcall(function() RegisterKeyBind(Key.OEM_FOUR, function() ExecuteInGameThread(LK.next_mode) end) end) then log("[ could not be bound") end
 log("look modes (CRD-042, visual only): [ = overlay / own / tint. own: M / N scale and LEFT / RIGHT turn the pad's own look (I = axis), O / P height, SCROLL LOCK reset, / renderers, U ring facing (whole look). tint: SCROLL LOCK grey ring in a window look, . tint, , picture, M / N ring size. mesh: SCROLL LOCK builds a ring on SM_Portal (4 steps), then as tint plus M/N/LEFT/RIGHT/O/P, L shape, U back face, Shift + U removes, Shift + SCROLL LOCK next Geo ring (24: 6 shapes x Con / Col / Ren / Pri), PAUSE hides / shows the pad's own look; in every mode Shift + M / N scale in fine steps (x1.01) (CRD-043)")
+log("stills (CRD-046, [ to stills mode): SCROLL LOCK = camera at the nearest pad (none within 15 m: a stand-in pad 4.5 m ahead first), then its view, then one test shot, then every design (32 game looks + 24 Geo rings + 11 game ring materials) shot in turn (SCROLL LOCK stops); M / N camera distance, O / P height, LEFT / RIGHT other side, PAUSE ends; shots listed in stills.txt next to the lab")
 
 if not pcall(function() RegisterKeyBind(Key.PAGE_UP, function() ExecuteInGameThread(flag_registry_survey) end) end) then log("PAGE UP could not be bound") end
 if not pcall(function() RegisterKeyBind(Key.PAGE_DOWN, function() ExecuteInGameThread(flag_native_probe) end) end) then log("PAGE DOWN could not be bound") end

@@ -151,6 +151,8 @@ check("[ -> tint", has(L, "LOOK KEYS MODE ([): tint"))
 press(L, "OEM_FOUR")
 check("[ -> mesh", has(L, "LOOK KEYS MODE ([): mesh"))
 press(L, "OEM_FOUR")
+check("[ -> stills (CRD-046)", has(L, "LOOK KEYS MODE ([): stills"))
+press(L, "OEM_FOUR")
 check("[ -> back to overlay", any("LOOK KEYS MODE ([): overlay" in l for l in logs(L)[-2:]), logs(L)[-2:])
 check("mode switch alone makes no call", calls(L) == [], calls(L))
 
