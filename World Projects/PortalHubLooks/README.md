@@ -7,7 +7,7 @@ A UE 5.4 project (same engine as the game, like World A-D) that cooks Portal Hub
 |---|---|
 | Project | `AbioticFactor.uproject` (the name must stay `AbioticFactor` so the pak mounts under the game's content) |
 | Master material | `/Game/Mods/PortalHubLooks/Materials/M_PortalHubLooks_Geo` |
-| 24 instances | `/Game/Mods/PortalHubLooks/Geo/MI_Geo<Type>_<Shape>`: types Con (Conchoidal: swirl, opaque), Col (Colloform: swirl over a faint scene), Ren (Reniform: window, swirl still ripples it), Pri (Prismatic: window, no swirl, clearest); shapes Arch (arched door), Gothic (pointed arch), Square, Door, Round, Oval |
+| 24 instances | `/Game/Mods/PortalHubLooks/Geo/MI_Geo<Shape>_<Type>` (e.g. `MI_GeoArch_Col`): types Con (Conchoidal: swirl, opaque), Col (Colloform: swirl over a faint scene), Ren (Reniform: window, swirl still ripples it), Pri (Prismatic: window, no swirl, clearest); shapes Arch (arched door), Gothic (pointed arch), Square, Door, Round, Oval |
 | First version | `/Game/Mods/PortalHubLooks/Materials/M_PortalHubLooks_Arch` (round arch only, superseded; still cooked until LuciDin decides to remove it) |
 | Chunk label | `/Game/Mods/PortalHubLooks/PAL_PortalHubLooks`: chunk **120** (container id `bcced51e259b6887`), labels its own folder only, Apply Recursively **off** |
 | Dummy scene | `/Game/Particles/RenderTargets/TC_Portal_Warehouse`: a tiny gradient cube map of our own, at the game's path. It is only the default scene while cooking: it cooks into chunk 0 (never installed), so in game the material finds the game's real Mall cube map |

@@ -2986,7 +2986,7 @@ LK.mesh_survey = function()
 end
 
 -- Our own "Geo" portals (CRD-043; LuciDin, 15 Nov): one master material, M_PortalHubLooks_Geo, cooked into PortalHubLooks_P (chunk 120,
--- World Projects/PortalHubLooks), and 24 instances MI_Geo<Type>_<Shape>: 6 shapes (arched door, gothic arch, square, door, round,
+-- World Projects/PortalHubLooks), and 24 instances MI_Geo<Shape>_<Type> (e.g. MI_GeoArch_Col): 6 shapes (arched door, gothic arch, square, door, round,
 -- oval) x 4 types (Con Conchoidal: swirl, opaque; Col Colloform: swirl over a faint scene; Ren Reniform: window, the swirl still
 -- ripples it; Pri Prismatic: window, no swirl, clearest). Two-sided with a true backside, the front facing out from the pad, swirl
 -- clockwise from the front, shape worked out in real centimetres
@@ -3003,7 +3003,7 @@ LK.GEO = {}
 LK.RING_PATHS = {}
 for _, s in ipairs(LK.GEO_SHAPES) do
     for _, t in ipairs(LK.GEO_TYPES) do
-        local name = "MI_Geo" .. t .. "_" .. s[1]
+        local name = "MI_Geo" .. s[1] .. "_" .. t
         LK.GEO[#LK.GEO + 1] = { name = name, w = s[2], h = s[3] }
         LK.RING_PATHS[name] = "/Game/Mods/PortalHubLooks/Geo/" .. name .. "." .. name
     end

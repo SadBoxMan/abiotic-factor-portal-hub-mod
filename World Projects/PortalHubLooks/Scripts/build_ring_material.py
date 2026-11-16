@@ -8,8 +8,8 @@
 #
 # What it makes (running it again rebuilds the master and the instances from scratch, keeps the label and the dummy):
 #   /Game/Mods/PortalHubLooks/Materials/M_PortalHubLooks_Geo   the master material (Masked, Unlit, Two Sided; Niagara sprite and mesh usage)
-#   /Game/Mods/PortalHubLooks/Geo/MI_Geo<Type>_<Shape>         24 instances: 4 types (Con, Col, Ren, Pri; see STYLES) x
-#                                                              6 shapes (Arch, Gothic, Square, Door, Round, Oval)
+#   /Game/Mods/PortalHubLooks/Geo/MI_Geo<Shape>_<Type>         24 instances: 6 shapes (Arch, Gothic, Square, Door, Round, Oval) x
+#                                                              4 types (Con, Col, Ren, Pri; see STYLES), e.g. MI_GeoArch_Col
 #   /Game/Mods/PortalHubLooks/PAL_PortalHubLooks               Primary Asset Label: chunk 120, labels its own folder only
 #                                                              (Apply Recursively off, so referenced game paths stay out of the chunk)
 #   /Game/Particles/RenderTargets/TC_Portal_Warehouse          a DUMMY cube map at the game's path (a tiny gradient of our own):
@@ -25,7 +25,8 @@
 #     front is the side facing out from the pad on the lab's square C (FlipFront = 1: the plane's back side; LuciDin, 15 Nov);
 #   * the back face is a true backside (TrueBack = 1: mirror image, swirl turning the other way, as seen from behind), or reads
 #     the same as the front (TrueBack = 0);
-#   * the scene is the cube map looked up with a direction from the surface plus an optional, side-aware parallax shift.
+#   * the scene is the cube map seen as through a window into a sphere behind the portal (like the game's Door window; our own
+#     maths): moving past the portal shows other parts of the scene, smoothly, with depth.
 # LuciDin's shapes (15 Nov): Arched Door, Gothic Arch (pointed top), Square (1 m x 1 m), Door (first 2 m x 0.75 m, then 3 m tall x 1.75 m wide), Round (like a
 # default portal), Oval (like a Friendly portal); each in four types (LuciDin, 15 Nov: Conchoidal, Colloform, Reniform, Prismatic; see STYLES). The sizes come from the mesh
 # (the lab's mesh-ring scale; the lab sets each one's starting size); the material only takes the shape and its proportions.
@@ -77,8 +78,10 @@ SCALARS = [
     ("SwirlHigh",  "SwirlHigh",       0.75),   # noise level where it is full
     ("SceneMix",   "SceneMix",        0.55),   # 0 = swirl only, 1 = scene only
     ("SwirlOver",  "SwirlOverScene",  0.7),    # how much the bright swirl covers the scene
-    ("SceneZoom",  "SceneZoom",       0.8),    # field of view of the scene (bigger = wider)
-    ("Parallax",   "SceneParallax",   0.35),   # 0 = flat picture, more = the scene shifts with the viewing angle (both sides)
+    ("SceneZoom",  "SceneZoom",       0.8),    # field of view of the flat picture (SceneParallax 0; bigger = wider)
+    ("Parallax",   "SceneParallax",   1.0),    # 0 = flat picture, 1 = window into a sphere behind the portal (as the Door look)
+    ("SphereDepth","SphereDepth",     100.0),  # how far behind the portal the sphere's centre is, cm
+    ("SphereRadius","SphereRadius",   400.0),  # the sphere's radius, cm (keep it larger than the portal, or the edge falls back to flat)
     ("SceneYaw",   "SceneYaw",        0.0),    # turns the scene inside the cube map, degrees
     ("SceneBlur",  "SceneBlur",       0.0),    # cube map mip level (0 = sharp)
     ("SceneBright","SceneBright",     1.0),    # scene brightness
@@ -126,9 +129,12 @@ float2 duvx = ddx(UV); float2 duvy = ddy(UV);
 float3 dpx = ddx(P); float3 dpy = ddy(P);
 float det = duvx.x * duvy.y - duvx.y * duvy.x;
 float W = 100.0; float H = 100.0;
-if (abs(det) > 1e-12) {
-    W = length((dpx * duvy.y - dpy * duvx.y) / det);
-    H = length((dpy * duvx.x - dpx * duvy.x) / det);
+float3 du = float3(100.0, 0.0, 0.0); float3 dv = float3(0.0, 100.0, 0.0);   /* world cm per whole U / V range */
+bool haveJ = abs(det) > 1e-12;
+if (haveJ) {
+    du = (dpx * duvy.y - dpy * duvx.y) / det;
+    dv = (dpy * duvx.x - dpx * duvy.x) / det;
+    W = length(du); H = length(dv);
 }
 W = max(W, 1.0); H = max(H, 1.0);
 /* back face: true backside (as seen from behind) or the front's reading */
@@ -175,13 +181,35 @@ float n2 = nz.fbm(sp * 1.7 + float3(3.1, 1.3, t * 0.37));
 d += (n2 - 0.5) * 2.0 * EdgeWobble;
 float inside = d < 0.0 ? 1.0 : 0.0;
 float depth = saturate(-d / max(EdgeWidth, 0.1));
-/* scene: direction from the surface (longer side = 1), shifted by the view in the face's own frame */
+/* scene, as through a window into a sphere (the idea of the game's Door window, our own maths; LuciDin, 15 Nov: the flat scene
+   moved "a bit stiff"): follow the line from the eye through this pixel to the inside wall of a sphere behind the portal
+   (centre SphereDepth cm behind it, radius SphereRadius cm) and look the cube map up in the direction of that wall point.
+   Face frame: x right, y up, z into the portal; the eye comes from the camera-relative position and the surface's own axes
+   (from the derivatives above), so no tangent-space convention can turn it round. SceneParallax 0 = the flat picture, 1 = sphere. */
 float L = max(W, H);
-float3 c = CamT;
-c.x *= fx;
-c.z = max(abs(c.z), 0.2);
-float3 dir = float3(x / L * SceneZoom, (cyMid - y) / L * SceneZoom, 1.0);
-dir.xy += Parallax * (-c.xy / c.z);
+float3 sP = float3(x, cyMid - y, 0.0);
+float3 eyeRel;
+if (haveJ) {
+    float3 Tu = du / W; float3 Tv = dv / H;
+    float3 Nw = normalize(cross(Tu, Tv));
+    float3 e = -P;                                   /* the camera sits at the origin of the camera-relative position */
+    eyeRel = float3(dot(e, Tu) * fx, -dot(e, Tv), -abs(dot(e, Nw)));
+} else {
+    float3 cv = normalize(CamT) * max(length(P), 1.0);
+    eyeRel = float3(cv.x * fx, cv.y, -abs(cv.z));
+}
+eyeRel.z = min(eyeRel.z, -1.0);
+float3 eye = sP + eyeRel;
+float3 rd = normalize(-eyeRel);                      /* from the eye through this pixel, into the portal */
+float3 ctr = float3(0.0, 0.0, SphereDepth);
+float3 oc = eye - ctr;
+float bq = dot(oc, rd);
+float cq = dot(oc, oc) - SphereRadius * SphereRadius;
+float disc = bq * bq - cq;
+float3 sdir = rd;
+if (disc > 0.0) { float3 hit = eye + rd * (-bq + sqrt(disc)); sdir = normalize(hit - ctr); }
+float3 flatd = normalize(float3(x / L * SceneZoom, (cyMid - y) / L * SceneZoom, 1.0));
+float3 dir = normalize(lerp(flatd, sdir, saturate(Parallax)));
 dir.xy += (n - 0.5) * DistMul * (1.0 + r * DistDist);
 dir = normalize(dir);
 float syw = sin(SceneYaw * 0.0174533);
@@ -337,7 +365,7 @@ log("saved material:", eal.save_asset(mat_path, only_if_is_dirty=False))
 made = []
 for shape, sval in SHAPES:
     for style, over in STYLES.items():
-        name = "MI_Geo" + style + "_" + shape
+        name = "MI_Geo" + shape + "_" + style   # shape first, then type (LuciDin, 15 Nov: "Arch_Col")
         mi = at.create_asset(name, GEO_DIR, unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
         mel.set_material_instance_parent(mi, mat)
         mel.set_material_instance_scalar_parameter_value(mi, "Shape", sval)
