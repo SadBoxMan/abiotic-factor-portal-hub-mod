@@ -15,7 +15,7 @@
 #   /Game/Particles/RenderTargets/TC_Portal_Warehouse          a DUMMY cube map at the game's path (a tiny gradient of our own):
 #                                                              the default scene. It cooks into chunk 0, which is never installed, so
 #                                                              in game the reference finds the game's real Mall cube map.
-# The first version's material (M_PortalHubLooks_Arch, round arch only) is left as it is: removing it is LuciDin's call.
+# The first version's material (M_PortalHubLooks_Arch, round arch only) is deleted if found (LuciDin, 15 Nov: "Delete it").
 #
 # Modelled on the game's Night Realm arch (Masked, Unlit, PortalEdge (5, 0.771, 0), DistortionEdge (10, 0.924, 0), NoiseScale 1.863,
 # NoiseScale2 2.818, PortalTexture = TC_Portal_Warehouse), but every part is worked out from the SURFACE, not the view direction:
@@ -276,6 +276,9 @@ if not isinstance(cube, unreal.TextureCube):
     raise SystemExit(1)
 
 # ---- master material (rebuilt from scratch; instances first, they depend on it) --------------------------------------------------
+old_arch = MAT_DIR + "/M_PortalHubLooks_Arch"   # the first version (round arch only); LuciDin, 15 Nov: "Delete it"
+if eal.does_asset_exist(old_arch):
+    log("first version deleted:", eal.delete_asset(old_arch))
 for p in (eal.list_assets(GEO_DIR, recursive=True, include_folder=False) if eal.does_directory_exist(GEO_DIR) else []):
     eal.delete_asset(p.split(".")[0])   # every instance in the Geo folder (also the first MI_Geo<Shape>_<Swirl|Window> names)
 mat_path = MAT_DIR + "/" + MAT_NAME
